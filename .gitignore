@@ -1,3 +1,43 @@
-.partner/
-.DS_Store
+# Local secrets and credentials for the CLIs the skill spawns — never commit
+.env
+.env.*
+
+# Local-only Claude Code overrides (permissions, per-machine settings)
+.claude/settings.local.json
+
+# Symlink to CLAUDE.md for non-Claude agent hosts — local convenience only
+AGENTS.md
+
+# Python virtualenvs used to run the helper scripts
+.venv/
+venv/
+
+# Node deps for the localhost setup wizard tooling
 node_modules/
+
+# Python bytecode from scripts/ and tests/
+**/__pycache__/
+*.py[cod]
+
+# unittest / pytest run caches
+.pytest_cache/
+
+# Per-repo skill runtime state: config, goal, jobs, receipts, handoffs, backups
+.partner/
+
+# Marker written by install.sh into an installed skill dir
+.install-meta
+
+# Job stdout/stderr and probe output captured at runtime
+*.log
+
+# Editor workspace settings
+.idea/
+.vscode/
+
+# macOS / Windows filesystem cruft
+.DS_Store
+Thumbs.db
+
+# Local codebase research notes — not part of the shipped skill
+docs/research/
