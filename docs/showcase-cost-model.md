@@ -8,9 +8,9 @@ This document backs the README showcase. It separates verified behavior from ill
 
 The Partner workflow can verify these facts without billing telemetry:
 
-- whether one Claude Code session was reused;
-- whether a fresh `claude -p` review session was opened;
-- whether Codex sent a bounded handoff instead of asking Claude to rediscover the repo;
+- which tasks ran on the Codex subscription, and under which role, model, and effort;
+- how many background jobs ran, fix rounds included;
+- whether the complete diff was reviewed against the acceptance criteria;
 - which checks passed;
 - which anomalies occurred.
 
@@ -28,18 +28,18 @@ The current showcase uses workload units, not exact API token counts:
 
 Interpretation:
 
-- Codex-only is cheapest for Claude but may miss UI taste and a second review perspective.
-- Partner keeps Claude focused on planning, UI polish, and review while Codex carries implementation and verification.
+- Codex-only is cheapest for Claude but has no independent sign-off.
+- Partner keeps Claude on planning, the split decision, and the full-review gate while Codex carries implementation and verification.
 - Pure Claude Code spends Claude capacity on planning, implementation, fixes, checks, and review.
 
 Do not present this model as measured token savings.
 
-## Observed v2.0.1 Bounded-Planning Evidence
+## Archived v2.0.1 Planning Evidence
 
-Partner 2.0.1 also has real cost evidence for one narrow workflow: bounded
-repository planning with the configured Fable 5/xhigh identity. This evidence
-does **not** replace the workload model above and does not measure the whole
-Partner development loop.
+Partner 2.0.1 shipped a bounded repository planner, removed in 3.0.0. Its cost
+evidence is kept here because it is real and verifiable per run. It describes a
+component that no longer exists, does **not** replace the workload model above,
+and never measured the whole Partner loop.
 
 | Run | Session mode | Outcome | Cost returned by Claude CLI |
 |---|---|---|---:|
@@ -50,12 +50,11 @@ Partner development loop.
 
 The failed bounded attempt has `unknown` cost because Claude CLI did not emit a
 final result/cost event before the runner's 180-second accepted-event timeout.
-Partner does not estimate the missing value. The runner retained failure
+Partner did not estimate the missing value. The runner retained failure
 metadata and recovery, the exact same session resumed successfully, and a
 separate fresh candidate later passed the release gate.
 
-See `docs/releases/v2.0.1.md` for the release boundary and
-`references/bounded-planning.md` for the runtime and artifact contracts.
+See `docs/releases/v2.0.1.md` for that release's boundary.
 
 ## How To Record A Real Showcase Run
 
@@ -63,10 +62,10 @@ For a measured end-to-end run, record one row per phase:
 
 | Field | Meaning |
 |---|---|
-| `phase` | `claude_plan`, `codex_implementation`, `claude_polish`, `codex_fix`, `claude_review`, `codex_verify` |
+| `phase` | `claude_plan`, `claude_split`, `codex_implementation`, `codex_fix`, `claude_review` |
 | `agent` | `Claude Code` or `Codex` |
 | `session_id` | Claude Code session id when applicable |
-| `fresh_claude_p_sessions` | Number of one-off `claude -p` calls opened during the phase |
+| `codex_jobs` | Number of delegate-codex.sh background jobs in the phase, fix rounds included |
 | `input_tokens` | Exact provider/API count if available |
 | `output_tokens` | Exact provider/API count if available |
 | `changed_files` | Diff scope for the phase |
@@ -80,7 +79,7 @@ When exact token fields are missing, report `unknown` and keep the workload mode
 Allowed:
 
 ```text
-Partner reduced Claude pressure in the showcase model by keeping Claude to plan/polish/review while Codex handled implementation.
+Partner reduced Claude pressure in the showcase model by keeping Claude to planning, the split decision, and review while Codex handled implementation.
 ```
 
 Not allowed:

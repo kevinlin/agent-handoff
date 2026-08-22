@@ -7,13 +7,13 @@
 > My Claude Code and Codex are the best coding partners.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-partner--skill-blueviolet)](SKILL.md)
-[![Version: 2.0.1](https://img.shields.io/badge/version-2.0.1-ef6f4f)](CHANGELOG.md)
+[![Version: 3.0.0](https://img.shields.io/badge/version-3.0.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/LearnPrompt/partner-skill?style=flat-square&color=f5c542)](https://github.com/LearnPrompt/partner-skill/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Use Claude Code for planning, UI taste, and review. Use Codex for implementation and checks. v2.0.1 also makes repository-scale Fable planning bounded, recoverable, and auditable.**
+**Claude Code plans, splits, and signs off. Codex does the work on its own subscription. What you save is Claude API quota; what you keep is the quality gate.**
 
-[Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [Per-Host Usage](#per-host-usage) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
+[Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
 
 </div>
 
@@ -38,8 +38,7 @@ Manual local install:
 ```bash
 git clone https://github.com/LearnPrompt/partner-skill.git
 cd partner-skill
-bash install.sh --target codex
-bash install.sh --target claude
+bash install.sh
 ```
 
 Before first real use, say "搭子，配置" (Partner, configure). Partner opens a local single-page UI bound only to `127.0.0.1`: balanced/quality/cost starting points plus every identity's concrete CLI/model/effort are handled in one place. The beginner flow fixes project scope, local Git exclusion, and post-install checks to safe defaults instead of asking advanced questions. The page shows the exact diff before confirmation. Codex models and per-model efforts come from the local CLI `model/list`; Claude aliases and efforts come from `claude --help`. Neither side is guessed.
@@ -54,15 +53,7 @@ Before first real use, say "搭子，配置" (Partner, configure). Partner opens
 
 ## Showcase
 
-**Showcase 1: same-session UI polish**
-
-<div align="center">
-<img src="assets/showcase.gif" alt="Codex-only vs Partner: before/after UI contrast" width="720" />
-</div>
-
-Left: what Codex produces on its own — functional but visually forgettable. Right: the same card after Claude Code polishes it in the same session. The tiny `session: reused ✓` in the corner is the proof layer — no fresh Claude cold start.
-
-**Showcase 2: a real Fable failure and recovery**
+**A real cost receipt (v2.0.1 archive)**
 
 <div align="center">
 <a href="examples/v2.0.1-conversation-cost-receipt.html">
@@ -71,7 +62,7 @@ Left: what Codex produces on its own — functional but visually forgettable. Ri
 <p><sub>Real webpage screenshot: switch roles to inspect the actual model, effort, task, cost, and delivery evidence.</sub></p>
 </div>
 
-This is a real fault chain, not an all-green demo. v2.0.1 does not promise that Fable never fails. It promises that failure is bounded, never triggers a silent model swap, and never turns partial output into a plan.
+This is an archived fault chain from the v2.0.1 bounded planner. That component was removed in 3.0.0; the record stays because what it demonstrates still holds: real cost can be verified run by run, the failed attempt never triggered a silent model swap, and partial output was never turned into a plan.
 
 | Observed stage | Outcome | Cost returned by Claude CLI | Partner response |
 |---|---|---:|---|
@@ -80,21 +71,20 @@ This is a real fault chain, not an all-green demo. v2.0.1 does not promise that 
 | Same-session resume | Exact `claude-fable-5` / `xhigh`; valid eight-section plan | `$0.382695` | Proved recovery without changing models |
 | Final fresh candidate | Exact model/session, return code 0, matching packet/runner hashes | `$0.45282` | Became the final Judge and PR evidence |
 
-These dollar values are costs returned by Claude CLI for the individual real planning runs, not a measured end-to-end token-savings rate. When a failed attempt has no final result event, the cost stays `unknown`. The [v2.0.0 failure-baseline receipt](examples/v2.0.0-conversation-cost-receipt.md) and [v2.0.1 complete conversation cost receipt](examples/v2.0.1-conversation-cost-receipt.md) record each identity's actual tasks, model, effort, and per-run cost. See [`docs/releases/v2.0.1.md`](docs/releases/v2.0.1.md), [`references/bounded-planning.md`](references/bounded-planning.md), and [`docs/showcase-cost-model.md`](docs/showcase-cost-model.md) for the evidence boundary.
+These dollar values are costs returned by Claude CLI for the individual real planning runs, not a measured end-to-end token-savings rate. When a failed attempt has no final result event, the cost stays `unknown`. The [v2.0.0 failure-baseline receipt](examples/v2.0.0-conversation-cost-receipt.md) and [v2.0.1 complete conversation cost receipt](examples/v2.0.1-conversation-cost-receipt.md) record each identity's actual tasks, model, effort, and per-run cost (both are schema v2 archives). See [`docs/releases/v2.0.1.md`](docs/releases/v2.0.1.md) and [`docs/showcase-cost-model.md`](docs/showcase-cost-model.md) for the evidence boundary.
 
 ## Use It
 
 ```text
-Partner, use the same Claude Code session for planning first.
-After Codex implements, send the diff back to that same session for UI polish
-and /codex:review. End with a Partner Session Receipt showing whether
-any fresh claude -p session was opened.
+Partner, plan and split this request. Send the mechanical parts to Codex as
+background jobs, watch them, then read the complete diff yourself before
+accepting. End with a Partner Session Receipt.
 ```
 
 Short version:
 
 ```text
-Partner: Claude plans, Codex implements, same-session review, then receipt.
+Partner, delegate the mechanical parts to Codex in the background, then full-review.
 ```
 
 First run, configure first:
@@ -106,55 +96,27 @@ First run, configure first:
 Or open it directly from the repository:
 
 ```bash
-bash install.sh --configure --host codex --repo /path/to/project
+bash install.sh --configure --repo /path/to/project
 ```
-
-## Per-Host Usage
-
-**Installed in Codex (Direction A, Codex-driven)**
-
-```bash
-bash install.sh --target codex
-```
-
-```text
-Partner skill
-```
-
-Codex reads this SKILL.md and self-identifies as the `codex` host, following `references/codex-driven.md`: it orchestrates and implements, runs checks, and fixes details itself; Claude Code only plans, polishes the UI, and runs the final `/codex:review` — same Claude session reused, no repeated cold start.
-
-**Installed in Claude Code (Direction B, Claude-driven)**
-
-```bash
-bash install.sh --target claude
-```
-
-```text
-Partner, delegate the mechanical parts to Codex in the background, then full-review.
-```
-
-Claude Code reads this SKILL.md and self-identifies as the `claude_code` host, following `references/claude-driven.md`: plan, split the work, pass it through the Idea King adversarial gate, then hand mechanical or quota-pressure tasks to `delegate-codex.sh` background jobs, watch them with a loop, and full-review before accepting.
-
-Host identity comes from who loaded this SKILL.md, not from who the prompt mentions — asking Claude Code to "let Codex do it" never makes it think it's Codex, and vice versa. Both sides' role model/effort share one `.partner/config.toml`; pick it once via the setup wizard above.
 
 ## Cost Pressure Model
 
-Partner's savings come from avoiding repeated Claude cold starts. The waste typically happens after Codex edits: you open a new Claude session, and it has to rediscover the project, goal, and diff from scratch.
+Partner's savings do not come from using Claude less. They come from not spending the Claude meter on mechanical work. The expensive waste is having Claude walk a batch migration file by file, write boilerplate tests, or run a wide read-only scan — move that to the Codex subscription and the quality of judgment is unchanged.
 
 This README uses a showcase workload model, not API billing telemetry. Without reliable token logs, Partner does not invent token-savings numbers. The table is generated by `scripts/showcase-cost-ledger.py`; the source ledger is `examples/showcase-cost-ledger.json`.
 
 | Without Partner | With Partner |
 |---|---|
-| Claude plans once, then a fresh Claude review session starts after Codex edits | One Claude Code session keeps the plan context |
-| Each review re-explains the repo, goal, and diff | Codex sends a bounded handoff back to the same session |
-| Token savings stay hand-wavy | The receipt says `new_claude_p_sessions: 0` |
+| Mechanical edits bill the Claude API meter | Mechanical edits land on the Codex subscription |
+| "I delegated it" is just a claim | Every task has a jobId, with the real model/effort in its meta |
+| Token savings stay hand-wavy | The receipt says `codex_jobs` and `roles_used` |
 
 Three operating modes:
 
 | Mode | Codex carries | Claude Code carries | Claude pressure | Best for |
 |---|---:|---:|---:|---|
-| Codex-only | 100% implementation and checks | 0% | 0.0x, but lacks Claude UI / review taste | Low-risk tasks with no UI taste requirement |
-| Partner | ~70% implementation, checks, fixes | ~30% planning, polish, review | 0.3x, while avoiding repeated cold starts | UI-heavy or feature-heavy tasks where Claude API cost matters |
+| Codex-only | 100% implementation and checks | 0% | 0.0x, but no independent sign-off | Low-risk tasks you can verify yourself |
+| Partner | ~70% implementation, checks, fixes | ~30% planning, splitting, full review | 0.3x | Many tasks, heavy mechanical volume, Claude API cost matters |
 | Pure Claude Code | 0% | 100% full workflow | 1.0x, including mechanical edits | Tiny tasks or when the user explicitly wants Claude to do everything |
 
 Receipt example:
@@ -163,40 +125,31 @@ Receipt example:
 [Partner session receipt]
 phase: final fix
 claude_session: 9836fe7e-4aca-47a6-83b5-69086b8db275
-claude_session_reused: yes
-new_claude_p_sessions: 0
-codex_passes: 2
+codex_jobs: 2
 checks: bash scripts/check-skill-repo.sh .; jq schema check; git diff --check
 anomalies: none
-monitoring_level: full
+scope: project
+config_source: project
+roles_used: [{"role":"fast_worker","host":"codex","model":"gpt-fast","effort":"high","verified":true}]
+receipt_schema_version: 3
 ```
 
-When exact token telemetry is unavailable, Partner reports verifiable behavior: same Claude Code session reused, no fresh `claude -p`, checks passed, anomalies captured.
+When exact token telemetry is unavailable, Partner reports verifiable behavior: which work ran on the Codex subscription, how many jobs and fix rounds, that the full diff was read against the acceptance criteria, and that the checks passed.
 
 ## What It Solves
 
 You may already switch between Codex and Claude Code. The issue is not whether they can collaborate — it's that the workflow breaks down in practice:
 
-- Claude Code is valuable for planning, UI taste, and review, but expensive for every mechanical edit.
-- Codex is strong at implementation, long-context fixes, and running checks, but benefits from a second review perspective.
-- The expensive failure mode is opening a new Claude session after Codex edits, forcing Claude to rediscover the repo.
-- Users hear "I used Claude" but cannot see whether the workflow saved money.
+- Claude Code is valuable for planning, judgment, and sign-off, but expensive for every mechanical edit.
+- Codex is strong at implementation, long-context fixes, and batch migrations, but lacks an independent reviewer.
+- "Delegate it to Codex" is usually just a claim: no job state, no record of the real model and effort, and nobody comes back to read the diff against the acceptance criteria.
+- Users hear "I delegated it" but cannot see where the saving came from or whether quality slipped.
 
 Partner turns this into a protocol:
 
 ```text
-Claude Code same session:
-  plan -> polish -> /codex:review
-
-Codex:
-  implement -> verify -> monitor -> fix -> receipt
-```
-
-Since v1.4 Partner is bidirectional: with Claude Code as the driver, mechanical and quota-pressure tasks are delegated to Codex as background jobs while Claude monitors with a loop and full-reviews every result; the split itself must first pass the idea-king adversarial gate:
-
-```text
 Claude Code (driver):
-  plan -> split (idea-king gate) -> delegate -> monitor loop -> full review -> receipt
+  plan -> split (adversarial gate) -> delegate -> monitor loop -> full review -> receipt
 
 Codex (background jobs):
   implement -> report -> bounded fix rounds on the same session
@@ -204,89 +157,73 @@ Codex (background jobs):
 
 Execution has three channels, ordered by which meter they bill: the Partner background job (`delegate-codex.sh`, on the Codex subscription, with loop monitoring and resume rework) > a one-shot Codex subagent (a stuck-step assist) > a cheaper-Claude subagent (still billed to the Claude API, so it saves no quota). Quality-critical steps stay in Claude even though it is the expensive seat.
 
-<div align="center">
-<img src="assets/showcase-idea-king.gif" alt="Idea King adversarial review: verdict first, attacks tagged evidence/inference, falsification experiments" width="720" />
-</div>
+Every split passes an adversarial gate first, answering three questions in writing: does this task really not need the expensive tier, will the integration cost of the boundary eat the saving, and does each row's identity match its actual stakes. A row that fails any of them gets its identity corrected, merged into a neighbour, or kept in Claude's hands.
 
-Every split passes through Idea King first: verdict up front (ship / needs-attention / no-go), each attack tagged evidence or inference, each with the cheapest falsification experiment.
-
-Host self-identification, not guessing: whichever runtime actually loaded this SKILL.md — Claude Code or Codex — is the host; mentioning the other agent in a prompt never switches identity. Role model/effort has exactly one source of truth, `.partner/config.toml` (project or global) — it does not get copy-pasted into prompts or docs.
+Role model/effort has exactly one source of truth, `.partner/config.toml` (project or global) — it does not get copy-pasted into prompts or docs.
 
 ## Trigger Prompts
 
 ```text
 Partner skill
-Use Claude Code goal for the plan, then Codex implements.
-Use the same Claude Code chat for plan, polish, and /codex:review.
-Let Claude skip this UI polish task, and Codex monitors it.
-Run Codex Review inside Claude Code, then Codex fixes the findings.
-Partner, resume the last task from .partner/ state.
+Partner, help me plan this task.
 Partner, delegate the mechanical parts to Codex in the background, then full-review.
+Partner, split this refactor with Codex — check whether the split holds up first.
+Partner, the Codex jobs finished; sign them off and give me the receipt.
+Partner, resume the last task from .partner/ state.
 搭子，配置
 搭子，试跑
 Partner, run the full protocol and deliver a PR.
 This conclusion is contested — have the arbiter blind-solve it before we decide.
-Idea King, run an adversarial review on this plan.
-Idea King, grill me on this plan, one question at a time.
 ```
 
 Chinese triggers such as `搭子` and `搭子.skill` are also first-class triggers.
 
 ## What It Delivers
 
-- Clear routing: Claude Code plans, polishes, and reviews; Codex implements, monitors, verifies, and fixes.
-- A cost-aware default: keep one Claude Code session for small and medium tasks.
-- A bounded handoff: plan, changed files, diff stat, checks, risks, and only the snippets Claude needs.
-- Monitoring evidence: PTY output, `claude agents --json`, transcript structure, optional task files, and repo checks — with `scripts/check-claude-cli.sh` probing what is actually available and a documented degradation path.
-- A Session Receipt: proof of session reuse, fresh `claude -p` count, checks, anomalies, and monitoring level — machine-checkable via `scripts/validate-receipt.py`.
-- Supporting tools: `scripts/make-handoff.sh` generates bounded handoffs and can persist them under `.partner/`; `references/failure-playbook.md` gives every anomaly a fixed recovery path; `references/scenarios.md` covers review-only, debugging, non-UI, non-git, monorepo, and multi-day tasks.
-- Bounded Claude planning: Codex first prepares an evidence packet within 24,000 characters, then `scripts/run-claude-plan.py` invokes the configured Claude model/effort once with no tools or subagents and with wall/idle/API budgets. Success and failure both leave inspectable artifacts; the runner never substitutes a model silently.
+- Clear routing: Claude Code plans, splits, integrates, and signs off; Codex implements, runs checks, handles batch work, and reworks.
+- An adversarial split gate: every row answers three questions before it may go down a tier; a row that fails gets a corrected identity or stays with Claude.
+- Durable background jobs: `scripts/delegate-codex.sh` wraps `codex exec --json` as jobs you can status, resume, and cancel, with state under `<repo>/.partner/jobs/`.
+- A full-review gate: the complete diff is read against the acceptance criteria in `.partner/goal.md` — not a sample, and not Codex's own summary. At most two fix rounds per task, then the task comes back to Claude.
+- A Session Receipt: `codex_jobs`, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
+- A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.partner/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
+- Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
 - A Darwin-style ratchet: improve one workflow dimension at a time and keep only verified gains.
-- A first-run setup wizard (`搭子，配置`): balanced/quality/cost presets remain editable per identity; `.partner/config.toml` is the single dual-host source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list; post-install verification uses a tool-free fresh Claude session plus the Codex delegate dry-run chain.
-- Partner Session Receipt v2: adds `host`/`scope`/`config_source`/`roles_used` fields, so the receipt proves which model and effort actually ran a role, not just "Claude was used."
+- A first-run setup wizard (`搭子，配置`): balanced/quality/cost presets remain editable per identity; `.partner/config.toml` is the single source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list; post-install verification uses a tool-free fresh Claude session plus the Codex delegate dry-run chain.
+- Partner Session Receipt v3: `scope`/`config_source`/`roles_used` prove which model and effort actually ran a role, not just "it was delegated."
 - An opt-in full protocol (`references/goal-to-pr.md`): Plan→Goal→PR→Verification, running unattended up through merge-ready + preview verified; merge, production, tags, force-push, deletion, destructive migration, and external publish each still need their own explicit imperative.
 
 ## File Map
 
 ```text
-SKILL.md                                Runtime instructions for Codex/Claude-compatible agents
+SKILL.md                                Runtime instructions for Claude Code
 README.md                               Chinese entrypoint
 README.en.md                            English entrypoint
-install.sh                              Local installer for Codex, Claude Code, Agents, or all targets
+install.sh                              Local installer for ~/.claude/skills/partner-skill
 test-prompts.json                       Trigger and behavior regression prompts
 docs/showcase-cost-model.md             Showcase cost-pressure model and real token capture fields
-docs/receipt-schema.json                JSON schema for the Partner Session Receipt (partner.receipt.v1)
+docs/receipt-schema.json                JSON schema for the Partner Session Receipt (partner.receipt.v3)
 docs/config-schema.md                   Partner config schema v2: identity matrix, precedence, concurrency, TOML subset
-examples/session-receipt.md             Minimal visible proof of same-session reuse
+examples/session-receipt.md             Receipt example (schema v2 archive)
 examples/v2.0.0-conversation-cost-receipt.md
                                         Identity, model, effort, and cost receipt for the v2.0.0 failure baseline
 examples/v2.0.1-conversation-cost-receipt.md
                                         Real task, model, effort, and cost receipt for all three identities
 examples/showcase-cost-ledger.json      Cost-pressure ledger for the three operating modes
-references/monitoring.md                How Codex monitors Claude Code progress
-references/handoff-template.md          Bounded context packet for Claude Code polish/review
-references/failure-playbook.md          Fixed recovery path per anomaly and .partner/ state persistence
-references/scenarios.md                 Flow variants for review-only, debugging, non-UI, non-git, monorepo, multi-day
+references/handoff-template.md          Codex delegation packet and user-facing Goal Packet templates
 references/darwin-ratchet.md            Validation-gated improvement rules
-references/codex-driven.md              Direction A: Codex-driven flow (Default Flow / Session Strategy / Permission Policy)
-references/claude-driven.md             Direction B: five-phase Claude-driven delegation flow
-references/setup.md                     "搭子，配置" first-run setup wizard: identity matrix (three cross-vendor identities) + second-host merge
+references/claude-driven.md             The five-phase flow (adversarial split gate and blind arbitration included)
+references/setup.md                     "搭子，配置" first-run setup wizard: identity matrix (three cross-vendor identities)
 references/tryout.md                    "搭子，试跑" identity tryout: one micro-task per identity, report proving the models are live
 references/goal-to-pr.md                Opt-in full protocol: Plan→Goal→PR→Verification, hard-stop list, imperative authorization
 references/goal-template.md             Template for .partner/goal.md (task table + checkpoint rule)
 references/fable5-principles.md         Shared frontier-model prompting rules (why-forward, effort, checkpoint, resume)
-references/bounded-planning.md          Input contract, tool-free boundary, budgets, and recovery for repository-scale Claude planning
 references/memory-protocol.md           Wrap-up memory protocol (claude-mem / mem0 / auto-memory / rollout)
 scripts/showcase-cost-ledger.py         Rebuilds the showcase cost-pressure ledger
 scripts/check-readme-parity.py          Checks that Chinese and English READMEs stay aligned
 scripts/check-skill-repo.sh             Publish readiness smoke check
-scripts/check-claude-cli.sh             Probes Claude Code CLI monitoring capabilities, prints MONITORING_LEVEL
-scripts/make-handoff.sh                 Generates a bounded handoff from live repo evidence, can persist to .partner/
-scripts/make-receipt.py                 Generates a pre-validated receipt, auto-fills monitoring_level, can persist to .partner/
-scripts/session-snapshot.sh             Transcript snapshot diff so the new-session count is computed, not claimed
+scripts/make-receipt.py                 Generates a pre-validated receipt, can persist to .partner/
 scripts/validate-receipt.py             Validates Partner Session Receipt fields and values
 scripts/run-test-prompts.py             Static checks plus experimental live mode for the regression prompts
-scripts/run-claude-plan.py              Runs the bounded configured Claude planner and saves sanitized events/checkpoint/cost
 scripts/delegate-codex.sh               Codex background-job primitive: submit / status / result / resume / cancel
 scripts/partner-config.py               Config engine: TOML-subset parsing, deterministic writes, locking (schema v2)
 scripts/partner_runtime.py              Shared Claude child-process environment boundary for first-party OAuth
@@ -298,21 +235,17 @@ tests/test_partner_setup.py             Setup engine unit tests (idempotence / o
 tests/test_partner_setup_ui.py          Local UI state, preview binding, and write-gate unit tests
 tests/test_delegate_role.py             Unit tests for --role injection and the override chain
 tests/test_goal_sync.py                 goal.md concurrency unit tests (stale-hash writes rejected, no silent lost update)
-tests/test_run_claude_plan.py           Bounded-planner input, config, budget, timeout, and no-fallback unit tests
-idea-king/SKILL.md                      Idea King: first-principles decomposition + adversarial review (installs with Partner)
-idea-king/README.md                     Idea King standalone notes and methodology credits
 ```
 
 ## Safety
 
-- Do not send `/goal` through `claude -p`; `/goal` is an interactive Claude Code command.
-- Use `skip` / `bypassPermissions` only when the user explicitly asks or when the worktree is isolated.
-- Skip mode does not allow commit, push, deploy, publish, external messages, or secrets access by default.
-- Do not use a fresh `claude -p` final review by default. Continue or resume the same Claude Code session first.
+- Background jobs use the read-write sandbox from your own codex config; pass `--read-only` for scan and review jobs.
+- Delegating is not handing over control: architecture, the split decision, cross-task integration, security- and correctness-critical paths, and final acceptance all stay with Claude.
+- Never accept a diff you have not read, and never mark a task done because Codex said it finished.
 - Do not change repo visibility, tag releases, publish to registries, or announce externally without explicit permission.
 - Do not use `git reset --hard` as the default rollback path. Prefer reviewable diffs or reverts.
 - `.partner/config.toml` is not tracked by Git by default (added to `.git/info/exclude`, your `.gitignore` is untouched); the Codex side never invents a model name — detection failure is a clear error, waiting for you.
-- The managed routing block (the persistent routing section it can write into CLAUDE.md/AGENTS.md) is off by default; all five ways its markers can be corrupted are refused with an explanation, never guessed at.
+- The managed routing block (the persistent routing section it can write into CLAUDE.md) is off by default; all five ways its markers can be corrupted are refused with an explanation, never guessed at.
 - The full protocol (Plan→Goal→PR→Verification) is no exception: merge, production, tags, force-push, deletion, destructive migration, and external publish each need their own explicit imperative — an earlier "continue" never covers them.
 
 ## Verify

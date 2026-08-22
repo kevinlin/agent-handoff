@@ -1,21 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "partner.receipt.v1",
+  "$id": "partner.receipt.v3",
   "title": "Partner Session Receipt",
-  "description": "Machine-readable form of the [Partner session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 2 adds host/scope/config_source/roles_used for dual-host role tracking; a receipt without them is a v1 receipt and fails validation as the upgrade signal.",
+  "description": "Machine-readable form of the [Partner session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 3 records one Claude-driven flow: the fields that only described Codex supervising a Claude Code session are gone. A receipt carrying them is a v2 receipt and fails validation as the upgrade signal.",
   "type": "object",
   "required": [
     "phase",
     "claude_session",
-    "claude_session_reused",
-    "new_claude_p_sessions",
-    "codex_passes",
     "checks",
     "anomalies",
-    "monitoring_level",
-    "direction",
     "codex_jobs",
-    "host",
     "scope",
     "config_source",
     "roles_used",
@@ -26,7 +20,6 @@
       "enum": [
         "planning",
         "codex implementation",
-        "claude polish",
         "review",
         "final fix"
       ]
@@ -36,28 +29,6 @@
       "minLength": 1,
       "description": "Claude Code session id, or the literal string 'none'."
     },
-    "claude_session_reused": {
-      "enum": [
-        "yes",
-        "no",
-        "n/a"
-      ]
-    },
-    "new_claude_p_sessions": {
-      "oneOf": [
-        {
-          "type": "integer",
-          "minimum": 0
-        },
-        {
-          "const": "unknown"
-        }
-      ]
-    },
-    "codex_passes": {
-      "type": "integer",
-      "minimum": 0
-    },
     "checks": {
       "type": "string",
       "minLength": 1,
@@ -66,36 +37,12 @@
     "anomalies": {
       "type": "string",
       "minLength": 1,
-      "description": "'none' or a short description: permission wait, idle, empty review, failed check, other."
-    },
-    "monitoring_level": {
-      "enum": [
-        "full",
-        "degraded",
-        "none",
-        "unknown"
-      ],
-      "description": "Result of scripts/check-claude-cli.sh for this run."
-    },
-    "direction": {
-      "enum": [
-        "codex-driven",
-        "claude-driven"
-      ],
-      "description": "Which Partner flow ran: Codex orchestrating (A) or Claude delegating to Codex (B)."
+      "description": "'none' or a short description: job stalled, job failed, takeback, failed check, other."
     },
     "codex_jobs": {
       "type": "integer",
       "minimum": 0,
       "description": "Number of delegate-codex.sh background jobs, including fix rounds. 0 when none were used."
-    },
-    "host": {
-      "enum": [
-        "claude_code",
-        "codex",
-        "generic"
-      ],
-      "description": "The runtime that loaded SKILL.md for this run (self-identified, not the .install-meta tiebreaker)."
     },
     "scope": {
       "enum": [
@@ -116,7 +63,7 @@
       "description": "Highest-priority layer that supplied the resolved config, per docs/config-schema.md; n/a when no configured role was touched."
     },
     "roles_used": {
-      "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. An unverified role is still listed, never omitted.",
+      "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. Here 'host' is the CLI that executed the role, not the runtime that loaded SKILL.md. An unverified role is still listed, never omitted.",
       "oneOf": [
         {
           "const": "none"
@@ -164,8 +111,8 @@
       ]
     },
     "receipt_schema_version": {
-      "const": 2,
-      "description": "Always 2 for this contract; a receipt missing this field predates dual-host role tracking."
+      "const": 3,
+      "description": "Always 3 for this contract; a receipt carrying direction or monitoring_level is a v2 receipt."
     }
   },
   "additionalProperties": false

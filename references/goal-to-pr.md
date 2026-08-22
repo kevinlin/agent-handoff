@@ -1,7 +1,7 @@
-# Plan → Goal → PR → Verification (Direction B, opt-in)
+# Plan → Goal → PR → Verification (opt-in)
 
-This is the escalated protocol for Direction B when the user asks for the
-full pipeline, not the default lightweight flow. Everything in
+This is the escalated protocol for when the user asks for the full pipeline,
+not the default lightweight flow. Everything in
 `references/claude-driven.md` still applies; this file adds a Delivery
 phase and the authorization discipline that lets it run unattended up to a
 hard stop.
@@ -30,11 +30,11 @@ is a cost, not a safety margin.
 - Output: goal, non-goals, current-state evidence (file:line, not vibes),
   file scope, phases, risks, acceptance criteria, rollback plan, and open
   decisions the user needs to make.
-- Run the idea-king adversarial gate on the plan, including its
-  clarify-to-95% pre-verdict protocol — do not let a plan through on a
-  guessed understanding of the need. Once idea-king ships it, the
-  *executing* host reviews it independently; the same agent must not be the
-  only maker and the only judge of its own plan.
+- Run the adversarial gate on the plan, and clarify the need to ~95% before
+  reaching a verdict — do not let a plan through on a guessed understanding
+  of what is wanted. Once it passes, the *executing* agent reviews it
+  independently; the same agent must not be the only maker and the only
+  judge of its own plan.
 - Plan stage never touches files. No branch, no worktree, no commit.
 
 ## Stage 2 — Goal
@@ -45,7 +45,7 @@ is a cost, not a safety margin.
   the base template — do not add or rename values; `/loop` monitoring's
   stop rule and older goal.md copies depend on the existing enum. Use
   `scripts/goal-sync.py read`/`write --expect-sha256 <hash>` for the write
-  so a concurrent update from the other host aborts your write instead of
+  so a concurrent update from the monitor loop aborts your write instead of
   being silently lost.
 - Every `done_when` gets the anti-Goodhart clause next to it: the check
   must not be satisfiable by deleting tests, skipping steps, or weakening

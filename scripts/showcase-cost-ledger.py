@@ -86,21 +86,19 @@ def build_ledger(measured: dict[str, Any]) -> dict[str, Any]:
         "claim_boundary": "Workload units are illustrative. Exact token-savings claims require measured token telemetry.",
         "session_receipt_fields": [
             "claude_session",
-            "claude_session_reused",
-            "new_claude_p_sessions",
-            "codex_passes",
+            "codex_jobs",
             "checks",
             "anomalies",
-            "monitoring_level",
+            "roles_used",
         ],
         "modes": modes,
         "comparison": {
             "partner_vs_pure_claude": {
                 "claude_pressure_reduction": round(claude_pressure_reduction, 2),
-                "plain_english": "In the showcase model, Partner shifts implementation and verification to Codex, leaving Claude Code focused on plan, polish, and review.",
+                "plain_english": "In the showcase model, Partner moves implementation and verification onto the Codex subscription, leaving Claude Code on the planning, split, and review decisions.",
             },
             "partner_vs_codex_only": {
-                "tradeoff": "Partner spends focused Claude Code judgment to gain planning, UI polish, and review quality that Codex-only may miss.",
+                "tradeoff": "Partner spends focused Claude Code judgment on the split decision and the full-review gate that Codex-only skips.",
             },
         },
     }

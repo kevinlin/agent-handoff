@@ -1,12 +1,12 @@
 # Partner configuration schema v2
 
-Partner uses one TOML configuration shape at project and global scope. Each
-host owns only its own `hosts.<host>` namespace; a host writer preserves the
-other host, top-level comments, `[routing]`, and unknown sections as raw bytes.
+Partner uses one TOML configuration shape at project and global scope. The
+writer owns only the `hosts.claude_code` namespace; top-level comments,
+`[routing]`, and unknown sections are preserved as raw bytes.
 
 An identity is the complete routing choice `backend + model + effort`. Tasks
 select one of `deep_reasoner`, `fast_worker`, or `arbiter`; the identity's
-`backend` determines which CLI executes it, independently of the driving host.
+`backend` determines which CLI executes it.
 
 ## Locations and precedence
 
@@ -57,25 +57,24 @@ always_on_host_rules = false
 |---|---|---:|---|
 | `schema_version` | integer | yes | Must be `2`. |
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
-| `hosts.<host>` | table | per configured host | `<host>` is `claude_code` or `codex`; each host owns its namespace. |
-| `hosts.<host>.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, or `arbiter`. |
-| `hosts.<host>.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI: `claude` or `codex`. |
-| `hosts.<host>.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. |
-| `hosts.<host>.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. |
-| `hosts.<host>.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
-| `hosts.<host>.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
-| `routing.always_on_host_rules` | boolean | no | Whether setup writes persistent host routing rules; default `false`. |
+| `hosts.claude_code` | table | per configured identity | The owned namespace. The `hosts.*` nesting is retained so configs written by earlier versions keep loading. |
+| `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, or `arbiter`. |
+| `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI: `claude` or `codex`. |
+| `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. |
+| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. |
+| `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
+| `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
+| `routing.always_on_host_rules` | boolean | no | Whether setup writes a persistent routing block; default `false`. |
 
 Every configured identity requires `backend`, `model`, and `effort`. Backend is
 validated by this engine; model and effort compatibility is checked by the
 setup/smoke layer.
 
-## Host ownership and deterministic writes
+## Ownership and deterministic writes
 
-`--host claude_code` may rewrite only
-`[hosts.claude_code.identities.*]` sections; `--host codex` may rewrite only
-`[hosts.codex.identities.*]`. The owned identity sections are emitted in
-identity order (`deep_reasoner`, `fast_worker`, `arbiter`) and field order:
+The writer may rewrite only `[hosts.claude_code.identities.*]` sections.
+Everything else in the file round-trips byte-for-byte. The owned identity
+sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`) and field order:
 `backend`, `model`, `effort`, `verified`, then `verified_at`. Strings are
 double-quoted. Repeating the same write produces identical bytes.
 
@@ -92,7 +91,7 @@ configuration path and this instruction:
 
 > 检测到 schema v1 配置，请重跑 搭子，配置 升级（旧值会作为向导初值）
 
-The setup wizard may call `read_legacy_v1(text, host)` to read only the old
+The setup wizard may call `read_legacy_v1(text)` to read only the old
 `deep_reasoner` and `fast_worker` `model`/`effort` values as initial answers.
 That path does not write or convert the source text. The wizard's eventual
 save writes schema v2 identities through the normal locked, atomic writer.
@@ -100,10 +99,10 @@ save writes schema v2 identities through the normal locked, atomic writer.
 ## Concurrency and atomicity
 
 A write creates `.config.lock` in the directory containing `config.toml` using
-atomic `os.mkdir`. Its `info` file records `pid`, Unix `ts`, and `host` (plus an
-internal ownership token). While holding the lock, the writer reads the latest
-file, changes its host namespace, writes a same-directory temporary file, and
-commits with `os.replace`.
+atomic `os.mkdir`. Its `info` file records `pid`, Unix `ts`, and the lock
+holder (plus an internal ownership token). While holding the lock, the writer
+reads the latest file, changes its identity sections, writes a same-directory
+temporary file, and commits with `os.replace`.
 
 - A lock whose PID is dead is reclaimed immediately.
 - A live PID holding the lock for more than 15 seconds is treated as stuck and
@@ -130,21 +129,21 @@ and a pointer back to this section:
 - array-of-tables headers (`[[...]]`);
 - dotted-key assignments (`a.b = ...`).
 
-The engine parses only top-level schema metadata, `[routing]`, and the selected
-host's identity sections. This boundary allows an unowned host section or
-future unknown section to round-trip without reformatting.
+The engine parses only top-level schema metadata, `[routing]`, and the owned
+identity sections. This boundary allows any future unknown section to
+round-trip without reformatting.
 
 ## CLI
 
 Run from the repository root:
 
 ```sh
-python3 scripts/partner-config.py --host codex --scope project init
-python3 scripts/partner-config.py --host codex --scope project validate
-python3 scripts/partner-config.py --host codex --scope project get hosts.codex.identities.deep_reasoner.backend
-python3 scripts/partner-config.py --host codex --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
-python3 scripts/partner-config.py --host codex --repo /path/to/repo resolve
-python3 scripts/partner-config.py --host codex --repo /path/to/repo resolve --override deep_reasoner.effort=high
+python3 scripts/partner-config.py --scope project init
+python3 scripts/partner-config.py --scope project validate
+python3 scripts/partner-config.py --scope project get hosts.claude_code.identities.deep_reasoner.backend
+python3 scripts/partner-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
+python3 scripts/partner-config.py --repo /path/to/repo resolve
+python3 scripts/partner-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
 ```
 
 The `set` command retains `--role` as its identity selector. `--backend` is

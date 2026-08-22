@@ -1,6 +1,11 @@
 # Partner Session Receipt Example
 
-This is the minimal public proof that Partner reused Claude Code context instead of spawning a fresh cold-start review session.
+This is the minimal public proof that Partner reported verifiable session behavior instead of claiming token savings.
+
+> Schema v2 archive. Receipts written before 3.0.0 carry the `direction`,
+> `monitoring_level`, `claude_session_reused`, `new_claude_p_sessions`, and
+> `codex_passes` fields, which the v3 contract dropped. `validate-receipt.py`
+> rejects this block by design; it is kept as a record, not as a template.
 
 ```text
 [Partner session receipt]

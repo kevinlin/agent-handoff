@@ -71,20 +71,6 @@ class SetupTests(unittest.TestCase):
     def claude_args(self, action="--apply", *extra):
         return (
             action,
-            "--host",
-            "claude_code",
-            "--repo",
-            str(self.repo),
-            "--exclude-choice",
-            "track",
-            *extra,
-        )
-
-    def codex_args(self, action="--apply", *extra):
-        return (
-            action,
-            "--host",
-            "codex",
             "--repo",
             str(self.repo),
             "--exclude-choice",
@@ -181,25 +167,6 @@ class SetupTests(unittest.TestCase):
         )
         self.assertNotIn(str(protected), manifest)
 
-    def test_second_host_apply_preserves_first_host_sections_byte_for_byte(self):
-        self.write_codex_native()
-        self.assertEqual(0, self.run_cli(*self.codex_args())[0])
-        config = self.repo / ".partner" / "config.toml"
-        before = partner_setup.read_text(config)
-        codex_chunks = "".join(
-            chunk.text
-            for chunk in partner_setup.partner_config.split_sections(before)
-            if chunk.name and chunk.name.startswith("hosts.codex.identities.")
-        )
-        self.assertEqual(0, self.run_cli(*self.claude_args())[0])
-        after = partner_setup.read_text(config)
-        after_codex_chunks = "".join(
-            chunk.text
-            for chunk in partner_setup.partner_config.split_sections(after)
-            if chunk.name and chunk.name.startswith("hosts.codex.identities.")
-        )
-        self.assertEqual(codex_chunks, after_codex_chunks)
-
     def test_managed_block_apply_and_remove_restore_original_bytes(self):
         target = self.repo / "CLAUDE.md"
         original = "# User rules\n\nKeep this byte-for-byte.\n"
@@ -281,8 +248,6 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(3, len(backups))
         status, _, error = self.run_cli(
             "--rollback",
-            "--host",
-            "claude_code",
             "--repo",
             str(self.repo),
         )
@@ -293,8 +258,6 @@ class SetupTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         arguments = (
             "--apply",
-            "--host",
-            "claude_code",
             "--repo",
             str(self.repo),
             "--no-write-agents",
@@ -306,7 +269,7 @@ class SetupTests(unittest.TestCase):
 
     def test_codex_without_detected_or_explicit_model_fails_with_guidance(self):
         (self.codex_home / "config.toml").unlink()
-        status, _, error = self.run_cli(*self.codex_args("--preview"))
+        status, _, error = self.run_cli(*self.claude_args("--preview"))
         self.assertEqual(2, status)
         self.assertIn("CODEX_HOME", error)
         self.assertIn("--role-model fast_worker", error)
@@ -350,7 +313,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("独立盲解仲裁者", rendered)
         self.assertIn("packet 不含他人答案", rendered)
 
-    def test_v1_preview_and_apply_migrate_both_hosts_without_losing_values(self):
+    def test_v1_preview_and_apply_migrates_owned_values_without_losing_them(self):
         config = self.repo / ".partner" / "config.toml"
         config.parent.mkdir()
         original = """schema_version = 1
@@ -385,26 +348,16 @@ always_on_host_rules = false
         self.assertEqual((0, ""), (status, error))
         migrated = config.read_text(encoding="utf-8")
         self.assertIn("schema_version = 2", migrated)
-        for host, backend, prefix in (
-            ("claude_code", "claude", "claude-old"),
-            ("codex", "codex", "codex-old"),
-        ):
-            parsed = partner_setup.partner_config.validate_config(migrated, host)
-            identities = parsed["hosts"][host]["identities"]
-            self.assertEqual(backend, identities["deep_reasoner"]["backend"])
-            self.assertEqual(f"{prefix}-deep", identities["deep_reasoner"]["model"])
-            self.assertEqual(backend, identities["fast_worker"]["backend"])
-            self.assertEqual(f"{prefix}-fast", identities["fast_worker"]["model"])
-        claude_identities = partner_setup.partner_config.validate_config(
-            migrated, "claude_code"
+        identities = partner_setup.partner_config.validate_config(
+            migrated
         )["hosts"]["claude_code"]["identities"]
-        codex_identities = partner_setup.partner_config.validate_config(
-            migrated, "codex"
-        )["hosts"]["codex"]["identities"]
-        self.assertEqual("high", claude_identities["deep_reasoner"]["effort"])
-        self.assertEqual("low", claude_identities["fast_worker"]["effort"])
-        self.assertEqual("xhigh", codex_identities["deep_reasoner"]["effort"])
-        self.assertEqual("medium", codex_identities["fast_worker"]["effort"])
+        self.assertEqual("claude", identities["deep_reasoner"]["backend"])
+        self.assertEqual("claude-old-deep", identities["deep_reasoner"]["model"])
+        self.assertEqual("high", identities["deep_reasoner"]["effort"])
+        self.assertEqual("claude-old-fast", identities["fast_worker"]["model"])
+        self.assertEqual("low", identities["fast_worker"]["effort"])
+        # The second host no longer exists, so its v1 roles are not carried over.
+        self.assertNotIn("hosts.codex", migrated)
 
     def test_missing_codex_cli_refuses_apply_without_writing(self):
         claude_only = self.root / "claude-only-bin"
@@ -459,12 +412,10 @@ always_on_host_rules = false
 
     def test_codex_smoke_records_exact_timestamp(self):
         self.write_codex_native()
-        self.assertEqual(0, self.run_cli(*self.codex_args())[0])
+        self.assertEqual(0, self.run_cli(*self.claude_args())[0])
         timestamp = "2026-07-20T01:02:03Z"
         status, output, error = self.run_cli(
             "--smoke",
-            "--host",
-            "codex",
             "--repo",
             str(self.repo),
             "--timestamp",
@@ -473,15 +424,15 @@ always_on_host_rules = false
         self.assertEqual((0, ""), (status, error))
         self.assertEqual(3, output.count("PASS"))
         parsed = partner_setup.partner_config.validate_config(
-            partner_setup.read_text(self.repo / ".partner" / "config.toml"), "codex"
+            partner_setup.read_text(self.repo / ".partner" / "config.toml")
         )
-        identities = parsed["hosts"]["codex"]["identities"]
+        identities = parsed["hosts"]["claude_code"]["identities"]
         for identity in partner_setup.IDENTITIES:
             self.assertTrue(identities[identity]["verified"])
             self.assertEqual(timestamp, identities[identity]["verified_at"])
 
         status, status_output, error = self.run_cli(
-            "--status", "--host", "codex", "--repo", str(self.repo)
+            "--status", "--repo", str(self.repo)
         )
         self.assertEqual((0, ""), (status, error))
         self.assertIn("config_source=project", status_output)
@@ -498,7 +449,7 @@ always_on_host_rules = false
         self.assertFalse(fast_agent.exists())
 
         status, output, error = self.run_cli(
-            "--uninstall", "--host", "claude_code", "--repo", str(self.repo)
+            "--uninstall", "--repo", str(self.repo)
         )
         self.assertEqual((0, ""), (status, error))
         self.assertIn(f"REMOVED {deep_agent}", output)
@@ -518,7 +469,7 @@ always_on_host_rules = false
         deep_agent.write_text("hand-edited by the user\n", encoding="utf-8")
 
         status, _, error = self.run_cli(
-            "--uninstall", "--host", "claude_code", "--repo", str(self.repo)
+            "--uninstall", "--repo", str(self.repo)
         )
         self.assertEqual(0, status)
         self.assertIn("modified since generation", error)
@@ -530,7 +481,7 @@ always_on_host_rules = false
         before = deep_agent.read_bytes()
 
         status, output, error = self.run_cli(
-            "--uninstall", "--host", "claude_code", "--repo", str(self.repo), "--dry-run"
+            "--uninstall", "--repo", str(self.repo), "--dry-run"
         )
         self.assertEqual((0, ""), (status, error))
         self.assertIn(f"WOULD_REMOVE {deep_agent}", output)
@@ -548,30 +499,41 @@ always_on_host_rules = false
         self.assertIn(partner_setup.BEGIN_MARKER, target.read_text(encoding="utf-8"))
 
         status, output, error = self.run_cli(
-            "--uninstall", "--host", "claude_code", "--repo", str(self.repo)
+            "--uninstall", "--repo", str(self.repo)
         )
         self.assertEqual((0, ""), (status, error))
         self.assertIn("managed routing block", output)
         self.assertEqual(original, target.read_text(encoding="utf-8"))
 
-    def test_uninstall_remove_config_clears_only_this_hosts_identities(self):
+    def test_uninstall_remove_config_clears_only_the_owned_identities(self):
         self.write_codex_native()
-        self.assertEqual(0, self.run_cli(*self.codex_args())[0])
+        self.assertEqual(0, self.run_cli(*self.claude_args())[0])
         self.assertEqual(0, self.run_cli(*self.claude_args())[0])
         config = self.repo / ".partner" / "config.toml"
+        # A config written by a dual-host version still carries this block.
+        stale = (
+            "\n[hosts.codex.identities.deep_reasoner]\n"
+            'backend = "codex"\n'
+            'model = "stale-model" # keep this byte-for-byte\n'
+            'effort = "xhigh"\n'
+        )
+        config.write_text(
+            partner_setup.read_text(config) + stale, encoding="utf-8"
+        )
         codex_before = "".join(
             chunk.text
             for chunk in partner_setup.partner_config.split_sections(partner_setup.read_text(config))
             if chunk.name and chunk.name.startswith("hosts.codex.identities.")
         )
+        self.assertIn("stale-model", codex_before)
 
         status, output, error = self.run_cli(
-            "--uninstall", "--host", "claude_code", "--repo", str(self.repo), "--remove-config"
+            "--uninstall", "--repo", str(self.repo), "--remove-config"
         )
         self.assertEqual((0, ""), (status, error))
         self.assertIn("identities cleared", output)
         parsed = partner_setup.partner_config.validate_config(
-            partner_setup.read_text(config), "claude_code"
+            partner_setup.read_text(config)
         )
         self.assertEqual({}, parsed["hosts"]["claude_code"]["identities"])
         codex_after = "".join(
@@ -587,8 +549,6 @@ always_on_host_rules = false
         self.env["PARTNER_TEST_CLAUDE_ARGS"] = str(arguments_log)
         status, output, error = self.run_cli(
             "--smoke",
-            "--host",
-            "claude_code",
             "--repo",
             str(self.repo),
             "--timestamp",
@@ -641,8 +601,6 @@ always_on_host_rules = false
         self.env["CLAUDECODE"] = "1"
         status, output, error = self.run_cli(
             "--smoke",
-            "--host",
-            "claude_code",
             "--repo",
             str(self.repo),
             "--timestamp",
@@ -661,7 +619,7 @@ always_on_host_rules = false
         self.assertEqual("", captured.get("CLAUDECODE", ""))
 
     def test_claude_smoke_failure_keeps_only_that_identity_unverified(self):
-        self.assertEqual(0, self.run_cli(*self.codex_args())[0])
+        self.assertEqual(0, self.run_cli(*self.claude_args())[0])
         claude = self.bin / "claude"
         claude.write_text(
             "#!/bin/sh\nprintf 'model unavailable\\n' >&2\nexit 3\n",
@@ -669,8 +627,6 @@ always_on_host_rules = false
         )
         status, output, error = self.run_cli(
             "--smoke",
-            "--host",
-            "codex",
             "--repo",
             str(self.repo),
             "--timestamp",
@@ -681,9 +637,9 @@ always_on_host_rules = false
         self.assertIn("model unavailable", error)
         self.assertEqual(2, output.count("PASS"))
         parsed = partner_setup.partner_config.validate_config(
-            partner_setup.read_text(self.repo / ".partner" / "config.toml"), "codex"
+            partner_setup.read_text(self.repo / ".partner" / "config.toml")
         )
-        identities = parsed["hosts"]["codex"]["identities"]
+        identities = parsed["hosts"]["claude_code"]["identities"]
         self.assertFalse(identities["deep_reasoner"]["verified"])
         self.assertTrue(identities["fast_worker"]["verified"])
         self.assertTrue(identities["arbiter"]["verified"])

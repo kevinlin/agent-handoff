@@ -426,11 +426,8 @@ def _agent_paths(args: argparse.Namespace, env: Mapping[str, str]) -> Dict[str, 
 
 def _routing_path(args: argparse.Namespace, env: Mapping[str, str]) -> Path:
     if args.scope == "project":
-        return args.repo.resolve() / ("CLAUDE.md" if args.host == "claude_code" else "AGENTS.md")
-    if args.host == "claude_code":
-        return home_path(env) / ".claude" / "CLAUDE.md"
-    codex_root = Path(env.get("CODEX_HOME") or home_path(env) / ".codex").expanduser()
-    return codex_root / "AGENTS.md"
+        return args.repo.resolve() / "CLAUDE.md"
+    return home_path(env) / ".claude" / "CLAUDE.md"
 
 def _git_exclude_change(args: argparse.Namespace) -> Tuple[Optional[FileChange], Optional[str]]:
     if args.scope != "project":
@@ -480,51 +477,29 @@ def _is_legacy_v1(text: str) -> bool:
 
 def _migrate_v1(
     text: str,
-    current_host: str,
     desired: Dict[str, Dict[str, Any]],
     sources: Dict[str, Dict[str, str]],
 ) -> str:
-    migrated: Dict[str, Dict[str, Dict[str, Any]]] = {}
-    for host in partner_config.HOSTS:
-        legacy = partner_config.read_legacy_v1(text, host)
-        if host == current_host:
-            host_identities = {identity: dict(values) for identity, values in desired.items()}
-            for identity, old_values in legacy.items():
-                if sources[identity]["backend"] != "custom":
-                    host_identities[identity]["backend"] = (
-                        "claude" if host == "claude_code" else "codex"
-                    )
-                    sources[identity]["backend"] = "legacy"
-                for field in ("model", "effort"):
-                    if field in old_values and sources[identity][field] != "custom":
-                        host_identities[identity][field] = old_values[field]
-                        sources[identity][field] = "legacy"
-            desired.clear()
-            desired.update(host_identities)
-        else:
-            default_backend = "claude" if host == "claude_code" else "codex"
-            host_identities = {
-                identity: {
-                    "backend": default_backend,
-                    "model": values["model"],
-                    "effort": values["effort"],
-                    "verified": False,
-                }
-                for identity, values in legacy.items()
-                if "model" in values and "effort" in values
-            }
-        if host_identities:
-            migrated[host] = host_identities
+    legacy = partner_config.read_legacy_v1(text)
+    identities = {identity: dict(values) for identity, values in desired.items()}
+    for identity, old_values in legacy.items():
+        if sources[identity]["backend"] != "custom":
+            identities[identity]["backend"] = "claude"
+            sources[identity]["backend"] = "legacy"
+        for field in ("model", "effort"):
+            if field in old_values and sources[identity][field] != "custom":
+                identities[identity][field] = old_values[field]
+                sources[identity][field] = "legacy"
+    desired.clear()
+    desired.update(identities)
 
     blocks = ["schema_version = 2\nrevision = 0\n"]
-    for host in partner_config.HOSTS:
-        emitted = partner_config.emit_host_sections(host, migrated.get(host, {}))
-        if emitted:
-            blocks.append(emitted)
+    emitted = partner_config.emit_host_sections(identities)
+    if emitted:
+        blocks.append(emitted)
     blocks.append("[routing]\nalways_on_host_rules = false\n")
     candidate = "\n".join(block.rstrip("\n") for block in blocks) + "\n"
-    for host in partner_config.HOSTS:
-        partner_config.validate_config(candidate, host)
+    partner_config.validate_config(candidate)
     return candidate
 
 def _cli_unavailable(
@@ -549,17 +524,17 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     current_identities: Mapping[str, Mapping[str, Any]] = {}
     legacy = bool(old_config and _is_legacy_v1(old_config))
     if legacy:
-        new_config = _migrate_v1(old_config, args.host, desired, sources)
+        new_config = _migrate_v1(old_config, desired, sources)
         notes.append("v1 → v2 升级，旧值已保留为初值")
     else:
         if old_config:
-            parsed = partner_config.validate_config(old_config, args.host, path=path)
-            current_identities = parsed["hosts"][args.host]["identities"]
+            parsed = partner_config.validate_config(old_config, path=path)
+            current_identities = parsed["hosts"][partner_config.HOST]["identities"]
         preserve_verification(current_identities, desired)
-        new_config = partner_config.update_host(old_config, args.host, desired, path=path)
+        new_config = partner_config.update_host(old_config, identities=desired, path=path)
         # A newly created base document has one transitional separator; converge it
         # before the first write so the next identical apply is byte-idempotent.
-        new_config = partner_config.update_host(new_config, args.host, desired, path=path)
+        new_config = partner_config.update_host(new_config, identities=desired, path=path)
 
     unavailable = _cli_unavailable(desired, env)
     for identity in IDENTITIES:
@@ -580,7 +555,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
         notes.append("盲评价值下降（same-vendor）")
     changes = [FileChange(path, old_config, new_config, path.exists())]
 
-    if args.host == "claude_code" and args.write_agents:
+    if args.write_agents:
         mpath = manifest_path(args.repo)
         old_manifest, manifest = load_manifest(mpath)
         updated_manifest = dict(manifest)
@@ -719,7 +694,7 @@ def apply_plan(
 ) -> int:
     _require_available(preflight or build_plan(args, env))
     lock_path = config_path(args.scope, args.repo, env)
-    with partner_config.ConfigLock(lock_path, owner_host=args.host):
+    with partner_config.ConfigLock(lock_path):
         plan = build_plan(args, env)
         _require_available(plan)
         backup = create_backup(args.repo, plan.changes, args.timestamp)
@@ -750,7 +725,7 @@ def rollback(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     if not isinstance(records, list):
         raise SetupError(f"invalid backup manifest: {selected / 'manifest.json'}")
     lock_path = config_path(args.scope, args.repo, env)
-    with partner_config.ConfigLock(lock_path, owner_host=args.host):
+    with partner_config.ConfigLock(lock_path):
         for record in records:
             if not isinstance(record, dict) or not isinstance(record.get("path"), str):
                 raise SetupError(f"invalid file record in {selected / 'manifest.json'}")
@@ -768,9 +743,9 @@ def rollback(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
-    resolved = partner_config.resolve_config(args.repo, args.host, env=env)
-    print(f"host={args.host} config_source={resolved['source']}")
-    identities = resolved["hosts"][args.host]["identities"]
+    resolved = partner_config.resolve_config(args.repo, env=env)
+    print(f"config_source={resolved['source']}")
+    identities = resolved["hosts"][partner_config.HOST]["identities"]
     for identity in IDENTITIES:
         values = identities.get(identity, {})
         print(
@@ -813,7 +788,7 @@ def smoke_claude_identity(
         str(values["effort"]),
     ]
     agent_path = _agent_paths(args, env)[identity]
-    if args.host == "claude_code" and agent_path.is_file():
+    if agent_path.is_file():
         command.extend(("--agent", f"partner-{identity.replace('_', '-')}"))
     command.append(
         "This is a configuration smoke test. Reply with exactly "
@@ -842,8 +817,8 @@ def smoke_claude_identity(
 
 
 def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
-    resolved = partner_config.resolve_config(args.repo, args.host, env=env)
-    configured = resolved["hosts"][args.host]["identities"]
+    resolved = partner_config.resolve_config(args.repo, env=env)
+    configured = resolved["hosts"][partner_config.HOST]["identities"]
     missing = [identity for identity in IDENTITIES if identity not in configured]
     if missing:
         raise SetupError(
@@ -871,7 +846,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 [
                     "bash", str(SCRIPT_DIR / "delegate-codex.sh"), "submit",
                     "--repo", str(args.repo), "--prompt-file", prompt.name,
-                    "--role", identity, "--host", args.host,
+                    "--role", identity,
                     "--read-only", "--dry-run",
                 ],
                 cwd=ROOT, env=dict(env), text=True, capture_output=True, check=False,
@@ -892,10 +867,10 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     if successes:
         timestamp = args.timestamp or utc_now()
         path = config_path(args.scope, args.repo, env)
-        with partner_config.ConfigLock(path, owner_host=args.host):
+        with partner_config.ConfigLock(path):
             old = read_text(path) if path.exists() else ""
             parsed_identities = (
-                partner_config.validate_config(old, args.host)["hosts"][args.host]["identities"]
+                partner_config.validate_config(old)["hosts"][partner_config.HOST]["identities"]
                 if old else {}
             )
             identities = {
@@ -908,42 +883,41 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 identities[identity]["verified"] = True
                 identities[identity]["verified_at"] = timestamp
             partner_config.atomic_write(
-                path, partner_config.update_host(old, args.host, identities)
+                path, partner_config.update_host(old, identities=identities)
             )
     return 1 if failures else 0
 
 def uninstall(args: argparse.Namespace, env: Mapping[str, str]) -> int:
-    """Remove only what this host generated: manifest-matched agent files,
-    a structurally valid managed routing block, and (opt-in) this host's
-    config identities. A file that drifted from its recorded hash is treated as
+    """Remove only what Partner generated: manifest-matched agent files, a
+    structurally valid managed routing block, and (opt-in) the config
+    identities. A file that drifted from its recorded hash is treated as
     user-owned and left in place, reported as skipped."""
 
     removed: List[str] = []
     skipped: List[str] = []
     lock_path = config_path(args.scope, args.repo, env)
-    with partner_config.ConfigLock(lock_path, owner_host=args.host):
-        if args.host == "claude_code":
-            mpath = manifest_path(args.repo)
-            _, manifest = load_manifest(mpath)
-            updated_manifest = dict(manifest)
-            for agent_path in _agent_paths(args, env).values():
-                key = str(agent_path)
-                if key not in manifest:
-                    continue
-                if not agent_path.exists():
-                    updated_manifest.pop(key, None)
-                    continue
-                if sha256(read_text(agent_path)) != manifest[key]:
-                    skipped.append(f"{agent_path}: modified since generation; left in place")
-                    continue
-                if not args.dry_run:
-                    agent_path.unlink()
-                    updated_manifest.pop(key, None)
-                removed.append(str(agent_path))
-            if not args.dry_run and updated_manifest != manifest:
-                partner_config.atomic_write(
-                    mpath, json.dumps(updated_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-                )
+    with partner_config.ConfigLock(lock_path):
+        mpath = manifest_path(args.repo)
+        _, manifest = load_manifest(mpath)
+        updated_manifest = dict(manifest)
+        for agent_path in _agent_paths(args, env).values():
+            key = str(agent_path)
+            if key not in manifest:
+                continue
+            if not agent_path.exists():
+                updated_manifest.pop(key, None)
+                continue
+            if sha256(read_text(agent_path)) != manifest[key]:
+                skipped.append(f"{agent_path}: modified since generation; left in place")
+                continue
+            if not args.dry_run:
+                agent_path.unlink()
+                updated_manifest.pop(key, None)
+            removed.append(str(agent_path))
+        if not args.dry_run and updated_manifest != manifest:
+            partner_config.atomic_write(
+                mpath, json.dumps(updated_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+            )
 
         rpath = _routing_path(args, env)
         if rpath.exists():
@@ -962,11 +936,11 @@ def uninstall(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             cpath = config_path(args.scope, args.repo, env)
             if cpath.exists():
                 old = read_text(cpath)
-                cleared = partner_config.update_host(old, args.host, {})
+                cleared = partner_config.update_host(old, identities={})
                 if cleared != old:
                     if not args.dry_run:
                         partner_config.atomic_write(cpath, cleared)
-                    removed.append(f"{cpath} (hosts.{args.host}.identities cleared)")
+                    removed.append(f"{cpath} (hosts.{partner_config.HOST}.identities cleared)")
 
     prefix = "WOULD_REMOVE" if args.dry_run else "REMOVED"
     for line in removed:
@@ -977,80 +951,26 @@ def uninstall(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         print("nothing to remove")
     return 0
 
-def _detected_host(env: Mapping[str, str]) -> Optional[str]:
-    if env.get("CLAUDECODE") or env.get("CLAUDE_CODE_ENTRYPOINT"):
-        return "claude_code"
-    if env.get("CODEX_THREAD_ID") or env.get("CODEX_SANDBOX") or env.get("CODEX_HOME"):
-        return "codex"
-    return None
-
 def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     if not sys.stdin.isatty():
         raise SetupError("--interactive requires a TTY; use --preview/--apply with explicit parameters")
-    host = args.host or _detected_host(env)
-    if not host:
-        raise SetupError("host could not be detected; rerun --interactive --host claude_code|codex")
     search_path = env.get("PATH")
     print(
-        f"Detected host: {host}; paired CLI: "
+        "Available CLIs: "
         f"claude={bool(shutil.which('claude', path=search_path))}, "
         f"codex={bool(shutil.which('codex', path=search_path))}"
     )
-    native = detect_claude(env) if host == "claude_code" else detect_codex(env)
+    native = detect_claude(env)
     print(
         "Detected native values: "
         + (", ".join(f"{key}={value} [detected]" for key, value in sorted(native.items())) or "none")
     )
-    peer = "codex" if host == "claude_code" else "claude_code"
-    try:
-        peer_config = partner_config.resolve_config(args.repo, peer, env=env)
-        peer_identities = peer_config["hosts"][peer]["identities"]
-    except partner_config.ConfigError:
-        peer_identities = {}
-        peer_source = "legacy-v1"
-        for candidate in (
-            partner_config.project_config_path(args.repo),
-            partner_config.global_config_path(env),
-        ):
-            if not candidate.is_file():
-                continue
-            candidate_text = read_text(candidate)
-            if not _is_legacy_v1(candidate_text):
-                continue
-            default_backend = "claude" if peer == "claude_code" else "codex"
-            peer_identities = {
-                identity: {"backend": default_backend, **values}
-                for identity, values in partner_config.read_legacy_v1(
-                    candidate_text, peer
-                ).items()
-            }
-            peer_source = f"legacy-v1:{candidate}"
-            break
-        if not peer_identities:
-            raise
-        peer_config = {"source": peer_source}
-    if peer_identities:
-        summary = ", ".join(
-            f"{identity}={values.get('backend', '<unset>')}/"
-            f"{values.get('model', '<unset>')}/{values.get('effort', '<unset>')}"
-            for identity, values in sorted(peer_identities.items())
-        )
-        print(f"Existing {peer} config ({peer_config['source']}): {summary}")
-        join = input("Second host [1 add this host/2 shared Goal-Loop only/3 return] (1): ").strip() or "1"
-        if join == "2":
-            print("Shared Goal/Loop only; no host config or agents written.")
-            return 0
-        if join == "3":
-            print("No changes applied.")
-            return 0
-        if join != "1":
-            raise SetupError("invalid second-host selection")
     mode_values = {"1": "balanced", "2": "quality", "3": "cost", "4": "custom"}
     mode = mode_values.get(input("Mode [1 balanced/2 quality/3 cost/4 custom] (1): ").strip() or "1")
     if not mode:
         raise SetupError("invalid mode selection")
     scope = "global" if (input("Scope [1 project/2 global] (1): ").strip() or "1") == "2" else "project"
-    write_agents = host == "claude_code" and (input("Generate partner agents? [Y/n]: ").strip().lower() not in ("n", "no"))
+    write_agents = input("Generate partner agents? [Y/n]: ").strip().lower() not in ("n", "no")
     routing = input("Write managed routing block? [y/N]: ").strip().lower() in ("y", "yes")
     identity_backends: List[str] = []
     identity_models: List[str] = []
@@ -1067,7 +987,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 f"{identity}={input(f'{identity} effort: ').strip()}"
             )
     selected = argparse.Namespace(**vars(args))
-    selected.host, selected.mode, selected.scope = host, mode, scope
+    selected.mode, selected.scope = mode, scope
     selected.write_agents, selected.routing_block = write_agents, routing
     selected.role_backend = identity_backends
     selected.role_model, selected.role_effort = identity_models, identity_efforts
@@ -1077,7 +997,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         print("No changes applied.")
         return 0
     status = apply_plan(selected, env, plan)
-    print("Next: run partner-setup.py --smoke --host " + host + " --repo " + str(args.repo))
+    print("Next: run partner-setup.py --smoke --repo " + str(args.repo))
     return status
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1089,8 +1009,7 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("--interactive", action="store_true", help="Run the pure-terminal fallback wizard.")
     action.add_argument("--rollback", action="store_true", help="Restore the newest apply backup.")
     action.add_argument("--smoke", action="store_true", help="Smoke-check configured identities and record successful backend checks.")
-    action.add_argument("--uninstall", action="store_true", help="Remove manifest-tracked generated files, the managed routing block, and optionally this host's config.")
-    parser.add_argument("--host", choices=("claude_code", "codex"), help="Host namespace (required for preview/apply; otherwise auto-detected when possible).")
+    action.add_argument("--uninstall", action="store_true", help="Remove manifest-tracked generated files, the managed routing block, and optionally the config identities.")
     parser.add_argument("--scope", choices=("project", "global"), default="project", help="Config/artifact scope (default: project).")
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Repository root (default: current directory).")
     parser.add_argument("--mode", choices=("balanced", "quality", "cost", "custom"), default="balanced", help="Identity preset (default: balanced).")
@@ -1102,12 +1021,12 @@ def build_parser() -> argparse.ArgumentParser:
     agents.add_argument("--no-write-agents", dest="write_agents", action="store_false", help="Skip Claude agent generation.")
     parser.set_defaults(write_agents=True)
     routing = parser.add_mutually_exclusive_group()
-    routing.add_argument("--routing-block", action="store_true", help="Add or refresh the managed host routing block.")
+    routing.add_argument("--routing-block", action="store_true", help="Add or refresh the managed routing block.")
     routing.add_argument("--remove-routing-block", action="store_true", help="Remove a valid managed routing block.")
     parser.add_argument("--force", action="store_true", help="Skip managed-content hash validation only; structural checks still apply.")
     parser.add_argument("--exclude-choice", choices=("git-exclude", "self", "track"), default="git-exclude", help="Project config Git handling (default: git-exclude).")
     parser.add_argument("--timestamp", help="Explicit smoke verified_at value; also gives deterministic backup IDs in tests.")
-    parser.add_argument("--remove-config", action="store_true", help="With --uninstall, also clear this host's identities from the config (other host and top-level fields untouched).")
+    parser.add_argument("--remove-config", action="store_true", help="With --uninstall, also clear the identities from the config ([routing], comments, and top-level fields untouched).")
     parser.add_argument("--dry-run", action="store_true", help="With --uninstall, report what would be removed without writing anything.")
     return parser
 
@@ -1120,31 +1039,13 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
         if args.interactive:
             return interactive(args, environ)
         if args.status:
-            if not args.host:
-                args.host = _detected_host(environ)
-            if not args.host:
-                for index, host in enumerate(("claude_code", "codex")):
-                    if index:
-                        print()
-                    args.host = host
-                    show_status(args, environ)
-                return 0
             return show_status(args, environ)
         if args.rollback:
-            args.host = args.host or _detected_host(environ) or "setup"
             return rollback(args, environ)
         if args.smoke:
-            args.host = args.host or _detected_host(environ)
-            if not args.host:
-                raise SetupError("smoke host could not be detected; pass --host claude_code|codex")
             return smoke(args, environ)
         if args.uninstall:
-            args.host = args.host or _detected_host(environ)
-            if not args.host:
-                raise SetupError("uninstall host could not be detected; pass --host claude_code|codex")
             return uninstall(args, environ)
-        if not args.host:
-            raise SetupError("--host is required for --preview and --apply")
         plan = build_plan(args, environ)
         if args.preview:
             print_plan(plan)

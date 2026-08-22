@@ -104,7 +104,7 @@ class SetupUITests(unittest.TestCase):
         }
 
     def test_state_shows_exact_detected_models_and_full_presets(self):
-        state = partner_setup_ui.build_state("codex", self.repo, self.env)
+        state = partner_setup_ui.build_state(self.repo, self.env)
         self.assertEqual("default", state["config_source"])
         self.assertEqual("gpt-detected", state["detected"]["codex_model"])
         self.assertEqual("xhigh", state["detected"]["codex_effort"])
@@ -163,7 +163,7 @@ class SetupUITests(unittest.TestCase):
         self.assertNotIn("claude-opus-4-6[1m] 1M", values)
 
     def test_preview_is_zero_write_and_apply_requires_the_same_payload(self):
-        controller = partner_setup_ui.SetupController("codex", self.repo, self.env)
+        controller = partner_setup_ui.SetupController(self.repo, self.env)
         payload = self.payload(controller)
         preview = controller.preview(payload)
         self.assertTrue(preview["ok"], preview)
@@ -180,42 +180,39 @@ class SetupUITests(unittest.TestCase):
         self.assertTrue(applied["ok"], applied)
         self.assertTrue(config.is_file())
         status = partner_setup_ui.engine.partner_config.resolve_config(
-            self.repo, "codex", env=self.env
+            self.repo, env=self.env
         )
         self.assertEqual(
             "gpt-detected",
-            status["hosts"]["codex"]["identities"]["fast_worker"]["model"],
+            status["hosts"]["claude_code"]["identities"]["fast_worker"]["model"],
         )
 
     def test_manual_matrix_requires_custom_mode(self):
-        controller = partner_setup_ui.SetupController("codex", self.repo, self.env)
+        controller = partner_setup_ui.SetupController(self.repo, self.env)
         payload = self.payload(controller)
         payload["identities"]["fast_worker"]["effort"] = "low"
         with self.assertRaisesRegex(partner_setup_ui.UIError, "自定义模式"):
             partner_setup_ui.normalize_payload(
                 payload,
-                host="codex",
                 repo=self.repo,
                 env=self.env,
             )
         payload["mode"] = "custom"
         normalized = partner_setup_ui.normalize_payload(
             payload,
-            host="codex",
             repo=self.repo,
             env=self.env,
         )
         self.assertEqual("low", normalized["identities"]["fast_worker"]["effort"])
 
     def test_payload_rejects_effort_not_supported_by_backend_or_model(self):
-        controller = partner_setup_ui.SetupController("codex", self.repo, self.env)
+        controller = partner_setup_ui.SetupController(self.repo, self.env)
         payload = self.payload(controller)
         payload["mode"] = "custom"
         payload["identities"]["deep_reasoner"]["effort"] = "minimal"
         with self.assertRaisesRegex(partner_setup_ui.UIError, "claude/opus"):
             partner_setup_ui.normalize_payload(
                 payload,
-                host="codex",
                 repo=self.repo,
                 env=self.env,
                 model_options=controller.initial_state["model_options"],
@@ -228,7 +225,6 @@ class SetupUITests(unittest.TestCase):
         with self.assertRaisesRegex(partner_setup_ui.UIError, "可选值：medium"):
             partner_setup_ui.normalize_payload(
                 payload,
-                host="codex",
                 repo=self.repo,
                 env=self.env,
                 model_options=controller.initial_state["model_options"],

@@ -82,7 +82,7 @@ class ConfigRoundTripTests(unittest.TestCase):
             "deep_reasoner": {"backend": "claude", "model": "new-opus", "effort": "high"},
             "fast_worker": {"backend": "codex", "model": "new-sonnet", "effort": "low"},
         }
-        updated = partner_config.update_host(original, "claude_code", identities)
+        updated = partner_config.update_host(original, identities=identities)
         after_chunks = {
             chunk.name: chunk.text
             for chunk in partner_config.split_sections(updated)
@@ -91,28 +91,31 @@ class ConfigRoundTripTests(unittest.TestCase):
         self.assertEqual(before_chunks, after_chunks)
         self.assertIn("# keep this top comment\r\n", updated)
 
-    def test_dual_host_merge_only_changes_self(self):
+    def test_stale_second_host_sections_survive_a_write(self):
+        # Configs written by dual-host versions still carry hosts.codex.* blocks.
+        # They are unowned now, so a write must leave them byte-identical.
         original = document()
-        claude_bytes = "".join(
+        stale = "".join(
             chunk.text for chunk in partner_config.split_sections(original)
-            if chunk.name and chunk.name.startswith("hosts.claude_code.identities.")
+            if chunk.name and chunk.name.startswith("hosts.codex.")
         )
-        parsed = partner_config.validate_config(original, "codex")
-        identities = parsed["hosts"]["codex"]["identities"]
+        self.assertIn("gpt-test", stale)
+        parsed = partner_config.validate_config(original)
+        identities = parsed["hosts"]["claude_code"]["identities"]
         identities["fast_worker"]["effort"] = "low"
-        updated = partner_config.update_host(original, "codex", identities)
-        updated_claude_bytes = "".join(
+        updated = partner_config.update_host(original, identities=identities)
+        updated_stale = "".join(
             chunk.text for chunk in partner_config.split_sections(updated)
-            if chunk.name and chunk.name.startswith("hosts.claude_code.identities.")
+            if chunk.name and chunk.name.startswith("hosts.codex.")
         )
-        self.assertEqual(claude_bytes, updated_claude_bytes)
+        self.assertEqual(stale, updated_stale)
         self.assertIn('effort = "low"', updated)
 
     def test_emitter_is_idempotent(self):
-        parsed = partner_config.validate_config(document(), "claude_code")
+        parsed = partner_config.validate_config(document())
         identities = parsed["hosts"]["claude_code"]["identities"]
-        once = partner_config.update_host(document(), "claude_code", identities)
-        twice = partner_config.update_host(once, "claude_code", identities)
+        once = partner_config.update_host(document(), identities=identities)
+        twice = partner_config.update_host(once, identities=identities)
         self.assertEqual(once, twice)
         self.assertLess(once.index("backend ="), once.index("model ="))
         self.assertLess(once.index("model ="), once.index("effort ="))
@@ -123,13 +126,13 @@ class UnsupportedSyntaxTests(unittest.TestCase):
         text = (
             "schema_version = 2\n"
             "revision = 0\n"
-            "[hosts.codex.identities.deep_reasoner]\n"
+            "[hosts.claude_code.identities.deep_reasoner]\n"
             'backend = "codex"\n'
             f"{assignment}\n"
             'effort = "high"\n'
         )
         with self.assertRaises(partner_config.ConfigParseError) as raised:
-            partner_config.validate_config(text, "codex")
+            partner_config.validate_config(text)
         message = str(raised.exception)
         self.assertRegex(message, r"line \d+, column \d+")
         self.assertIn("docs/config-schema.md", message)
@@ -144,9 +147,9 @@ class UnsupportedSyntaxTests(unittest.TestCase):
         self.assert_parse_error("model = 2026-07-19T10:00:00Z")
 
     def test_array_of_tables_fails_closed(self):
-        text = "schema_version = 2\n[[hosts.codex.identities]]\nmodel = \"x\"\n"
+        text = "schema_version = 2\n[[hosts.claude_code.identities]]\nmodel = \"x\"\n"
         with self.assertRaises(partner_config.ConfigParseError) as raised:
-            partner_config.validate_config(text, "codex")
+            partner_config.validate_config(text)
         self.assertIn("line 2, column 1", str(raised.exception))
 
     def test_dotted_key_assignment_fails_closed(self):
@@ -158,7 +161,7 @@ class BackendValidationTests(unittest.TestCase):
         return (
             "schema_version = 2\n"
             "revision = 0\n"
-            "[hosts.codex.identities.deep_reasoner]\n"
+            "[hosts.claude_code.identities.deep_reasoner]\n"
             f"{backend}"
             'model = "gpt-test"\n'
             'effort = "high"\n'
@@ -166,13 +169,13 @@ class BackendValidationTests(unittest.TestCase):
 
     def test_missing_backend_fails_validation(self):
         with self.assertRaises(partner_config.ConfigValidationError) as raised:
-            partner_config.validate_config(self.identity_document(), "codex")
+            partner_config.validate_config(self.identity_document())
         self.assertIn("backend must be one of claude, codex", str(raised.exception))
 
     def test_invalid_backend_fails_validation(self):
         with self.assertRaises(partner_config.ConfigValidationError) as raised:
             partner_config.validate_config(
-                self.identity_document('backend = "local"\n'), "codex"
+                self.identity_document('backend = "local"\n')
             )
         self.assertIn("backend must be one of claude, codex", str(raised.exception))
 
@@ -198,7 +201,7 @@ class LegacyMigrationTests(unittest.TestCase):
             path.write_text(legacy_document(), encoding="utf-8")
             env = {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "xdg")}
             with self.assertRaises(partner_config.ConfigValidationError) as raised:
-                partner_config.resolve_config(repo, "codex", env=env)
+                partner_config.resolve_config(repo, env=env)
             self.assert_upgrade_error(str(raised.exception), path)
 
     def test_validate_v1_file_reports_upgrade_guide_and_path(self):
@@ -207,7 +210,7 @@ class LegacyMigrationTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_text(legacy_document(), encoding="utf-8")
             status, _, error = self.run_cli(
-                "--host", "codex", "--repo", directory, "validate"
+                "--repo", directory, "validate"
             )
             self.assertEqual(2, status)
             self.assert_upgrade_error(error, path)
@@ -219,7 +222,7 @@ class LegacyMigrationTests(unittest.TestCase):
             path.write_text(legacy_document(), encoding="utf-8")
             before = path.read_bytes()
             status, _, error = self.run_cli(
-                "--host", "codex", "--repo", directory, "set",
+                "--repo", directory, "set",
                 "--role", "deep_reasoner", "--backend", "codex",
                 "--model", "new-model", "--effort", "high",
             )
@@ -231,7 +234,7 @@ class LegacyMigrationTests(unittest.TestCase):
         text = legacy_document().replace("schema_version = 1", "schema_version = 2")
         path = Path("/tmp/schema-v2-with-roles.toml")
         with self.assertRaises(partner_config.ConfigValidationError) as raised:
-            partner_config.validate_config(text, "codex", path=path)
+            partner_config.validate_config(text, path=path)
         self.assert_upgrade_error(str(raised.exception), path)
 
     def test_read_legacy_v1_extracts_only_model_and_effort_without_writing(self):
@@ -240,7 +243,7 @@ class LegacyMigrationTests(unittest.TestCase):
             path.write_text(legacy_document(), encoding="utf-8")
             before = path.read_bytes()
             extracted = partner_config.read_legacy_v1(
-                path.read_text(encoding="utf-8"), "codex"
+                path.read_text(encoding="utf-8")
             )
             self.assertEqual(
                 {
@@ -263,33 +266,33 @@ class ResolveTests(unittest.TestCase):
             global_path.parent.mkdir(parents=True)
             project_path.parent.mkdir(parents=True)
             global_path.write_text(
-                partner_config.update_host("", "codex", {
+                partner_config.update_host("", identities={
                     "deep_reasoner": {"backend": "codex", "model": "global", "effort": "high"},
                     "fast_worker": {"backend": "claude", "model": "global-fast", "effort": "low"},
                 }), encoding="utf-8"
             )
             project_path.write_text(
-                partner_config.update_host("", "codex", {
+                partner_config.update_host("", identities={
                     "deep_reasoner": {"backend": "codex", "model": "project", "effort": "xhigh"},
                     "fast_worker": {"backend": "claude", "model": "project-fast", "effort": "medium"},
                 }), encoding="utf-8"
             )
             env = {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(xdg)}
-            resolved = partner_config.resolve_config(repo, "codex", env=env)
+            resolved = partner_config.resolve_config(repo, env=env)
             self.assertEqual("project", resolved["source"])
-            self.assertEqual("project", resolved["hosts"]["codex"]["identities"]["deep_reasoner"]["model"])
-            self.assertEqual("codex", resolved["hosts"]["codex"]["identities"]["deep_reasoner"]["backend"])
-            override = {"hosts": {"codex": {"identities": {"deep_reasoner": {"model": "session"}}}}}
-            resolved = partner_config.resolve_config(repo, "codex", override, env=env)
+            self.assertEqual("project", resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]["model"])
+            self.assertEqual("codex", resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]["backend"])
+            override = {"hosts": {"claude_code": {"identities": {"deep_reasoner": {"model": "session"}}}}}
+            resolved = partner_config.resolve_config(repo, session_override=override, env=env)
             self.assertEqual("session", resolved["source"])
-            self.assertEqual("session", resolved["hosts"]["codex"]["identities"]["deep_reasoner"]["model"])
+            self.assertEqual("session", resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]["model"])
             project_path.unlink()
-            resolved = partner_config.resolve_config(repo, "codex", env=env)
+            resolved = partner_config.resolve_config(repo, env=env)
             self.assertEqual("global", resolved["source"])
             global_path.unlink()
-            resolved = partner_config.resolve_config(repo, "codex", env=env)
+            resolved = partner_config.resolve_config(repo, env=env)
             self.assertEqual("default", resolved["source"])
-            self.assertEqual({}, resolved["hosts"]["codex"]["identities"])
+            self.assertEqual({}, resolved["hosts"]["claude_code"]["identities"])
 
     def test_higher_layer_identity_change_invalidates_inherited_verification(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -303,8 +306,7 @@ class ResolveTests(unittest.TestCase):
             global_path.write_text(
                 partner_config.update_host(
                     "",
-                    "codex",
-                    {
+                    identities={
                         "deep_reasoner": {
                             "backend": "claude",
                             "model": "verified-old",
@@ -319,8 +321,7 @@ class ResolveTests(unittest.TestCase):
             project_path.write_text(
                 partner_config.update_host(
                     "",
-                    "codex",
-                    {
+                    identities={
                         "deep_reasoner": {
                             "backend": "claude",
                             "model": "unverified-new",
@@ -331,15 +332,15 @@ class ResolveTests(unittest.TestCase):
                 encoding="utf-8",
             )
             env = {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(xdg)}
-            resolved = partner_config.resolve_config(repo, "codex", env=env)
-            identity = resolved["hosts"]["codex"]["identities"]["deep_reasoner"]
+            resolved = partner_config.resolve_config(repo, env=env)
+            identity = resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]
             self.assertEqual("unverified-new", identity["model"])
             self.assertFalse(identity["verified"])
             self.assertNotIn("verified_at", identity)
 
             override = {
                 "hosts": {
-                    "codex": {
+                    "claude_code": {
                         "identities": {
                             "deep_reasoner": {"model": "session-model"}
                         }
@@ -347,9 +348,9 @@ class ResolveTests(unittest.TestCase):
                 }
             }
             resolved = partner_config.resolve_config(
-                repo, "codex", override, env=env
+                repo, session_override=override, env=env
             )
-            identity = resolved["hosts"]["codex"]["identities"]["deep_reasoner"]
+            identity = resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]
             self.assertEqual("session-model", identity["model"])
             self.assertFalse(identity["verified"])
 
@@ -374,7 +375,7 @@ class CliTests(unittest.TestCase):
 
     def test_init_set_get_validate_and_idempotent_init(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--host", "codex", "--repo", directory)
+            base = ("--repo", directory)
             self.assertEqual(0, self.run_cli(*base, "init")[0])
             status, _, error = self.run_cli(
                 *base, "set", "--role", "deep_reasoner",
@@ -383,7 +384,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual((0, ""), (status, error))
             self.assertEqual(0, self.run_cli(*base, "validate")[0])
             status, output, error = self.run_cli(
-                *base, "get", "hosts.codex.identities.deep_reasoner.model"
+                *base, "get", "hosts.claude_code.identities.deep_reasoner.model"
             )
             self.assertEqual((0, "chosen-model\n", ""), (status, output, error))
             status, _, error = self.run_cli(
@@ -391,7 +392,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual((0, ""), (status, error))
             status, output, error = self.run_cli(
-                *base, "get", "hosts.codex.identities.deep_reasoner.backend"
+                *base, "get", "hosts.claude_code.identities.deep_reasoner.backend"
             )
             self.assertEqual((0, "codex\n", ""), (status, output, error))
             path = Path(directory) / ".partner" / "config.toml"
@@ -402,7 +403,7 @@ class CliTests(unittest.TestCase):
 
     def test_invalid_new_role_does_not_write(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--host", "codex", "--repo", directory)
+            base = ("--repo", directory)
             self.assertEqual(0, self.run_cli(*base, "init")[0])
             path = Path(directory) / ".partner" / "config.toml"
             before = path.read_bytes()
@@ -416,7 +417,7 @@ class CliTests(unittest.TestCase):
 
     def test_new_identity_requires_backend_without_writing(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--host", "codex", "--repo", directory)
+            base = ("--repo", directory)
             self.assertEqual(0, self.run_cli(*base, "init")[0])
             path = Path(directory) / ".partner" / "config.toml"
             before = path.read_bytes()
@@ -430,7 +431,7 @@ class CliTests(unittest.TestCase):
 
     def test_arbiter_full_read_write_chain(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--host", "claude_code", "--repo", directory)
+            base = ("--repo", directory)
             self.assertEqual(0, self.run_cli(*base, "init")[0])
             status, _, error = self.run_cli(
                 *base, "set", "--role", "arbiter", "--backend", "codex",
@@ -448,7 +449,7 @@ class CliTests(unittest.TestCase):
 
     def test_identity_change_invalidates_existing_verification(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--host", "codex", "--repo", directory)
+            base = ("--repo", directory)
             self.assertEqual(0, self.run_cli(*base, "init")[0])
             self.assertEqual(
                 0,
@@ -480,7 +481,7 @@ class CliTests(unittest.TestCase):
                 )[0],
             )
             status, output, error = self.run_cli(
-                *base, "get", "hosts.codex.identities.deep_reasoner"
+                *base, "get", "hosts.claude_code.identities.deep_reasoner"
             )
             self.assertEqual((0, ""), (status, error))
             identity = json.loads(output)

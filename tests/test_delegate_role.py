@@ -71,12 +71,11 @@ class DelegateRoleTests(unittest.TestCase):
         include_deep_reasoner: bool = True,
         deep_reasoner_backend: str = "codex",
         include_arbiter: bool = False,
-        include_claude_code: bool = False,
     ) -> str:
         deep_reasoner = ""
         if include_deep_reasoner:
             deep_reasoner = (
-                "[hosts.codex.identities.deep_reasoner]\n"
+                "[hosts.claude_code.identities.deep_reasoner]\n"
                 f'backend = "{deep_reasoner_backend}"\n'
                 'model = "gpt-deep"\n'
                 'effort = "xhigh"\n\n'
@@ -84,29 +83,20 @@ class DelegateRoleTests(unittest.TestCase):
         arbiter = ""
         if include_arbiter:
             arbiter = (
-                "\n[hosts.codex.identities.arbiter]\n"
+                "\n[hosts.claude_code.identities.arbiter]\n"
                 'backend = "codex"\n'
                 'model = "gpt-arbiter"\n'
                 'effort = "high"\n'
-            )
-        claude_code = ""
-        if include_claude_code:
-            claude_code = (
-                "\n[hosts.claude_code.identities.deep_reasoner]\n"
-                'backend = "codex"\n'
-                'model = "claude-driver-delegate"\n'
-                'effort = "medium"\n'
             )
         return (
             "schema_version = 2\n"
             "revision = 0\n\n"
             f"{deep_reasoner}"
-            "[hosts.codex.identities.fast_worker]\n"
+            "[hosts.claude_code.identities.fast_worker]\n"
             'backend = "codex"\n'
             'model = "gpt-fast"\n'
             'effort = "low"\n'
             f"{arbiter}"
-            f"{claude_code}"
         )
 
     @staticmethod
@@ -120,7 +110,6 @@ class DelegateRoleTests(unittest.TestCase):
         expected = {
             "role": "deep_reasoner",
             "backend": "codex",
-            "config_host": "codex",
             "model": "gpt-deep",
             "effort": "xhigh",
             "model_source": "config:project",
@@ -144,9 +133,7 @@ class DelegateRoleTests(unittest.TestCase):
             self.config(include_deep_reasoner=False), "--role", "deep_reasoner"
         )
         self.assertNotEqual(0, result.returncode)
-        self.assertIn(
-            "python3 scripts/partner-config.py --host codex init", result.stderr
-        )
+        self.assertIn("python3 scripts/partner-config.py init", result.stderr)
         self.assertIn("set --role deep_reasoner", result.stderr)
 
     def test_without_role_uses_default_effort(self):
@@ -155,7 +142,6 @@ class DelegateRoleTests(unittest.TestCase):
         parsed = self.parsed(result.stdout)
         self.assertEqual("none", parsed["role"])
         self.assertEqual("codex", parsed["backend"])
-        self.assertEqual("codex", parsed["config_host"])
         self.assertEqual("default", parsed["model"])
         self.assertEqual("high", parsed["effort"])
         self.assertEqual("default", parsed["effort_source"])
@@ -184,21 +170,6 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("high", parsed["effort"])
         self.assertEqual("codex", parsed["backend"])
 
-    def test_claude_code_host_uses_its_identity_namespace(self):
-        result, _ = self.run_submit(
-            self.config(include_claude_code=True),
-            "--role",
-            "deep_reasoner",
-            "--host",
-            "claude_code",
-        )
-        self.assertEqual((0, ""), (result.returncode, result.stderr))
-        parsed = self.parsed(result.stdout)
-        self.assertEqual("claude-driver-delegate", parsed["model"])
-        self.assertEqual("medium", parsed["effort"])
-        self.assertEqual("codex", parsed["backend"])
-        self.assertEqual("claude_code", parsed["config_host"])
-
     def test_claude_backend_fails_with_spawn_guidance(self):
         result, _ = self.run_submit(
             self.config(deep_reasoner_backend="claude"),
@@ -207,16 +178,7 @@ class DelegateRoleTests(unittest.TestCase):
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("backend=claude", result.stderr)
-        self.assertIn("spawn partner-deep_reasoner subagent", result.stderr)
-
-    def test_default_host_uses_codex_namespace(self):
-        result, _ = self.run_submit(
-            self.config(include_claude_code=True), "--role", "deep_reasoner"
-        )
-        self.assertEqual((0, ""), (result.returncode, result.stderr))
-        parsed = self.parsed(result.stdout)
-        self.assertEqual("gpt-deep", parsed["model"])
-        self.assertEqual("codex", parsed["config_host"])
+        self.assertIn("spawn the partner-deep_reasoner subagent", result.stderr)
 
     def test_non_git_repo_appends_skip_git_repo_check(self):
         result, repo = self.run_submit(None)

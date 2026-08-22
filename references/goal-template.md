@@ -1,6 +1,6 @@
 # Partner Goal File Template
 
-The Claude-driven flow (Direction B) persists its plan and delegation state
+The Partner flow persists its plan and delegation state
 in `<repo>/.partner/goal.md` so a `/loop` tick, a resumed session, or the
 other agent can pick up the state without rebuilding context. Update it in
 place as jobs progress; do not create parallel copies.
@@ -61,7 +61,7 @@ driving session and never spawn or delegate.
 
 At execution time, resolve the identity's config
 (`partner-config.py resolve`): `backend = codex` → submit through
-`delegate-codex.sh --host <driver> --role <identity>` (Codex subscription
+`delegate-codex.sh --role <identity>` (Codex subscription
 meter); `backend = claude` → spawn the `partner-<identity>` subagent
 (Claude API meter). The same identity can point at either vendor — that
 mapping lives in `.partner/config.toml`, not in this table.

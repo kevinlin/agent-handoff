@@ -1,6 +1,6 @@
 # Partner Setup Wizard (搭子，配置)
 
-First-run configuration for the dual-host Partner. Triggered by "搭子，配置"
+First-run configuration for Partner. Triggered by "搭子，配置"
 (or when a Partner flow needs a role that has no configuration yet). Open the
 localhost-only single-page UI so the user can see and change every concrete
 backend/model/effort without repeated chat questions. Every preview and state
@@ -12,8 +12,8 @@ hand in this flow.
 
 Pick exactly one:
 
-- **Claude Code or Codex with a browser**: run
-  `python3 "$PARTNER_DIR/scripts/partner-setup-ui.py" --host <claude_code|codex> --repo <repo>`.
+- **With a browser**: run
+  `python3 "$PARTNER_DIR/scripts/partner-setup-ui.py" --repo <repo>`.
   Report the printed localhost URL. The UI binds only to `127.0.0.1`, uses a
   per-run token, shows the full matrix on one page, and cannot apply a payload
   that no longer matches its latest preview.
@@ -24,7 +24,7 @@ Pick exactly one:
 
 ## Single-page UI
 
-1. **Detection (display)** — show current host, both CLIs' availability,
+1. **Detection (display)** — show both CLIs' availability,
    versions, existing config (if any), and every model/effort source. Codex
    models and each model's supported effort values come from the account-aware
    CLI `model/list`; the current config value is preserved if absent from that
@@ -42,8 +42,7 @@ Pick exactly one:
 3. **Beginner-safe write policy** — do not ask first-time users to choose
    scope, Git treatment, routing blocks, generated files, or whether to run a
    smoke test. The UI fixes these to: current project, `.git/info/exclude`, no
-   persistent routing block, host-appropriate generated Claude agents, and
-   automatic smoke. Advanced callers can still use `partner-setup.py` directly
+   persistent routing block, generated Claude agents, and automatic smoke. Advanced callers can still use `partner-setup.py` directly
    for global scope or explicit overrides.
 
 4. **Preview** — the UI runs `partner-setup.py --preview ...` with the current
@@ -59,7 +58,7 @@ Pick exactly one:
    Codex-backend identities verify through the delegate dry-run chain.
    Claude-backend identities start a fresh, tool-free, non-persistent Claude
    CLI session using the selected model and effort; a generated namespaced
-   agent is selected when the Claude Code host wrote one. Only a successful
+   agent is selected when one was generated. Only a successful
    backend check writes `verified=true` and one shared `verified_at` timestamp.
    Apply remains a completed write if smoke fails, but the UI must visibly say
    `安装完成，但自动检查未通过` and preserve `verified=false` for the failed
@@ -69,16 +68,7 @@ Pick exactly one:
    report shows each one live on its configured model. Close with a normal
    Partner Session Receipt.
 
-## Second host joining (incremental merge)
-
-When a config already exists with the other host's namespace, show a short
-summary and use the beginner-safe incremental path automatically: add only
-`hosts.<self>` sections and byte-preserve the peer namespace. The preview is
-the proof. Never re-run an overwrite-style initialization on an existing
-config. Advanced callers who want shared Goal/Loop without another host config
-can stop the UI and use the terminal workflow explicitly.
-
-## Existing user agents (claude_code host)
+## Existing user agents
 
 If the user already has their own `deep-reasoner.md` / `fast-worker.md`
 agents, the generated files stay namespaced (`partner-deep-reasoner`,
@@ -108,12 +98,12 @@ a path (exists, not in the manifest), offer the three-way:
 
 ## Uninstall
 
-`python3 "$PARTNER_DIR/scripts/partner-setup.py" --uninstall --host <host> [--remove-config] [--dry-run]`
+`python3 "$PARTNER_DIR/scripts/partner-setup.py" --uninstall [--remove-config] [--dry-run]`
 
-Removes only what this host generated: `partner-*` agent files whose hash
+Removes only what Partner generated: `partner-*` agent files whose hash
 still matches `.partner/.generated-manifest` (a file the user hand-edited
 since generation is left in place and reported as skipped, never deleted),
 and a structurally valid managed routing block. Config is untouched unless
-`--remove-config` is passed, which clears only `hosts.<host>.roles` — the
-other host's section, top-level fields, and `[routing]` are byte-preserved.
+`--remove-config` is passed, which clears only the identity sections — the
+top-level fields, `[routing]`, and comments are byte-preserved.
 `--dry-run` reports what would be removed without writing anything.

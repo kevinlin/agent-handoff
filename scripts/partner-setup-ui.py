@@ -339,11 +339,11 @@ def _preset_matrices(env: Mapping[str, str]) -> Dict[str, Dict[str, Dict[str, st
     return matrices
 
 
-def build_state(host: str, repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
+def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
     repo = repo.resolve()
     presets = _preset_matrices(env)
-    resolved = engine.partner_config.resolve_config(repo, host, env=env)
-    identities = resolved["hosts"][host]["identities"]
+    resolved = engine.partner_config.resolve_config(repo, env=env)
+    identities = resolved["hosts"][engine.partner_config.HOST]["identities"]
     current = {
         identity: {
             "backend": values["backend"],
@@ -353,9 +353,6 @@ def build_state(host: str, repo: Path, env: Mapping[str, str]) -> Dict[str, Any]
         }
         for identity, values in identities.items()
     }
-    peer = "claude_code" if host == "codex" else "codex"
-    peer_resolved = engine.partner_config.resolve_config(repo, peer, env=env)
-    peer_identities = peer_resolved["hosts"][peer]["identities"]
     codex_detected = engine.detect_codex(env)
     claude_detected = engine.detect_claude(env)
     claude_cli = _version("claude", env)
@@ -365,7 +362,7 @@ def build_state(host: str, repo: Path, env: Mapping[str, str]) -> Dict[str, Any]
         claude_cli["path"], env, claude_detected
     )
     option_sets = {"claude": claude_options, "codex": codex_options}
-    for matrix in (*presets.values(), current, peer_identities):
+    for matrix in (*presets.values(), current):
         for values in matrix.values():
             backend = values.get("backend")
             model = values.get("model")
@@ -379,7 +376,6 @@ def build_state(host: str, repo: Path, env: Mapping[str, str]) -> Dict[str, Any]
     initial_mode = "custom" if current else "balanced"
     initial_matrix = current or presets["balanced"]
     return {
-        "host": host,
         "repo": str(repo),
         "config_source": resolved["source"],
         "clis": {
@@ -404,12 +400,7 @@ def build_state(host: str, repo: Path, env: Mapping[str, str]) -> Dict[str, Any]
             "codex": list(CODEX_EFFORTS),
         },
         "identity_meta": IDENTITY_META,
-        "peer": {
-            "host": peer,
-            "source": peer_resolved["source"],
-            "identities": peer_identities,
-        },
-        "write_agents_available": host == "claude_code",
+        "write_agents_available": True,
     }
 
 
@@ -425,21 +416,12 @@ def _clean_string(value: Any, label: str, *, limit: int = 200) -> str:
 def normalize_payload(
     raw: Any,
     *,
-    host: str,
     repo: Path,
     env: Mapping[str, str],
     model_options: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise UIError("请求必须是 JSON 对象")
-    peer = "claude_code" if host == "codex" else "codex"
-    peer_resolved = engine.partner_config.resolve_config(repo, peer, env=env)
-    peer_identities = peer_resolved["hosts"][peer]["identities"]
-    join_action = raw.get("join_action", "add")
-    if peer_identities and join_action not in ("add", "shared", "cancel"):
-        raise UIError("第二宿主接入方式无效")
-    if peer_identities and join_action != "add":
-        raise UIError("已选择不添加本宿主配置；没有文件需要预览或写入")
     mode = raw.get("mode")
     if mode not in MODES:
         raise UIError("工作模式无效")
@@ -499,13 +481,12 @@ def normalize_payload(
         if identities != comparable:
             raise UIError("身份设置已修改，请切换到自定义模式后重新预览")
     return {
-        "host": host,
         "repo": str(repo.resolve()),
         "mode": mode,
         "scope": scope,
         "exclude_choice": exclude_choice,
         "routing_action": routing_action,
-        "write_agents": bool(raw.get("write_agents")) and host == "claude_code",
+        "write_agents": bool(raw.get("write_agents")),
         "smoke": bool(raw.get("smoke", True)),
         "identities": identities,
     }
@@ -514,8 +495,6 @@ def normalize_payload(
 def engine_arguments(payload: Mapping[str, Any], action: str) -> list[str]:
     args = [
         action,
-        "--host",
-        str(payload["host"]),
         "--repo",
         str(payload["repo"]),
         "--scope",
@@ -545,11 +524,10 @@ def _digest(payload: Mapping[str, Any]) -> str:
 
 
 class SetupController:
-    def __init__(self, host: str, repo: Path, env: Mapping[str, str]):
-        self.host = host
+    def __init__(self, repo: Path, env: Mapping[str, str]):
         self.repo = repo.resolve()
         self.env = dict(env)
-        self.initial_state = build_state(self.host, self.repo, self.env)
+        self.initial_state = build_state(self.repo, self.env)
         self.lock = threading.Lock()
         self.preview_digest: Optional[str] = None
         self.preview_stdout = ""
@@ -573,7 +551,6 @@ class SetupController:
     def preview(self, raw: Any) -> Dict[str, Any]:
         payload = normalize_payload(
             raw,
-            host=self.host,
             repo=self.repo,
             env=self.env,
             model_options=self.initial_state["model_options"],
@@ -594,7 +571,6 @@ class SetupController:
     def apply(self, raw: Any) -> Dict[str, Any]:
         payload = normalize_payload(
             raw,
-            host=self.host,
             repo=self.repo,
             env=self.env,
             model_options=self.initial_state["model_options"],
@@ -616,8 +592,6 @@ class SetupController:
             if applied.returncode == 0 and payload["smoke"]:
                 smoke_args = [
                     "--smoke",
-                    "--host",
-                    self.host,
                     "--repo",
                     str(self.repo),
                     "--scope",
@@ -708,10 +682,6 @@ HTML = r'''<!doctype html>
     .mode strong { display:block; font-size:14px; }
     .mode small { color:var(--muted); display:grid; gap:2px; font:10px/1.35 var(--mono); overflow-wrap:anywhere; }
     .mode-line b { color:var(--quiet); font:inherit; display:inline-block; width:30px; }
-    .peer { display:none; border-top:1px solid rgba(239,200,120,.4); }
-    .peer h2 { color:var(--amber); }
-    .peer p { margin-top:7px; font-size:12px; overflow-wrap:anywhere; }
-    .peer .field-stack { margin-top:13px; }
     .field-stack { display:grid; gap:13px; }
     .setting-block + .setting-block { margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
     label,.field-label { display:block; color:var(--muted); font-size:11px; letter-spacing:.02em; margin:0 0 6px; }
@@ -762,7 +732,6 @@ HTML = r'''<!doctype html>
       .rail { display:grid; grid-template-columns:1fr 1fr; }
       .rail-section { border-top:0; border-left:1px solid var(--line); }
       .rail-section:first-child { border-left:0; }
-      .peer { grid-column:1 / -1; border-left:0; }
     }
     @media (max-width:720px) {
       .shell { width:min(100% - 24px,1240px); margin-bottom:32px; }
@@ -916,8 +885,6 @@ HTML = r'''<!doctype html>
     .choice { color:var(--ink-soft); }
     .choice input { accent-color:var(--accent-v2); }
     .choice:has(input:disabled) { color:#9a9d95; }
-    .peer { margin:0; padding:18px 22px; border:0; border-bottom:1px solid var(--line-v2); border-radius:0; background:#fff5e3; box-shadow:none; }
-    .peer h2 { color:#7d5617; }
     .actions { display:grid; gap:10px; margin:12px 22px 18px; padding:14px 0 0; border-top:1px solid var(--line-v2); background:transparent; }
     .status { width:100%; margin:0; color:var(--muted-v2); text-align:left; font-size:11px; }
     button.primary,button.apply { min-height:48px; border:1px solid var(--ink); border-radius:13px; padding:11px 17px; background:var(--ink); color:var(--paper); font-weight:700; }
@@ -1060,11 +1027,6 @@ HTML = r'''<!doctype html>
 
         <aside class="settings-panel" aria-label="安装前确认">
           <div class="settings-head"><h2>准备安装</h2><p>这里不用再选，搭子会按安全默认值处理。</p></div>
-
-          <section class="peer" id="peerWrap">
-            <h2>会保留另一端的搭子配置</h2>
-            <p class="muted" id="peerSummary"></p>
-          </section>
 
           <div class="settings-body">
             <ul class="setup-summary">
@@ -1274,7 +1236,6 @@ HTML = r'''<!doctype html>
         write_agents: state.write_agents_available,
         smoke: true,
         routing_action: 'none',
-        join_action: 'add',
       };
     }
     async function api(path, body) {
@@ -1294,7 +1255,6 @@ HTML = r'''<!doctype html>
       $('repo').textContent = state.repo;
       const codex = state.detected.codex_model ? `${state.detected.codex_model} / ${state.detected.codex_effort || '未设置'}` : '未检测到模型';
       $('detect').innerHTML = `
-        <div class="item"><div class="k">当前宿主</div><div class="v">${esc(state.host)}</div></div>
         <div class="item"><div class="k">项目配置</div><div class="v">${esc(state.config_source)}</div></div>
         <div class="item"><div class="k">Claude CLI</div><div class="v ${state.clis.claude.available ? 'ok':'bad'}">${esc(state.clis.claude.version || '未安装')}</div></div>
         <div class="item" title="${esc(state.clis.codex.path || '')}"><div class="k">Codex CLI (${esc(state.clis.codex.source)})</div><div class="v ${state.clis.codex.available ? 'ok':'bad'}">${esc(state.clis.codex.version || '未安装')}</div></div>
@@ -1304,11 +1264,6 @@ HTML = r'''<!doctype html>
       renderIdentities();
       syncModeControls();
       syncHeroMap();
-      const peerEntries = Object.entries(state.peer.identities || {});
-      if (peerEntries.length) {
-        $('peerSummary').textContent = '已有配置不会被覆盖，这次只补充当前宿主。';
-        $('peerWrap').style.display = 'block';
-      }
       syncReadiness();
       $('configWorkspace').setAttribute('aria-busy', 'false');
     }
@@ -1474,7 +1429,6 @@ def make_handler(controller: SetupController, token: str):
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Open the Partner setup wizard in a local web UI.")
-    result.add_argument("--host", choices=("claude_code", "codex"), help="Host namespace; auto-detected when possible.")
     result.add_argument("--repo", type=Path, default=Path.cwd(), help="Target repository (default: current directory).")
     result.add_argument("--port", type=int, default=0, help="Loopback port (default: choose an available port).")
     result.add_argument("--no-open", action="store_true", help="Print the URL without opening the default browser.")
@@ -1484,16 +1438,12 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] = None) -> int:
     args = parser().parse_args(argv)
     environ = dict(os.environ if env is None else env)
-    host = args.host or engine._detected_host(environ)
-    if not host:
-        print("error: host could not be detected; pass --host claude_code|codex", file=sys.stderr)
-        return 2
     repo = args.repo.resolve()
     if not repo.is_dir():
         print(f"error: repository directory does not exist: {repo}", file=sys.stderr)
         return 2
     try:
-        controller = SetupController(host, repo, environ)
+        controller = SetupController(repo, environ)
         controller.state()
     except (OSError, ValueError, engine.SetupError, engine.partner_config.ConfigError) as error:
         print(f"error: {error}", file=sys.stderr)

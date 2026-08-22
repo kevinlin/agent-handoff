@@ -3,8 +3,8 @@
 
 This is deliberately a TOML subset implementation.  It splits the document
 into raw section chunks, then parses only top-level metadata, [routing], and
-the identity sections owned by the selected host.  Unowned chunks are never
-reformatted.
+the identity sections under hosts.claude_code.  Every other chunk -- comments,
+[routing], unknown sections -- is preserved byte-for-byte, never reformatted.
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 
-HOSTS = ("claude_code", "codex")
+HOST = "claude_code"
+HOSTS = (HOST,)
 IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
 IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "verified", "verified_at")
 BACKENDS = ("claude", "codex")
@@ -41,10 +42,7 @@ DEFAULTS: Dict[str, Any] = {
     "schema_version": 2,
     "revision": 0,
     "routing": {"always_on_host_rules": False},
-    "hosts": {
-        "claude_code": {"identities": {}},
-        "codex": {"identities": {}},
-    },
+    "hosts": {HOST: {"identities": {}}},
 }
 
 
@@ -251,7 +249,7 @@ def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> M
     return base
 
 
-def parse_config(text: str, host: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
+def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) -> Dict[str, Any]:
     """Parse schema metadata, routing, and only ``host`` identity sections."""
 
     _validate_host(host)
@@ -291,23 +289,33 @@ def parse_config(text: str, host: str, *, path: Optional[Path] = None) -> Dict[s
     return result
 
 
-def read_legacy_v1(text: str, host: str) -> Dict[str, Dict[str, Any]]:
-    """Read legacy role model/effort values for setup defaults without writing."""
+LEGACY_ROLE_RE = re.compile(r"^hosts\.([^.]+)\.roles\.(.+)$")
 
-    _validate_host(host)
-    prefix = f"hosts.{host}.roles."
+
+def read_legacy_v1(text: str) -> Dict[str, Dict[str, Any]]:
+    """Read legacy role model/effort values for setup defaults without writing.
+
+    A v1 file may carry roles under any host namespace -- earlier versions wrote
+    hosts.codex.roles.* for a Codex-side install. Read them all so the wizard can
+    still seed its initial answers; the owned namespace wins on conflict.
+    """
+
     result: Dict[str, Dict[str, Any]] = {}
+    owned: set[str] = set()
     seen_sections = set()
     for chunk in split_sections(text):
-        if not chunk.name or not chunk.name.startswith(prefix):
+        match = LEGACY_ROLE_RE.match(chunk.name) if chunk.name else None
+        if not match:
             continue
-        role = chunk.name[len(prefix):]
+        host, role = match.group(1), match.group(2)
         if "." in role or not role:
             raise ConfigParseError(chunk.start_line, 1, f"invalid legacy role section [{chunk.name}].")
         if chunk.name in seen_sections:
             raise ConfigParseError(chunk.start_line, 1, f"duplicate [{chunk.name}] section.")
         seen_sections.add(chunk.name)
         if role not in IDENTITIES[:2]:
+            continue
+        if role in owned and host != HOST:
             continue
         fields = _parse_assignments(chunk)
         extracted = {
@@ -317,6 +325,8 @@ def read_legacy_v1(text: str, host: str) -> Dict[str, Dict[str, Any]]:
         }
         if extracted:
             result[role] = extracted
+            if host == HOST:
+                owned.add(role)
     return result
 
 
@@ -366,7 +376,7 @@ def _validate_data(
     return data
 
 
-def validate_config(text: str, host: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
+def validate_config(text: str, host: str = HOST, *, path: Optional[Path] = None) -> Dict[str, Any]:
     """Parse and validate the schema-v2 values visible to ``host``."""
 
     return _validate_data(parse_config(text, host, path=path), host, path=path)
@@ -384,7 +394,7 @@ def _format_value(value: Any) -> str:
     raise ConfigValidationError(f"cannot emit unsupported value {value!r}")
 
 
-def emit_host_sections(host: str, identities: Mapping[str, Mapping[str, Any]]) -> str:
+def emit_host_sections(identities: Mapping[str, Mapping[str, Any]], host: str = HOST) -> str:
     """Return canonical identity sections for one host."""
 
     _validate_host(host)
@@ -407,19 +417,22 @@ def _base_document() -> str:
 
 def update_host(
     text: str,
-    host: str,
-    identities: Mapping[str, Mapping[str, Any]],
+    host: str = HOST,
+    identities: Optional[Mapping[str, Mapping[str, Any]]] = None,
     *,
     path: Optional[Path] = None,
 ) -> str:
-    """Replace only one host's identity chunks, preserving every other chunk."""
+    """Replace the identity chunks, preserving every other chunk byte-for-byte."""
+
+    if identities is None:
+        identities = {}
 
     _validate_host(host)
     candidate_identities = _copy(dict(identities))
     for identity in candidate_identities:
         if identity not in IDENTITIES:
             raise ConfigValidationError(f"unsupported identity: {identity!r}")
-    emitted = emit_host_sections(host, candidate_identities)
+    emitted = emit_host_sections(candidate_identities, host)
     if not text:
         routing = "[routing]\nalways_on_host_rules = false\n"
         candidate = _base_document() + "\n" + emitted + ("\n" if emitted else "") + routing
@@ -619,12 +632,15 @@ class ConfigLock:
 
 def write_host_config(
     path: Path,
-    host: str,
-    identities: Mapping[str, Mapping[str, Any]],
+    host: str = HOST,
+    identities: Optional[Mapping[str, Mapping[str, Any]]] = None,
     *,
     lock_options: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Lock, read, replace one host's sections, and atomically persist."""
+    """Lock, read, replace the identity sections, and atomically persist."""
+
+    if identities is None:
+        identities = {}
 
     options = dict(lock_options or {})
     options.setdefault("owner_host", host)
@@ -635,7 +651,7 @@ def write_host_config(
     return updated
 
 
-def _host_overlay(data: Mapping[str, Any], host: str) -> Dict[str, Any]:
+def _host_overlay(data: Mapping[str, Any], host: str = HOST) -> Dict[str, Any]:
     overlay: Dict[str, Any] = {}
     for key in ("schema_version", "revision", "routing"):
         if key in data:
@@ -677,7 +693,7 @@ def _invalidate_inherited_verification(
 
 def resolve_config(
     repo: Path,
-    host: str,
+    host: str = HOST,
     session_override: Optional[Mapping[str, Any]] = None,
     *,
     env: Optional[Mapping[str, str]] = None,
@@ -718,7 +734,7 @@ def _get_nested(data: Mapping[str, Any], dotted: str) -> Any:
     return value
 
 
-def _parse_override(items: Iterable[str], host: str) -> Dict[str, Any]:
+def _parse_override(items: Iterable[str], host: str = HOST) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for item in items:
         if "=" not in item:
@@ -745,14 +761,13 @@ def _parse_override(items: Iterable[str], host: str) -> Dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage partner-skill schema-v2 configuration.")
     parser.add_argument("--scope", choices=("project", "global"), default="project", help="Configuration file to read or write (default: project).")
-    parser.add_argument("--host", choices=HOSTS, required=True, help="Host namespace this process owns.")
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Repository root for project scope and resolution.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     get_parser = subparsers.add_parser("get", help="Read the selected scope without resolving lower layers.")
     get_parser.add_argument("key", nargs="?", help="Optional dotted key; default prints visible config as JSON.")
 
-    set_parser = subparsers.add_parser("set", help="Set one identity and preserve the other host byte-for-byte.")
+    set_parser = subparsers.add_parser("set", help="Set one identity, preserving every other chunk byte-for-byte.")
     set_parser.add_argument("--role", choices=IDENTITIES, required=True, help="Identity to update.")
     set_parser.add_argument("--backend", choices=BACKENDS)
     set_parser.add_argument("--model")
@@ -766,8 +781,8 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_parser = subparsers.add_parser("resolve", help="Resolve session > project > global > defaults.")
     resolve_parser.add_argument("--override", action="append", default=[], metavar="IDENTITY.FIELD=VALUE")
 
-    subparsers.add_parser("validate", help="Validate the selected file for the owned host namespace.")
-    subparsers.add_parser("init", help="Create an empty schema-v2 identity document for the owned host.")
+    subparsers.add_parser("validate", help="Validate the selected file.")
+    subparsers.add_parser("init", help="Create an empty schema-v2 identity document.")
     return parser
 
 
@@ -777,20 +792,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     path = _scope_path(args.scope, args.repo)
     try:
         if args.command == "resolve":
-            override = _parse_override(args.override, args.host)
-            print(json.dumps(resolve_config(args.repo, args.host, override), ensure_ascii=False, indent=2, sort_keys=True))
+            override = _parse_override(args.override)
+            print(json.dumps(resolve_config(args.repo, HOST, override), ensure_ascii=False, indent=2, sort_keys=True))
             return 0
         if args.command == "init":
             if path.is_file():
-                validate_config(_read_text(path), args.host, path=path)
+                validate_config(_read_text(path), path=path)
             else:
-                write_host_config(path, args.host, {})
+                write_host_config(path)
             print(path)
             return 0
         if not path.is_file():
             raise ConfigError(f"config does not exist: {path}; run init first")
         text = _read_text(path)
-        data = validate_config(text, args.host, path=path)
+        data = validate_config(text, path=path)
         if args.command == "validate":
             print(f"PASS {path}")
             return 0
@@ -804,7 +819,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(value)
             return 0
         if args.command == "set":
-            identities = data["hosts"][args.host]["identities"]
+            identities = data["hosts"][HOST]["identities"]
             current = dict(identities.get(args.role, {}))
             updates = {
                 "backend": args.backend,
@@ -833,7 +848,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if args.verified is False and args.verified_at is None:
                 current.pop("verified_at", None)
             identities[args.role] = current
-            write_host_config(path, args.host, identities)
+            write_host_config(path, HOST, identities)
             print(path)
             return 0
         parser.error(f"unknown command: {args.command}")

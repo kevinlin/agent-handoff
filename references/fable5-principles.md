@@ -1,6 +1,6 @@
 # Frontier-Model Prompting Principles (Fable 5 Masterclass distillation)
 
-Shared rules for every agent-to-agent prompt in Partner, both directions.
+Shared rules for every agent-to-agent prompt in Partner.
 Distilled from Anthropic's Fable 5 (Mythos) Prompting Masterclass; the
 principles transfer to any frontier agentic model, including the Codex side.
 
@@ -33,7 +33,7 @@ Put this rule in the goal file and in every delegation packet.
 ## Effort as a Handoff Parameter
 
 Effort level is the intelligence/latency/cost dial. Prefer `delegate-codex.sh
---host <driver> --role <identity>` so backend, effort, and model resolve
+--role <identity>` so backend, effort, and model resolve
 from `搭子，配置`'s config instead of being picked ad hoc per call; pass an
 explicit `--effort` only when a specific task genuinely needs to override
 its identity's default. Without a `--role` or explicit `--effort`, the tool
@@ -112,9 +112,7 @@ efficiency (Superpowers 6 autoresearch). Economize on the execution axis
 (delegate downward), never on the planner's reasoning budget.
 
 Do bound the planner's **execution surface**. Reasoning effort and repository
-discovery are different dimensions: keep the configured effort, while the
-outer host supplies a compact evidence packet and disables tools/subagents for
-repository-heavy Claude planning. `references/bounded-planning.md` defines the
-packet, timeouts, CLI budget, artifacts, and no-fallback recovery path. This
-preserves high-effort judgment without paying the planner to recursively
-rediscover the repo.
+discovery are different dimensions: keep the configured effort, but hand the
+planner a compact evidence packet rather than letting it rediscover the repo
+recursively. That preserves high-effort judgment without paying for the same
+context twice.

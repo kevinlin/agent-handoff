@@ -45,106 +45,30 @@ check_file "docs/receipt-schema.json"
 check_file "examples/session-receipt.md"
 check_file "examples/v2.0.0-conversation-cost-receipt.md"
 check_file "examples/v2.0.1-conversation-cost-receipt.md"
-check_file "references/monitoring.md"
 check_file "references/handoff-template.md"
-check_file "references/failure-playbook.md"
-check_file "references/scenarios.md"
 check_file "references/darwin-ratchet.md"
-check_file "scripts/check-claude-cli.sh"
-check_file "scripts/make-handoff.sh"
 check_file "scripts/make-receipt.py"
-check_file "scripts/session-snapshot.sh"
 check_file "scripts/validate-receipt.py"
 check_file "scripts/run-test-prompts.py"
-check_file "scripts/run-claude-plan.py"
 check_file "scripts/delegate-codex.sh"
 check_file "scripts/partner-config.py"
 check_file "scripts/partner_runtime.py"
 check_file "scripts/partner-setup.py"
 check_file "scripts/partner-setup-ui.py"
 check_file "scripts/goal-sync.py"
-check_file "references/codex-driven.md"
 check_file "references/claude-driven.md"
 check_file "references/setup.md"
 check_file "references/tryout.md"
 check_file "references/goal-to-pr.md"
 check_file "references/goal-template.md"
 check_file "references/fable5-principles.md"
-check_file "references/bounded-planning.md"
 check_file "references/memory-protocol.md"
-check_file "idea-king/SKILL.md"
-check_file "idea-king/references/adversarial-checklist.md"
-check_file "idea-king/codex-prompt.md"
 check_dir "references"
 check_dir "examples"
 check_dir "scripts"
 
 python3 scripts/check-readme-parity.py
 echo "PASS README parity gate"
-
-if python3 scripts/validate-receipt.py examples/session-receipt.md >/dev/null; then
-  echo "PASS example receipt validates against receipt contract"
-else
-  echo "FAIL examples/session-receipt.md does not validate; run scripts/validate-receipt.py on it"
-  fail=$((fail + 1))
-fi
-
-if python3 scripts/validate-receipt.py examples/v2.0.0-conversation-cost-receipt.md >/dev/null; then
-  echo "PASS v2.0.0 conversation cost receipt validates against receipt contract"
-else
-  echo "FAIL v2.0.0 conversation cost receipt does not validate"
-  fail=$((fail + 1))
-fi
-
-if python3 scripts/validate-receipt.py examples/v2.0.1-conversation-cost-receipt.md >/dev/null; then
-  echo "PASS v2.0.1 conversation cost receipt validates against receipt contract"
-else
-  echo "FAIL v2.0.1 conversation cost receipt does not validate"
-  fail=$((fail + 1))
-fi
-
-# The receipt template block is duplicated across three files by design
-# (SKILL.md is the contract; the references repeat it for locality). Any
-# field change must land in all three, so drift is a FAIL, not a WARN.
-if python3 - <<'PY'
-import re
-import sys
-
-paths = ["SKILL.md", "references/monitoring.md", "references/handoff-template.md"]
-blocks = []
-for path in paths:
-    with open(path, encoding="utf-8") as handle:
-        text = handle.read()
-    start = text.find("[Partner session receipt]")
-    if start < 0:
-        print(f"missing receipt template in {path}")
-        sys.exit(1)
-    lines = []
-    for line in text[start:].splitlines()[1:]:
-        line = line.strip()
-        if not re.match(r"^[a-z_]+:", line):
-            break
-        lines.append(line)
-    blocks.append((path, lines))
-
-base_path, base_lines = blocks[0]
-drift = False
-for path, lines in blocks[1:]:
-    if lines != base_lines:
-        drift = True
-        print(f"receipt template drift: {path} differs from {base_path}")
-        for a, b in zip(base_lines, lines):
-            if a != b:
-                print(f"  {base_path}: {a}")
-                print(f"  {path}: {b}")
-sys.exit(1 if drift else 0)
-PY
-then
-  echo "PASS receipt template consistent across SKILL.md and references"
-else
-  echo "FAIL receipt template blocks have drifted"
-  fail=$((fail + 1))
-fi
 
 if python3 scripts/run-test-prompts.py >/dev/null; then
   echo "PASS test-prompts static regression checks"
@@ -229,17 +153,6 @@ else
   fail=$((fail + 1))
 fi
 
-if grep -qF 'Showcase 正在重做' README.md && grep -qF 'showcase is being redesigned' README.en.md; then
-  echo "PASS showcase placeholder"
-elif [ -f assets/showcase.gif ] && grep -qF 'assets/showcase.gif' README.md && grep -qF 'assets/showcase.gif' README.en.md; then
-  echo "PASS showcase asset (gif)"
-elif [ -f assets/showcase.png ] && grep -qF 'assets/showcase.png' README.md && grep -qF 'assets/showcase.png' README.en.md; then
-  echo "PASS showcase asset"
-else
-  echo "FAIL README files must have a showcase placeholder or a valid showcase asset"
-  fail=$((fail + 1))
-fi
-
 if [ -f assets/v2.0.1-conversation-cost-receipt.png ] && \
   grep -qF 'assets/v2.0.1-conversation-cost-receipt.png' README.md && \
   grep -qF 'assets/v2.0.1-conversation-cost-receipt.png' README.en.md; then
@@ -271,8 +184,8 @@ else
 fi
 
 if grep -qF 'Partner Session Receipt' SKILL.md && \
-  grep -qF 'new_claude_p_sessions' SKILL.md && \
-  grep -qF 'monitoring_level' SKILL.md && \
+  grep -qF 'codex_jobs' SKILL.md && \
+  grep -qF 'roles_used' SKILL.md && \
   grep -qF 'Partner Session Receipt' README.md && \
   grep -qF 'session-receipt-required' test-prompts.json; then
   echo "PASS Partner Session Receipt contract"

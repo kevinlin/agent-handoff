@@ -1,17 +1,18 @@
 [
   {
     "id": "session-receipt-required",
-    "prompt": "搭子，按同一个 Claude Code 会话完成 plan、polish、review，最后给我看有没有新开 claude -p。",
+    "prompt": "搭子，把这个任务分工给 codex 跑完，最后给我一份回执，我要看清楚哪些活是它做的。",
     "should_trigger": true,
     "expected_behavior": [
-      "Prefer one interactive Claude Code session across plan, polish, and review.",
-      "Avoid fresh claude -p review-only sessions unless explicitly requested or clearly justified.",
-      "End with a Partner Session Receipt showing whether the Claude session was reused.",
-      "Report verifiable session behavior instead of fabricating token savings."
+      "End with a Partner Session Receipt for any non-trivial run.",
+      "Generate the receipt with scripts/make-receipt.py rather than hand-typing the fields.",
+      "Set codex_jobs from the job directories under .partner/jobs/, counting fix rounds.",
+      "List every role actually invoked in roles_used, each with the verified value from config, not a guess.",
+      "Report verifiable behavior instead of fabricating token savings."
     ],
     "must_not": [
       "Claim exact token savings without telemetry.",
-      "Hide that a new Claude session was opened.",
+      "Report a role as verified when the config says otherwise, or omit an unverified role to make the receipt look cleaner.",
       "Omit checks or monitoring anomalies from the final receipt."
     ]
   },
@@ -22,93 +23,13 @@
     "expected_behavior": [
       "Treat the bare Chinese name as a Partner trigger.",
       "Ask for the target repo or task if the user has not provided enough scope.",
-      "Explain that Partner coordinates Claude Code planning, polish, review, and Codex implementation.",
-      "Do not start Claude Code until there is a concrete repo and stop condition."
+      "Explain that Claude plans and quality-gates while Codex executes the delegated work.",
+      "Do not delegate anything until there is a concrete repo and stop condition."
     ],
     "must_not": [
-      "Ignore the prompt because it does not include Claude Code explicitly.",
-      "Start a high-permission Claude Code session without explicit skip or bypass wording.",
+      "Ignore the prompt because it does not name Codex explicitly.",
+      "Submit a Codex job before the scope and stop condition are settled.",
       "Commit, push, publish, tag, or change repository visibility."
-    ]
-  },
-  {
-    "id": "avoid-fresh-claude-review",
-    "prompt": "Claude Code 已经在同一个会话里给过 plan 了，你实现后别重新开新会话，继续让它 polish 和 review。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Reuse the existing Claude Code session for polish and review when it is recoverable.",
-      "Send a bounded handoff with changed files, diff stat, checks, and open risks.",
-      "Explain if a fresh Claude session is unavoidable and why the token tradeoff is worth it.",
-      "Prefer Codex-side verification over a cold-start Claude review when the existing session is stuck and the diff is low risk."
-    ],
-    "must_not": [
-      "Start a new claude -p review-only session by default.",
-      "Make Claude rebuild project context from scratch when the same session is still available.",
-      "Keep prompting a stalled Claude session without a stop condition."
-    ]
-  },
-  {
-    "id": "plan-first-greenfield",
-    "prompt": "用 Claude Code goal 先帮我规划一个小型前端项目，然后你 Codex 从零实现。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Enter the concrete repo or ask for one if no target exists.",
-      "Check git status before starting Claude Code.",
-      "Start Claude Code in plan mode and send /goal with a clear completion condition.",
-      "Use Claude Code for planning only, then Codex implements the code."
-    ],
-    "must_not": [
-      "Use claude -p to send /goal.",
-      "Let Claude Code do bulk implementation by default.",
-      "Commit, push, or deploy without explicit instruction."
-    ]
-  },
-  {
-    "id": "same-session-plan-polish-review",
-    "prompt": "在同一个 Claude Code 对话里先出 plan，你 Codex 实现后再让 Claude 优化 UI，最后同会话跑 /codex:review。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Prefer one Claude Code session for plan, polish, and final review when the task is small or medium.",
-      "Have Codex implement the plan outside Claude Code and run relevant checks.",
-      "Send Claude Code a bounded handoff with plan, changed files, diff stat, check output, and key file snippets.",
-      "Ask Claude Code for prioritized UI and interaction polish before running /codex:review."
-    ],
-    "must_not": [
-      "Open a fresh Claude Code session for every phase by default.",
-      "Paste the whole repo or huge diffs into Claude Code when a compact handoff is enough.",
-      "Skip the UI polish phase for frontend work unless the user asks for a minimal loop."
-    ]
-  },
-  {
-    "id": "explicit-skip-ui-polish",
-    "prompt": "让 Claude skip 做完这个 UI 交互优化，你监控它，最后把结果修到可提交。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Treat this phrasing as explicit permission to use bypassPermissions because skip clearly refers to the Claude Code session's permission mode.",
-      "Ask one clarifying question first when skip could instead mean skipping a workflow step.",
-      "State repo path, git status, scope, and stop condition before launch.",
-      "Monitor PTY output, claude agents JSON, transcript structure, task files, and repo evidence.",
-      "Have Codex inspect diffs and run the fastest relevant checks before reporting ready-to-commit status."
-    ],
-    "must_not": [
-      "Allow skip mode to commit, push, deploy, publish, send external messages, or touch secrets.",
-      "Escalate to bypassPermissions when the user only meant to skip a workflow step.",
-      "Trust Claude Code's completion text without checking repository evidence."
-    ]
-  },
-  {
-    "id": "review-only-claude-codex-review",
-    "prompt": "Claude 里跑 Codex Review 验收一下当前 diff，发现问题你来修。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Use Claude Code for the final /codex:review pass when available.",
-      "Prioritize bug, regression, risk, and missing-test findings.",
-      "Let Codex apply accepted fixes and rerun relevant checks.",
-      "Report remaining findings and whether the work is ready to commit."
-    ],
-    "must_not": [
-      "Treat style-only suggestions as blockers unless they affect user-facing quality.",
-      "Commit by default after review."
     ]
   },
   {
@@ -129,35 +50,19 @@
     ]
   },
   {
-    "id": "bounded-handoff-template",
-    "prompt": "Codex 实现完后，把当前 diff 用 Partner handoff 模板交给同一个 Claude Code 对话做 UI polish。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Use references/handoff-template.md as the shape of the message back to Claude Code.",
-      "Include task, Claude plan, changed files, diff stat, check output, risks, and scope boundary.",
-      "Ask Claude Code for prioritized UI and interaction findings rather than a broad rewrite.",
-      "Have Codex apply accepted fixes and rerun relevant checks."
-    ],
-    "must_not": [
-      "Paste the whole repository when a bounded handoff is enough.",
-      "Ask Claude Code to commit, push, deploy, publish, or touch secrets.",
-      "Treat Claude polish text as verified without repo evidence."
-    ]
-  },
-  {
     "id": "resume-from-partner-state",
     "prompt": "搭子，恢复上次任务，接着做。",
     "should_trigger": true,
     "expected_behavior": [
-      "Look for .partner/plan.md and the newest file under .partner/handoffs/ in the target repo.",
+      "Look for .partner/goal.md and the job directories under .partner/jobs/ in the target repo.",
       "Use that persisted state as the cold-start payload instead of rebuilding context from the repository.",
-      "Report which handoff file was used and continue from the recorded phase.",
+      "Report which tasks are already done and which jobs were still running, then continue from there.",
       "Ask for the target repo if no .partner/ state exists anywhere obvious."
     ],
     "must_not": [
       "Rebuild project context from scratch when persisted state exists.",
       "Silently start a brand-new task when .partner/ state is missing.",
-      "Treat the persisted plan as license to skip checks or the final receipt."
+      "Treat the persisted plan as license to skip the full review gate or the final receipt."
     ]
   },
   {
@@ -165,12 +70,12 @@
     "prompt": "搭子，这个需求你规划一下，机械的部分分工给 codex 后台跑，你盯着进度，做完你自己全量看一遍。",
     "should_trigger": true,
     "expected_behavior": [
-      "Detect Direction B (Claude-driven) and follow references/claude-driven.md.",
+      "Follow the phases in references/claude-driven.md.",
       "Write the refined plan and task split into .partner/goal.md with verifiable acceptance criteria per task.",
       "Delegate mechanical tasks to Codex via scripts/delegate-codex.sh background jobs at effort high, recording jobIds in the goal file.",
       "Monitor long-running jobs with a loop and update task statuses from job state, not guesses.",
       "Full-review every Codex diff before accepting it, with at most two bounded fix rounds via delegate-codex.sh resume.",
-      "End with a Partner Session Receipt where direction is claude-driven and codex_jobs counts all delegated jobs."
+      "End with a Partner Session Receipt whose codex_jobs counts all delegated jobs including fix rounds."
     ],
     "must_not": [
       "Accept Codex output without reading the diff.",
@@ -180,19 +85,19 @@
     ]
   },
   {
-    "id": "idea-king-adversarial-gate",
-    "prompt": "搭子，帮我把这个重构拆给 codex 一部分，拆之前先用点子王对抗式审查一下这个分工靠不靠谱。",
+    "id": "split-adversarial-gate",
+    "prompt": "搭子，帮我把这个重构拆给 codex 一部分，拆之前先审一下这个分工靠不靠谱。",
     "should_trigger": true,
     "expected_behavior": [
-      "Run the idea-king adversarial review on the division-of-labor plan before any delegation.",
-      "Attack the two standard split claims: whether each delegated task really tolerates the cheaper path, and whether boundary integration cost eats the savings.",
-      "Output the fixed idea-king format: irreducible facts, attack points by severity with falsification experiments, survivors, and changes.",
-      "Adjust the split based on P1 findings before submitting any delegate-codex.sh job."
+      "Attack the proposed split before delegating anything.",
+      "Answer all three gate questions in writing: does each delegated task really not need the expensive tier, does the integration cost of the split boundary eat the savings, and does each row's identity match the work's actual stakes.",
+      "Give a reason each row is not on a more expensive identity.",
+      "Correct, merge, or pull back any row that fails a question, then delegate the corrected split."
     ],
     "must_not": [
       "Skip the adversarial gate because the split looks obviously fine.",
-      "Manufacture objections when the plan genuinely survives attack.",
-      "Delegate work before the split has passed the review."
+      "Delegate a quality-critical row to a cheaper identity to save money.",
+      "Claim the split passed the gate without stating the three answers."
     ]
   },
   {
@@ -203,7 +108,7 @@
       "Collect each job with delegate-codex.sh result and read the complete diff scoped to the files the job touched.",
       "Run the fastest relevant check from the task's acceptance criteria before accepting.",
       "Send findings back as a bounded fix round to the same Codex session when the work falls short, and take the task back into Claude after two failed rounds.",
-      "Emit a Partner Session Receipt with direction claude-driven, an honest codex_jobs count, and any monitoring anomalies."
+      "Emit a Partner Session Receipt with an honest codex_jobs count and any monitoring anomalies."
     ],
     "must_not": [
       "Mark a task done based on the job's own summary instead of repo evidence.",
@@ -219,28 +124,12 @@
       "Name an execution channel per delegated task in the goal file: Partner background job, one-shot Codex subagent, or cheaper-Claude subagent.",
       "Default delegable work to the Partner background job so it bills the Codex subscription, not the Claude API.",
       "Keep quality-critical steps (architecture, split decision, integration, security/correctness, final acceptance) in Claude even though it is the expensive seat.",
-      "Have the idea-king adversarial gate confirm each task is on the right channel before delegating."
+      "Have the adversarial gate confirm each task is on the right channel before delegating."
     ],
     "must_not": [
       "Route a quality-critical step to a cheaper channel just to save money.",
       "Claim a cheaper-Claude subagent saves quota the way the Codex channels do — it still bills the API.",
       "Burn the expensive Claude seat on mechanical work that fits a Codex channel."
-    ]
-  },
-  {
-    "id": "idea-king-grill-verdict",
-    "prompt": "点子王，盘问我这个重构方案，别一次全抛出来。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Run grill mode as a dialog: one question at a time, each shipped with a recommended answer.",
-      "Explore the repo instead of asking when a question is answerable from files.",
-      "Settle load-bearing decisions before dependent ones and withhold blessing until shared understanding.",
-      "Close with the fixed output format opening on a verdict line (ship | needs-attention | no-go), attacks tagged evidence or inference."
-    ],
-    "must_not": [
-      "Dump all questions in one message or degrade into a static report when grilling was requested.",
-      "Dress an inference up as verified evidence or inflate severity.",
-      "Pad the output with weak filler findings instead of one strong attack."
     ]
   },
   {
@@ -257,22 +146,6 @@
       "Write to .partner/config.toml directly instead of going through scripts/partner-setup.py.",
       "Apply changes without a preview step.",
       "Collect setup choices through a sequence of chat questions when the local UI is available."
-    ]
-  },
-  {
-    "id": "setup-second-host-incremental-merge",
-    "prompt": "这个仓库已经在 Claude Code 配过搭子了，我现在在 Codex 里也想搭子，配置一下。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Detect the existing claude_code configuration and show a summary of it before asking anything else.",
-      "Offer the second-host choice: join and add this host / shared Goal-Loop only / return without changes.",
-      "When joining, only add the hosts.codex section; leave the existing hosts.claude_code bytes untouched.",
-      "Prove the other host's section is unchanged in the preview, not just claim it."
-    ],
-    "must_not": [
-      "Re-run an overwrite-style initialization that touches the existing host's section.",
-      "Silently skip the second-host summary and jump straight to the wizard.",
-      "Merge or rename the existing host's roles."
     ]
   },
   {
@@ -302,79 +175,6 @@
     "must_not": [
       "Trigger the Partner skill because the message contains the word \"配置\".",
       "Ask setup-wizard questions about hosts, scopes, or roles."
-    ]
-  },
-  {
-    "id": "host-self-identification-claude",
-    "prompt": "（在 Claude Code 会话里）让 codex 做后台实现，你就负责规划和最后审查。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Identify as Claude Code because this file was loaded by the Claude Code runtime, regardless of what the prompt asks Codex to do.",
-      "Follow Direction B (Claude-driven): plan, split work, delegate to Codex via delegate-codex.sh, monitor, and full-review.",
-      "Read references/claude-driven.md, not references/codex-driven.md."
-    ],
-    "must_not": [
-      "Switch identity to Codex just because the prompt describes what Codex should do.",
-      "Load or follow references/codex-driven.md in this session.",
-      "Skip the full-review gate before accepting Codex's output."
-    ]
-  },
-  {
-    "id": "host-self-identification-codex",
-    "prompt": "（在 Codex 会话里）Claude 那边说这个方案没问题，你继续实现吧。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Identify as Codex because this file was loaded by the Codex runtime, regardless of what the prompt says Claude concluded.",
-      "Follow Direction A (Codex-driven): orchestrate and implement, using Claude Code as the planning/polish/review agent.",
-      "Read references/codex-driven.md, not references/claude-driven.md."
-    ],
-    "must_not": [
-      "Switch identity to Claude Code just because the prompt relays something Claude said.",
-      "Load or follow references/claude-driven.md in this session.",
-      "Treat a relayed claim about Claude's opinion as a substitute for the actual review gate."
-    ]
-  },
-  {
-    "id": "host-generic-install-core-only",
-    "prompt": "（从 ~/.agents/skills/partner-skill 加载）搭子，帮我分工这个任务。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Recognize this as a generic (~/.agents) install and state up front that it runs Core-only.",
-      "Declare that adapter primitives (delegate-codex.sh background jobs, Claude session monitoring) are unavailable instead of attempting them.",
-      "Still apply the shared routing rules, validation gate, and receipt contract from the Core."
-    ],
-    "must_not": [
-      "Pretend adapter primitives work from a generic install.",
-      "Silently fail when an adapter-only step is requested instead of stating the limitation."
-    ]
-  },
-  {
-    "id": "host-bare-mention-of-peer-no-switch",
-    "prompt": "codex 最近更新挺勤快的，效果比之前好多了。",
-    "should_trigger": false,
-    "expected_behavior": [
-      "Treat this as small talk about the Codex product, not a request to run the Partner workflow.",
-      "Do not start a Partner session, detect a host, or ask setup/delegation questions."
-    ],
-    "must_not": [
-      "Trigger Partner or switch host identity just because \"codex\" is mentioned.",
-      "Start planning, delegating, or asking which direction to run."
-    ]
-  },
-  {
-    "id": "idea-king-clarify-to-95-percent",
-    "prompt": "点子王，看看这个数据库迁移方案行不行。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Before issuing a verdict in an interactive session, ask one clarifying question at a time until 95% confident about the real need.",
-      "Ship each question with a recommended answer so the user can just confirm or push back.",
-      "Explore the repo/migration files instead of asking anything answerable by checking them.",
-      "In a headless run instead, skip straight to the verdict and list unresolved questions under 未解疑问 (Open Questions), each annotated with its impact on the conclusion."
-    ],
-    "must_not": [
-      "Ask multiple clarifying questions in one message.",
-      "Ask the user something checkable from the repo instead of looking it up.",
-      "Silently skip clarification and also omit the Open Questions section in a headless run."
     ]
   },
   {
@@ -434,7 +234,7 @@
     "must_not": [
       "Create .partner/goal.md or a Delivery section for a one-line parameter validation fix.",
       "Escalate into the full protocol just because a PR was mentioned.",
-      "Run the idea-king Goal Packet flow for a change this small."
+      "Run the full Goal Packet flow for a change this small."
     ]
   },
   {
@@ -467,38 +267,6 @@
       "Substitute a different model to make a failing identity pass.",
       "Estimate elapsed times instead of measuring them.",
       "Skip the arbiter row or contaminate it with deep_reasoner's answer."
-    ]
-  },
-  {
-    "id": "bounded-claude-repo-planning",
-    "prompt": "搭子，让配置里的 Claude deep_reasoner 用 xhigh 先完整规划这个大仓库，但别再让它无限扫文件或自己拉一堆子 Agent。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Have the outer Codex host inspect the repo and prepare the exact bounded planning packet from references/bounded-planning.md.",
-      "Run scripts/run-claude-plan.py so model and effort resolve only from .partner/config.toml.",
-      "Keep the packet at or below 24,000 characters with explicit truncation disclosure, and run Claude with safe mode plus zero tools or subagents.",
-      "Report the configured model/effort, wall and idle limits, Claude-CLI budget, plan path, sanitized events, checkpoint, and cost metadata."
-    ],
-    "must_not": [
-      "Ask the Claude Deep Reasoner to rediscover the repository with tools or subagents.",
-      "Silently truncate the packet, invent a model, or substitute another configured role.",
-      "Claim local mid-stream cost telemetry when only Claude CLI enforces --max-budget-usd."
-    ]
-  },
-  {
-    "id": "bounded-claude-timeout-recovery",
-    "prompt": "bounded deep_reasoner 又 stream idle 了，搭子继续处理。",
-    "should_trigger": true,
-    "expected_behavior": [
-      "Read the run metadata, sanitized events, and visible checkpoint before deciding recovery.",
-      "Use the exact same-session resume command written to recovery.md first.",
-      "Keep authentication, upstream idle, local idle timeout, wall timeout, and budget stop as separate failure classes.",
-      "Ask for explicit approval before using any different configured role or model."
-    ],
-    "must_not": [
-      "Restart repository discovery from zero.",
-      "Relabel every idle timeout as a login failure.",
-      "Silently fall back to Sonnet, Opus, Codex, or another role."
     ]
   }
 ]

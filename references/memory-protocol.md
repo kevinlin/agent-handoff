@@ -1,6 +1,6 @@
 # Partner Memory Protocol (wrap-up phase)
 
-Run this at the end of every non-trivial Partner session, both directions.
+Run this at the end of every non-trivial Partner session.
 The point is that the *next* split decision starts smarter: which task
 types Codex handles well, which effort levels fit, where rework happened.
 

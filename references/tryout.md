@@ -15,7 +15,7 @@ their intended work, not merely answer the installation probe.
 
 Fixed content, independent of the target repo's state. Run them through
 each identity's configured backend (subagent spawn for `backend=claude`,
-`delegate-codex.sh --host <driver> --role <identity>` for `backend=codex`):
+`delegate-codex.sh --role <identity>` for `backend=codex`):
 
 1. **fast_worker — mechanical**: "Sort the keys of this JSON object
    alphabetically at every nesting level and return only the formatted
@@ -59,7 +59,7 @@ verdict: all identities live
   never report `all identities live` on a partial pass.
 - After each passing row, write `verified=true` + `verified_at` back to
   the config via
-  `python3 "$PARTNER_DIR/scripts/partner-config.py" --host <driver> set --role <identity> --verified --verified-at <utc>`
+  `python3 "$PARTNER_DIR/scripts/partner-config.py" set --role <identity> --verified --verified-at <utc>`
   (goes through the same lock as every config write).
 - Close the session with a normal Partner Session Receipt; the three rows
   become its `roles_used` entries with `verified: true`.

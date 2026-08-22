@@ -7,11 +7,11 @@ Partner uses a validation-gated improvement loop inspired by Darwin-style skill 
 Only improve one dimension per round:
 
 1. Planning handoff
-2. Codex implementation contract
-3. Claude UI/interaction polish
-4. Claude `/codex:review` handoff
-5. Claude Code monitoring
-6. Permission and skip policy
+2. The split decision
+3. Codex delegation contract
+4. Job monitoring
+5. Full-review gate
+6. Permission policy
 7. User-facing final report
 8. Install and publish assets
 
@@ -32,7 +32,7 @@ Revert or rework when any are true:
 - Test prompts become less specific.
 - The workflow grows ambiguous phrases such as "consider", "maybe", "as appropriate", or "根据情况".
 - A new rule conflicts with the safety boundary.
-- A review/polish loop produces no actionable gain after repeated prompts.
+- A review or fix round produces no actionable gain after repeated prompts.
 - The expected improvement is less than 1 point on a 100-point skill score.
 
 Use a reviewable revert or patch. Do not use `git reset --hard` as the default rollback method.

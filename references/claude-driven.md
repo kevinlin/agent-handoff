@@ -1,8 +1,8 @@
-# Claude-Driven Partner Flow (Direction B)
+# Partner Flow
 
-Use this flow when the skill is loaded inside Claude Code and the user asks
-Claude to split work with Codex ("双向搭子", "分工给 codex", "让 codex 做",
-"codex 后台跑"). Claude Code is the driver: it plans, delegates
+Use this flow when the user asks Claude to split work with Codex ("搭子",
+"分工给 codex", "让 codex 做", "codex 后台跑"). Claude Code is the driver: it
+plans, delegates
 quota-pressure work to Codex (subscription billing), monitors the background
 jobs, and quality-gates everything before accepting it. The goal is saving
 Claude API spend without lowering quality — the full-review gate in Phase 4
@@ -27,11 +27,11 @@ Job state lives under `<repo>/.partner/jobs/`.
 - Refine the user's request into a concrete plan, then write
   `<repo>/.partner/goal.md` (template: `references/goal-template.md`): the
   overall goal as one why-forward sentence, a task table, and the checkpoint
-  rule from `references/fable5-principles.md`. If the repo may have a
-  second host writing the same goal.md concurrently, use
+  rule from `references/fable5-principles.md`. Because the Phase 3 monitor
+  loop writes task statuses into the same file, use
   `scripts/goal-sync.py read`/`write --expect-sha256 <hash>` instead of
-  editing the file directly — it aborts instead of silently clobbering the
-  other host's update.
+  editing the file directly — it aborts instead of silently clobbering a
+  concurrent update.
 - Split tasks by making one judgment per row — which capability does this
   work need (see the identity definitions in `references/goal-template.md`):
   - `fast_worker` for mechanical, spec-complete work (refactors, test
@@ -49,14 +49,13 @@ Job state lives under `<repo>/.partner/jobs/`.
   (e.g. a rescue agent) for a stuck step needing a second diagnosis with
   no durable state, and a raw Task-tool subagent when no Partner identity
   fits — billing notes for both in `references/fable5-principles.md`.
-- Adversarial gate: run the idea-king adversarial review (the `idea-king`
-  skill, or `references/../idea-king/SKILL.md` content inline) against the
-  split. It must answer three questions: does each delegated task really
-  not need the expensive tier, does the integration cost of the split
-  boundary eat the savings, and does each row's identity match the work's
-  actual stakes (with a reason it is not a more expensive one). Fix the
-  split before delegating; its `分工 (Assignment)` section is the
-  corrected task→identity mapping you act on.
+- Adversarial gate: attack your own split before acting on it. Answer three
+  questions in writing: does each delegated task really not need the
+  expensive tier, does the integration cost of the split boundary eat the
+  savings, and does each row's identity match the work's actual stakes (with
+  a reason it is not a more expensive one). A row that survives all three
+  gets delegated; anything else gets its identity corrected, merged into a
+  neighbour, or kept inline. Fix the split first, then delegate.
 
 ## Sub Agent Routing
 
@@ -70,7 +69,7 @@ this three-level lookup, in order:
 1. **`partner-*` namespaced agent** — if `搭子，配置` has generated
    `partner-deep-reasoner` / `partner-fast-worker` / `partner-arbiter`
    (project or global scope; check
-   `python3 "$PARTNER_DIR/scripts/partner-config.py" --host claude_code resolve`
+   `python3 "$PARTNER_DIR/scripts/partner-config.py" resolve`
    for the configured identity, or just try spawning the namespaced agent),
    use it. Its model/effort came from the user's own setup choice.
 2. **The user's own similarly-named agent** — if no `partner-*` agent exists
@@ -92,7 +91,7 @@ for one solver's answer:
 
 1. Send the **same problem, verbatim** to both `deep_reasoner` and
    `arbiter`, each through its own configured backend (subagent spawn or
-   `delegate-codex.sh --host claude_code --role arbiter`).
+   `delegate-codex.sh --role arbiter`).
 2. **Contamination rule**: neither packet may contain the other solver's
    answer, conclusion, or any leaning hint ("X thinks A, verify it" is
    already contaminated). Blind means blind — a contaminated run silently
@@ -106,9 +105,9 @@ for one solver's answer:
    config has them same-vendor, the protocol still runs but the receipt
    notes `same-vendor` so the weaker independence is visible.
 
-This is distinct from the idea-king gate: 点子王 attacks a *plan* you
-already have; the arbiter independently *solves the same problem* with no
-knowledge of the first answer.
+This is distinct from the Phase 1 gate: that gate attacks a plan you already
+have; the arbiter independently *solves the same problem* with no knowledge of
+the first answer.
 
 ## Phase 2 — Delegate
 
@@ -117,24 +116,23 @@ knowledge of the first answer.
   verifiable acceptance criteria, scope constraints, and the fixed output
   rules (no optional commentary; lessons learned at the end).
 - Submit as a background job, passing the row's identity so backend, model,
-  and effort resolve from `搭子，配置`'s config. `--host claude_code` reads
-  the driver's own routing table (explicit `--model`/`--effort` still wins
-  per field if a specific task genuinely needs an override):
+  and effort resolve from `搭子，配置`'s config (explicit `--model`/`--effort`
+  still wins per field if a specific task genuinely needs an override):
 
 ```bash
 prompt=$(mktemp)
 # ... write the delegation packet into "$prompt" ...
 bash "$PARTNER_DIR/scripts/delegate-codex.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
-  --host claude_code --role <identity>
+  --role <identity>
 ```
 
 The tool fail-closes on both misconfigurations: no Partner config yet →
 clear error (run `搭子，配置` first, or fall back to an explicit `--effort`
 for this one job and note it in `Notes`); identity configured with
 `backend = claude` → refusal with a pointer to spawn the `partner-<identity>`
-subagent instead — this is the guard against silently running a
-claude-backend identity on the wrong vendor.
+subagent instead. That is the guard against silently running a claude-backend
+identity on the wrong vendor and the wrong meter.
 
 - Use `--read-only` for scan/review jobs that must not modify the repo.
 - Record the returned jobId in the goal file's task row. Independent tasks
@@ -199,10 +197,9 @@ this phase entirely on the default lightweight flow above.
 ## Phase 5 — Wrap Up
 
 - Mark tasks done in `.partner/goal.md`; stop any remaining `/loop`.
-- Emit the Partner Session Receipt with `direction: claude-driven` and
-  `codex_jobs: <count>`; in this direction `claude_session` refers to the
-  current session and `new_claude_p_sessions` is normally `0`. Set `host`,
-  `scope`, and `config_source` from `partner-config.py resolve` (or
+- Emit the Partner Session Receipt with `codex_jobs: <count>` (fix rounds
+  included); `claude_session` is the current session. Set `scope` and
+  `config_source` from `partner-config.py resolve` (or
   `partner-setup.py --status`), and build `roles_used` from the roles this
   run actually invoked: each `delegate-codex.sh` job's `meta` file has
   `role`/`model`/`effort`/`model_source`/`effort_source`, and
