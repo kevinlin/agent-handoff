@@ -36,10 +36,7 @@ Do not present this model as measured token savings.
 
 ## Archived v2.0.1 Planning Evidence
 
-Partner 2.0.1 shipped a bounded repository planner, removed in 3.0.0. Its cost
-evidence is kept here because it is real and verifiable per run. It describes a
-component that no longer exists, does **not** replace the workload model above,
-and never measured the whole Partner loop.
+Partner 2.0.1 shipped a bounded repository planner, removed in 3.0.0. Its cost evidence is kept here because it is real and verifiable per run. It describes a component that no longer exists, does **not** replace the workload model above, and never measured the whole Partner loop.
 
 | Run | Session mode | Outcome | Cost returned by Claude CLI |
 |---|---|---|---:|
@@ -48,11 +45,7 @@ and never measured the whole Partner loop.
 | `fable-candidate-r2-resume` | exact same session | valid eight-section plan | `$0.382695` |
 | `fable-candidate-final` | fresh, bounded | valid plan; exact model/session/hashes | `$0.45282` |
 
-The failed bounded attempt has `unknown` cost because Claude CLI did not emit a
-final result/cost event before the runner's 180-second accepted-event timeout.
-Partner did not estimate the missing value. The runner retained failure
-metadata and recovery, the exact same session resumed successfully, and a
-separate fresh candidate later passed the release gate.
+The failed bounded attempt has `unknown` cost because Claude CLI did not emit a final result/cost event before the runner's 180-second accepted-event timeout. Partner did not estimate the missing value. The runner retained failure metadata and recovery, the exact same session resumed successfully, and a separate fresh candidate later passed the release gate.
 
 See `docs/releases/v2.0.1.md` for that release's boundary.
 

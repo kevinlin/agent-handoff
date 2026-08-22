@@ -21,23 +21,7 @@ The Codex CLI is what makes the delegation primitives work. When it is missing, 
 
 ## Configuration
 
-On "Partner, configure", or when a Partner flow needs an identity with no
-configuration yet, run the local setup UI in `references/setup.md` with
-`python3 "$PARTNER_DIR/scripts/partner-setup-ui.py" --repo <repo>`.
-Do not collect the matrix through repeated chat questions when a browser is
-available. The single page shows every backend, concrete model, and effort,
-then delegates every preview/write to `partner-setup.py` (preview → atomic
-apply → automatic smoke test). It uses beginner-safe project defaults instead
-of asking scope/Git/routing questions in chat; the terminal engine remains
-available for explicit advanced overrides. Three identities — deep_reasoner, fast_worker, and
-arbiter (the blind second solver for contentious calls) — each carry their
-own backend (which CLI executes: claude or codex), model, and effort,
-freely mixed across vendors. Their values live only in
-`.partner/config.toml` (project) or `~/.config/partner/config.toml`
-(global) — schema in `docs/config-schema.md`; never duplicate them into
-prompts or docs. On "Partner, tryout", run the identity tryout in
-`references/tryout.md`: each identity executes one micro-task and the
-report proves they are live on the configured models.
+On "Partner, configure", or when a Partner flow needs an identity with no configuration yet, run the local setup UI in `references/setup.md` with `python3 "$PARTNER_DIR/scripts/partner-setup-ui.py" --repo <repo>`. Do not collect the matrix through repeated chat questions when a browser is available. The single page shows every backend, concrete model, and effort, then delegates every preview/write to `partner-setup.py` (preview → atomic apply → automatic smoke test). It uses beginner-safe project defaults instead of asking scope/Git/routing questions in chat; the terminal engine remains available for explicit advanced overrides. Three identities — deep_reasoner, fast_worker, and arbiter (the blind second solver for contentious calls) — each carry their own backend (which CLI executes: claude or codex), model, and effort, freely mixed across vendors. Their values live only in `.partner/config.toml` (project) or `~/.config/partner/config.toml` (global) — schema in `docs/config-schema.md`; never duplicate them into prompts or docs. On "Partner, tryout", run the identity tryout in `references/tryout.md`: each identity executes one micro-task and the report proves they are live on the configured models.
 
 ## Tool Location
 
@@ -61,13 +45,7 @@ Use the Darwin-style ratchet in `references/darwin-ratchet.md` when improving th
 
 ## Monitoring
 
-Delegated jobs are monitored from evidence, never from chat text. Phase 3 of
-`references/claude-driven.md` has the loop; the signals are the job's own
-`status`, the tail of its `log.jsonl`, its `stderr.log`, and repo evidence
-(`git status --short`, `git diff --stat`, plus the fastest relevant check). A
-job with no new JSONL events across two consecutive ticks, or a `FAILED`
-status, is an anomaly: cancel it, read the stderr, then resubmit with a
-corrected prompt or take the task back. Record the anomaly in the receipt.
+Delegated jobs are monitored from evidence, never from chat text. Phase 3 of `references/claude-driven.md` has the loop; the signals are the job's own `status`, the tail of its `log.jsonl`, its `stderr.log`, and repo evidence (`git status --short`, `git diff --stat`, plus the fastest relevant check). A job with no new JSONL events across two consecutive ticks, or a `FAILED` status, is an anomaly: cancel it, read the stderr, then resubmit with a corrected prompt or take the task back. Record the anomaly in the receipt.
 
 ## Output Contract
 
@@ -96,16 +74,6 @@ receipt_schema_version: 3
 
 Generate the receipt with `python3 "$PARTNER_DIR/scripts/make-receipt.py"` — it refuses to emit an invalid receipt. Set `codex_jobs` to the number of `delegate-codex.sh` jobs this run, counting fix rounds; the job directories under `<repo>/.partner/jobs/` are the evidence, not recall. A written receipt can be re-checked any time with `validate-receipt.py` against `docs/receipt-schema.json`.
 
-`claude_session` is the current session. `scope` and `config_source` come
-straight from `partner-setup.py --status` or a `partner-config.py resolve` call
-(`n/a` when the run touched no configured role). `roles_used` lists every role
-actually invoked this run, each entry's `verified` taken from the config's
-`verified` field, not guessed — an unconfigured or unverified role still gets
-an entry with `verified: false`, it is never omitted to make the receipt look
-cleaner. In `roles_used`, an entry's `host` is the CLI that executed that role,
-not the runtime that loaded this file. `receipt_schema_version` is always `3`;
-a receipt carrying `direction` or `monitoring_level` is a v2 receipt from
-before this contract and will fail `validate-receipt.py`, which is the intended
-signal to regenerate it with the current `make-receipt.py`.
+`claude_session` is the current session. `scope` and `config_source` come straight from `partner-setup.py --status` or a `partner-config.py resolve` call (`n/a` when the run touched no configured role). `roles_used` lists every role actually invoked this run, each entry's `verified` taken from the config's `verified` field, not guessed — an unconfigured or unverified role still gets an entry with `verified: false`, it is never omitted to make the receipt look cleaner. In `roles_used`, an entry's `host` is the CLI that executed that role, not the runtime that loaded this file. `receipt_schema_version` is always `3`; a receipt carrying `direction` or `monitoring_level` is a v2 receipt from before this contract and will fail `validate-receipt.py`, which is the intended signal to regenerate it with the current `make-receipt.py`.
 
 Do not fabricate token savings. When exact token telemetry is unavailable, report verifiable behavior instead: which tasks ran on the Codex subscription, how many jobs and fix rounds, that the full diff was reviewed against the acceptance criteria, and that the checks passed.
