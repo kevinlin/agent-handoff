@@ -28,7 +28,10 @@ HOSTS = (HOST,)
 IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
 IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "verified", "verified_at")
 BACKENDS = ("claude", "codex")
-V1_UPGRADE_MESSAGE = "检测到 schema v1 配置，请重跑 搭子，配置 升级（旧值会作为向导初值）"
+V1_UPGRADE_MESSAGE = (
+    'Detected a schema v1 config. Rerun "Partner, configure" to upgrade '
+    "(the old values seed the wizard)."
+)
 SUBSET_GUIDE = "See docs/config-schema.md#supported-toml-subset."
 SECTION_RE = re.compile(r"^[ \t]*\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\][ \t]*(?:#.*)?(?:\r?\n)?$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -87,7 +90,7 @@ def _validate_host(host: str) -> None:
 
 def _legacy_v1_error(path: Optional[Path] = None) -> ConfigValidationError:
     location = str(path) if path is not None else "<input>"
-    return ConfigValidationError(f"{V1_UPGRADE_MESSAGE}；文件路径：{location}")
+    return ConfigValidationError(f"{V1_UPGRADE_MESSAGE} File: {location}")
 
 
 def split_sections(text: str) -> List[SectionChunk]:

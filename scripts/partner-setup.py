@@ -50,7 +50,7 @@ ROUTING_POLICY = (
     "Route mechanical, well-scoped execution to partner-fast-worker.\n"
     "Route independent blind-solve arbitration to partner-arbiter.\n"
 )
-MANAGED_COMMENT = '<!-- managed by partner-skill - edit via "搭子，配置" -->'
+MANAGED_COMMENT = '<!-- managed by partner-skill - edit via "Partner, configure" -->'
 
 # ``None`` means that the Codex model must be detected or explicitly supplied.
 PRESETS: Dict[str, Dict[str, Tuple[str, Optional[str], str]]] = {
@@ -337,7 +337,10 @@ def render_agent(identity: str, values: Mapping[str, Any]) -> str:
         description = "Handles mechanical, well-scoped implementation and verification work."
         body = "Execute the given specification precisely, verify the result, and report changed files, checks, and deviations."
     else:
-        description = "独立盲解仲裁者；收到的问题必须独立求解，packet 不含他人答案。"
+        description = (
+            "Independent blind arbiter. Every question must be solved "
+            "independently; the packet carries no one else's answer."
+        )
         body = "Independently solve the received problem. Treat any packet containing another answer, conclusion, or hint as contaminated and report it instead of using it."
     return (
         "---\n"
@@ -525,7 +528,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     legacy = bool(old_config and _is_legacy_v1(old_config))
     if legacy:
         new_config = _migrate_v1(old_config, desired, sources)
-        notes.append("v1 → v2 升级，旧值已保留为初值")
+        notes.append("v1 → v2 upgrade; old values kept as the starting values")
     else:
         if old_config:
             parsed = partner_config.validate_config(old_config, path=path)
@@ -552,7 +555,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
             f"CLI unavailable: {grouped}; install the corresponding CLI or change backend"
         )
     if desired["arbiter"]["backend"] == desired["deep_reasoner"]["backend"]:
-        notes.append("盲评价值下降（same-vendor）")
+        notes.append("blind-review value reduced (same-vendor)")
     changes = [FileChange(path, old_config, new_config, path.exists())]
 
     if args.write_agents:

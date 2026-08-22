@@ -145,7 +145,7 @@ class SetupUITests(unittest.TestCase):
             },
             state["efforts_by_backend"],
         )
-        self.assertEqual("Codex CLI 自动获取", state["model_discovery"]["codex"])
+        self.assertEqual("Read from Codex CLI", state["model_discovery"]["codex"])
 
     def test_claude_context_variants_are_normalized_and_deduplicated(self):
         options, _ = partner_setup_ui._claude_model_options(
@@ -173,7 +173,7 @@ class SetupUITests(unittest.TestCase):
 
         changed = dict(payload)
         changed["scope"] = "global"
-        with self.assertRaisesRegex(partner_setup_ui.UIError, "精确预览"):
+        with self.assertRaisesRegex(partner_setup_ui.UIError, "exact preview"):
             controller.apply(changed)
 
         applied = controller.apply(payload)
@@ -191,7 +191,7 @@ class SetupUITests(unittest.TestCase):
         controller = partner_setup_ui.SetupController(self.repo, self.env)
         payload = self.payload(controller)
         payload["identities"]["fast_worker"]["effort"] = "low"
-        with self.assertRaisesRegex(partner_setup_ui.UIError, "自定义模式"):
+        with self.assertRaisesRegex(partner_setup_ui.UIError, "custom mode"):
             partner_setup_ui.normalize_payload(
                 payload,
                 repo=self.repo,
@@ -222,7 +222,7 @@ class SetupUITests(unittest.TestCase):
         payload["mode"] = "custom"
         payload["identities"]["fast_worker"]["model"] = "gpt-catalog-fast"
         payload["identities"]["fast_worker"]["effort"] = "high"
-        with self.assertRaisesRegex(partner_setup_ui.UIError, "可选值：medium"):
+        with self.assertRaisesRegex(partner_setup_ui.UIError, "allowed values: medium"):
             partner_setup_ui.normalize_payload(
                 payload,
                 repo=self.repo,
@@ -248,21 +248,21 @@ class SetupUITests(unittest.TestCase):
         self.assertIn('aria-describedby="${identity}-source"', html)
         self.assertIn('<select id="${identity}-model" data-field="model"', html)
         self.assertNotIn('type="text" data-field="model"', html)
-        self.assertIn("Codex 模型从本机账户自动读取", html)
+        self.assertIn("Codex models are read from your local account", html)
         self.assertIn('id="technicalDetails"', html)
-        self.assertIn("查看完整路径和技术 diff", html)
-        self.assertIn("我确认安装到当前项目", html)
+        self.assertIn("Show full paths and the technical diff", html)
+        self.assertIn("I confirm installing into this project", html)
         self.assertIn("scope: 'project'", html)
         self.assertIn("exclude_choice: 'git-exclude'", html)
         self.assertIn("function effortCatalog(backend, model)", html)
         self.assertIn("syncEffort(matrix[identity])", html)
-        self.assertIn("安装完成，但自动检查未通过", html)
+        self.assertIn("Installed, but the automatic check did not pass", html)
         for advanced_label in (
-            "写入与验证",
-            "写入范围",
-            "所有项目",
-            "项目配置的 Git 处理",
-            "常驻路由块",
+            "Write and verify",
+            "Write scope",
+            "All projects",
+            "Git handling for the project config",
+            "Persistent routing block",
             "smoke test",
         ):
             self.assertNotIn(advanced_label, html)

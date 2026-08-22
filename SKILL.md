@@ -2,12 +2,12 @@
 name: partner-skill
 version: 3.0.0
 description: |
-  搭子.skill / Partner — cost-split workflow where Claude Code drives and Codex executes. Claude plans and splits the work, attacks its own split before acting on it, delegates quota-pressure tasks to Codex background jobs, monitors them, and full-reviews the result before accepting. Use on "搭子" / "搭子，恢复" (resume from .partner/), "搭子，配置" (first-run setup wizard), "搭子，试跑" (identity tryout report), 分工给 codex / 让 codex 做 / codex 后台跑 / Claude 计划 Codex 实现, or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "partner" in unrelated contexts.
+  Partner — cost-split workflow where Claude Code drives and Codex executes. Claude plans and splits the work, attacks its own split before acting on it, delegates quota-pressure tasks to Codex background jobs, monitors them, and full-reviews the result before accepting. Use on "Partner skill" / "Partner, resume" (resume from .partner/), "Partner, configure" (first-run setup wizard), "Partner, tryout" (identity tryout report), "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "partner" in unrelated contexts.
 ---
 
-# 搭子.skill (Partner)
+# Partner
 
-> 我的 Claude Code 和 Codex 天下第一好。
+> My Claude Code and Codex are the best coding partners.
 
 ## Overview
 
@@ -21,7 +21,7 @@ The Codex CLI is what makes the delegation primitives work. When it is missing, 
 
 ## Configuration
 
-On "搭子，配置", or when a Partner flow needs an identity with no
+On "Partner, configure", or when a Partner flow needs an identity with no
 configuration yet, run the local setup UI in `references/setup.md` with
 `python3 "$PARTNER_DIR/scripts/partner-setup-ui.py" --repo <repo>`.
 Do not collect the matrix through repeated chat questions when a browser is
@@ -35,7 +35,7 @@ own backend (which CLI executes: claude or codex), model, and effort,
 freely mixed across vendors. Their values live only in
 `.partner/config.toml` (project) or `~/.config/partner/config.toml`
 (global) — schema in `docs/config-schema.md`; never duplicate them into
-prompts or docs. On "搭子，试跑", run the identity tryout in
+prompts or docs. On "Partner, tryout", run the identity tryout in
 `references/tryout.md`: each identity executes one micro-task and the
 report proves they are live on the configured models.
 

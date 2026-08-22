@@ -1,6 +1,6 @@
-# Partner Setup Wizard (搭子，配置)
+# Partner Setup Wizard ("Partner, configure")
 
-First-run configuration for Partner. Triggered by "搭子，配置"
+First-run configuration for Partner. Triggered by "Partner, configure"
 (or when a Partner flow needs a role that has no configuration yet). Open the
 localhost-only single-page UI so the user can see and change every concrete
 backend/model/effort without repeated chat questions. Every preview and state
@@ -32,8 +32,8 @@ Pick exactly one:
    `fable`/`opus`/`sonnet`/`haiku` aliases, with `[1m]`/`1M` context variants
    normalized and deduplicated. Claude effort values come from the same help
    output. Never render one shared effort enum for both CLIs.
-2. **Work mode and full matrix** — offer 均衡 balanced (default) / 质量 quality /
-   成本 cost as starting points. The three identity rows (deep_reasoner /
+2. **Work mode and full matrix** — offer balanced (default) / quality / cost
+   as starting points. The three identity rows (deep_reasoner /
    fast_worker / arbiter) always keep their backend → model → effort controls
    visible. Changing any row makes the matrix custom internally. Switching a
    backend or model immediately constrains effort to that exact selection's
@@ -61,9 +61,9 @@ Pick exactly one:
    agent is selected when one was generated. Only a successful
    backend check writes `verified=true` and one shared `verified_at` timestamp.
    Apply remains a completed write if smoke fails, but the UI must visibly say
-   `安装完成，但自动检查未通过` and preserve `verified=false` for the failed
+   `Installed, but the automatic check did not pass` and preserve `verified=false` for the failed
    identity.
-7. Point the user at "搭子，试跑" (`references/tryout.md`) — the real
+7. Point the user at "Partner, tryout" (`references/tryout.md`) — the real
    end-to-end proof pass where every identity runs a micro-task and a
    report shows each one live on its configured model. Close with a normal
    Partner Session Receipt.
@@ -75,11 +75,11 @@ agents, the generated files stay namespaced (`partner-deep-reasoner`,
 `partner-fast-worker`) and never touch user files. When the engine refuses
 a path (exists, not in the manifest), offer the three-way:
 
-- **导入现有设置** — read the user agent's model as the initial value, then
-  still write only `partner-*` files.
-- **生成 namespaced partner-\*** (default) — skip the conflicting path,
+- **Import existing settings** — read the user agent's model as the initial
+  value, then still write only `partner-*` files.
+- **Generate namespaced `partner-*`** (default) — skip the conflicting path,
   write the rest.
-- **跳过** — no agent files; config only.
+- **Skip** — no agent files; config only.
 
 ## Rules
 

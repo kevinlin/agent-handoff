@@ -43,16 +43,16 @@ CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 IDENTITY_META = {
     "deep_reasoner": {
-        "label": "深度推理",
-        "hint": "架构、诊断与复杂取舍",
+        "label": "Deep reasoning",
+        "hint": "Architecture, diagnosis, and hard tradeoffs",
     },
     "fast_worker": {
-        "label": "快速执行",
-        "hint": "机械实现、测试与修复",
+        "label": "Fast execution",
+        "hint": "Mechanical implementation, tests, and fixes",
     },
     "arbiter": {
-        "label": "独立仲裁",
-        "hint": "争议结论的盲解复核",
+        "label": "Independent arbitration",
+        "hint": "Blind second solve for contested conclusions",
     },
 }
 
@@ -75,7 +75,7 @@ def _binary_version(path: Optional[str], env: Mapping[str, str], source: str) ->
         )
         version = (result.stdout or result.stderr).strip().splitlines()[0]
     except (OSError, subprocess.TimeoutExpired):
-        version = "已找到，版本读取失败"
+        version = "Found, version unreadable"
     return {"available": True, "path": path, "version": version, "source": source}
 
 
@@ -145,7 +145,7 @@ def _codex_model_options(
     path: Optional[str], env: Mapping[str, str]
 ) -> Tuple[List[Dict[str, Any]], str]:
     if not path:
-        return [], "Codex CLI 未安装"
+        return [], "Codex CLI not installed"
     process: Optional[subprocess.Popen[str]] = None
     try:
         process = subprocess.Popen(
@@ -206,9 +206,9 @@ def _codex_model_options(
                     "is_default": bool(item.get("isDefault")),
                 }
             )
-        return options, "Codex CLI 自动获取" if options else "Codex CLI 未返回可选模型"
+        return options, "Read from Codex CLI" if options else "Codex CLI returned no models"
     except (OSError, ValueError, subprocess.TimeoutExpired):
-        return [], "Codex CLI 模型列表读取失败"
+        return [], "Could not read the Codex CLI model list"
     finally:
         if process is not None and process.poll() is None:
             process.terminate()
@@ -272,7 +272,7 @@ def _claude_model_options(
         {
             "value": alias,
             "label": alias.capitalize(),
-            "description": "Claude Code 官方滚动别名",
+            "description": "Official Claude Code rolling alias",
             "source": "claude --help",
             "efforts": efforts,
             "is_default": alias == "opus",
@@ -287,14 +287,14 @@ def _claude_model_options(
                 {
                     "value": value,
                     "label": value,
-                    "description": "本机 Claude 配置中已使用",
+                    "description": "Already used in the local Claude config",
                     "source": "local claude config",
                     "efforts": efforts,
                     "is_default": False,
                 }
             )
             known.add(value)
-    source = "Claude CLI 官方别名" if path else "Claude 官方别名兜底"
+    source = "Official Claude CLI aliases" if path else "Built-in Claude alias fallback"
     return options, source
 
 
@@ -307,7 +307,7 @@ def _ensure_model_option(
         {
             "value": value,
             "label": value,
-            "description": "当前配置中已使用",
+            "description": "Already used in the current config",
             "source": source,
             "efforts": list(engine.BACKEND_EFFORTS[backend]),
             "is_default": False,
@@ -406,10 +406,10 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
 
 def _clean_string(value: Any, label: str, *, limit: int = 200) -> str:
     if not isinstance(value, str):
-        raise UIError(f"{label} 必须是字符串")
+        raise UIError(f"{label} must be a string")
     value = value.strip()
     if not value or len(value) > limit or any(ord(char) < 32 for char in value):
-        raise UIError(f"{label} 不能为空、不能含控制字符，且最多 {limit} 个字符")
+        raise UIError(f"{label} must be non-empty, free of control characters, and at most {limit} characters")
     return value
 
 
@@ -421,30 +421,30 @@ def normalize_payload(
     model_options: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     if not isinstance(raw, dict):
-        raise UIError("请求必须是 JSON 对象")
+        raise UIError("Request must be a JSON object")
     mode = raw.get("mode")
     if mode not in MODES:
-        raise UIError("工作模式无效")
+        raise UIError("Invalid work mode")
     scope = raw.get("scope")
     if scope not in SCOPES:
-        raise UIError("作用域无效")
+        raise UIError("Invalid scope")
     exclude_choice = raw.get("exclude_choice", "git-exclude")
     if exclude_choice not in EXCLUDE_CHOICES:
-        raise UIError("Git 处理方式无效")
+        raise UIError("Invalid Git handling option")
     routing_action = raw.get("routing_action", "none")
     if routing_action not in ROUTING_ACTIONS:
-        raise UIError("常驻路由设置无效")
+        raise UIError("Invalid persistent routing setting")
     supplied = raw.get("identities")
     if not isinstance(supplied, dict):
-        raise UIError("缺少身份矩阵")
+        raise UIError("Missing identity matrix")
     identities: Dict[str, Dict[str, str]] = {}
     for identity in engine.IDENTITIES:
         values = supplied.get(identity)
         if not isinstance(values, dict):
-            raise UIError(f"缺少 {identity} 设置")
+            raise UIError(f"Missing settings for {identity}")
         backend = values.get("backend")
         if backend not in engine.BACKENDS:
-            raise UIError(f"{identity} 的 CLI 无效")
+            raise UIError(f"Invalid CLI for {identity}")
         model = _clean_string(values.get("model"), f"{identity} model")
         effort = values.get("effort")
         supported_efforts = engine.BACKEND_EFFORTS[backend]
@@ -461,8 +461,8 @@ def normalize_payload(
                 supported_efforts = tuple(option["efforts"])
         if effort not in supported_efforts:
             raise UIError(
-                f"{identity} 的思考深度 {effort} 不受 {backend}/{model} 支持；"
-                f"可选值：{', '.join(supported_efforts)}"
+                f"effort {effort} for {identity} is not supported by {backend}/{model}; "
+                f"allowed values: {', '.join(supported_efforts)}"
             )
         identities[identity] = {
             "backend": backend,
@@ -479,7 +479,7 @@ def normalize_payload(
             for identity in engine.IDENTITIES
         }
         if identities != comparable:
-            raise UIError("身份设置已修改，请切换到自定义模式后重新预览")
+            raise UIError("Identity settings changed. Switch to custom mode and preview again.")
     return {
         "repo": str(repo.resolve()),
         "mode": mode,
@@ -577,7 +577,7 @@ class SetupController:
         )
         with self.lock:
             if self.preview_digest != _digest(payload) or self.preview_code != 0:
-                raise UIError("当前选择还没有通过精确预览，请先点击“预览安装内容”")
+                raise UIError('The current selection has no exact preview yet. Click "Preview install" first.')
             fresh = self._run(engine_arguments(payload, "--preview"))
             if (
                 fresh.returncode != self.preview_code
@@ -585,7 +585,7 @@ class SetupController:
                 or fresh.stderr != self.preview_stderr
             ):
                 self.preview_digest = None
-                raise UIError("文件状态在预览后发生变化，请重新生成预览再确认")
+                raise UIError("File state changed after the preview. Regenerate the preview before confirming.")
             applied = self._run(engine_arguments(payload, "--apply"), timeout=120)
             self.preview_digest = None
             smoke = None
@@ -619,7 +619,7 @@ HTML = r'''<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>搭子配置</title>
+  <title>Partner Setup</title>
   <style>
     /* Base structural styles. The taste-v2 layer below owns the visual direction. */
     :root {
@@ -985,82 +985,82 @@ HTML = r'''<!doctype html>
 </head>
 <body>
   <main class="shell">
-    <nav class="masthead" aria-label="搭子配置">
-      <div class="brand"><span class="brand-mark">搭</span><span>Partner Setup<small>本地 Agent 配置台</small></span></div>
-      <div class="local-state">仅在本机运行</div>
+    <nav class="masthead" aria-label="Partner setup">
+      <div class="brand"><span class="brand-mark">P</span><span>Partner Setup<small>Local agent setup</small></span></div>
+      <div class="local-state">Runs on this machine only</div>
     </nav>
 
     <header class="hero">
       <div class="hero-copy">
-        <h1>配置你的搭子</h1>
-        <p class="subtitle">把推理、执行和仲裁一次分配清楚。先看真实模型与精确 diff，确认后才写入。</p>
-        <div class="repo-block"><span>当前项目</span><code id="repo"></code></div>
+        <h1>Configure Partner</h1>
+        <p class="subtitle">Assign reasoning, execution, and arbitration in one pass. See the real models and the exact diff before anything is written.</p>
+        <div class="repo-block"><span>Current project</span><code id="repo"></code></div>
       </div>
-      <div class="hero-map" aria-label="当前角色路由预览">
-        <span class="map-caption">真实配置预览</span>
-        <div class="agent-core"><strong>搭子</strong><small>orchestrator</small></div>
+      <div class="hero-map" aria-label="Current role routing preview">
+        <span class="map-caption">Live config preview</span>
+        <div class="agent-core"><strong>Partner</strong><small>orchestrator</small></div>
         <div class="route-line deep" aria-hidden="true"><i></i></div>
         <div class="route-line fast" aria-hidden="true"><i></i></div>
         <div class="route-line arbiter" aria-hidden="true"><i></i></div>
-        <div class="role-node deep"><span>深度推理</span><strong id="heroDeep">正在检测</strong></div>
-        <div class="role-node fast"><span>快速执行</span><strong id="heroFast">正在检测</strong></div>
-        <div class="role-node arbiter"><span>独立仲裁</span><strong id="heroArbiter">正在检测</strong></div>
+        <div class="role-node deep"><span>Deep reasoning</span><strong id="heroDeep">Detecting</strong></div>
+        <div class="role-node fast"><span>Fast execution</span><strong id="heroFast">Detecting</strong></div>
+        <div class="role-node arbiter"><span>Independent arbitration</span><strong id="heroArbiter">Detecting</strong></div>
       </div>
     </header>
 
-    <section class="detect" id="detect" aria-label="本机环境检测">
-      <p class="loading-copy">正在读取本机环境...</p>
+    <section class="detect" id="detect" aria-label="Local environment detection">
+      <p class="loading-copy">Reading the local environment...</p>
     </section>
 
     <section class="config-section" id="configWorkspace" aria-busy="true">
-      <div class="config-heading"><h2>先选工作模式</h2><p>先选一个推荐组合，也可以直接调整每个角色使用的 CLI、模型和思考深度。</p></div>
-      <div class="modes" id="modes"><p class="loading-copy">正在生成模式...</p></div>
+      <div class="config-heading"><h2>Pick a work mode</h2><p>Start from a recommended combination, or set each role's CLI, model, and effort directly.</p></div>
+      <div class="modes" id="modes"><p class="loading-copy">Building modes...</p></div>
 
       <div class="config-grid">
         <section class="matrix-panel" aria-labelledby="matrixTitle">
           <div class="main-heading">
-            <div><h2 id="matrixTitle">三个搭子角色</h2><p>Codex 模型从本机账户自动读取，Claude 模型使用 CLI 官方别名。</p></div>
-            <span class="current-mode" id="currentMode">当前模式：读取中</span>
+            <div><h2 id="matrixTitle">The three Partner roles</h2><p>Codex models are read from your local account; Claude models use the official CLI aliases.</p></div>
+            <span class="current-mode" id="currentMode">Current mode: loading</span>
           </div>
-          <div class="matrix" id="identities"><p class="loading-copy">正在读取具体模型...</p></div>
+          <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
         </section>
 
-        <aside class="settings-panel" aria-label="安装前确认">
-          <div class="settings-head"><h2>准备安装</h2><p>这里不用再选，搭子会按安全默认值处理。</p></div>
+        <aside class="settings-panel" aria-label="Pre-install confirmation">
+          <div class="settings-head"><h2>Ready to install</h2><p>Nothing to choose here. Partner uses safe defaults.</p></div>
 
           <div class="settings-body">
             <ul class="setup-summary">
-              <li class="setup-item"><span class="setup-check" aria-hidden="true">✓</span><span><strong>只配置当前项目</strong><small>不会影响你电脑上的其他项目。</small></span></li>
-              <li class="setup-item"><span class="setup-check" aria-hidden="true">✓</span><span><strong>配置只保留在本机</strong><small>不会把个人模型设置提交到 Git。</small></span></li>
-              <li class="setup-item"><span class="setup-check" aria-hidden="true">✓</span><span><strong>安装完成后自动检查</strong><small>确认搭子能读取新配置，失败会显示原因。</small></span></li>
+              <li class="setup-item"><span class="setup-check" aria-hidden="true">✓</span><span><strong>Configures this project only</strong><small>No other project on your machine is touched.</small></span></li>
+              <li class="setup-item"><span class="setup-check" aria-hidden="true">✓</span><span><strong>Config stays on this machine</strong><small>Your personal model settings are never committed to Git.</small></span></li>
+              <li class="setup-item"><span class="setup-check" aria-hidden="true">✓</span><span><strong>Automatic check after install</strong><small>Confirms Partner can read the new config; failures show the reason.</small></span></li>
             </ul>
           </div>
           <div class="actions">
-            <span class="status" id="status" role="status" aria-live="polite">还没有修改任何文件</span>
-            <button class="primary" id="previewBtn">预览安装内容</button>
+            <span class="status" id="status" role="status" aria-live="polite">No files changed yet</span>
+            <button class="primary" id="previewBtn">Preview install</button>
           </div>
         </aside>
       </div>
 
       <div class="output-section" id="previewWrap" aria-live="polite">
-        <h2>将要修改的文件</h2>
+        <h2>Files that will change</h2>
         <ul class="preview-plan" id="previewPlan">
-          <li class="setup-item"><span class="setup-check" aria-hidden="true">1</span><span><strong>保存三个角色的模型设置</strong><small>写入当前项目的 .partner/config.toml。</small></span></li>
-          <li class="setup-item"><span class="setup-check" aria-hidden="true">2</span><span><strong>让配置只留在本机</strong><small>把配置加入这个仓库的本机 Git 忽略列表。</small></span></li>
-          <li class="setup-item"><span class="setup-check" aria-hidden="true">3</span><span><strong>安装后自动检查</strong><small>确认搭子能读取刚写入的设置。</small></span></li>
+          <li class="setup-item"><span class="setup-check" aria-hidden="true">1</span><span><strong>Save the three roles' model settings</strong><small>Written to this project's .partner/config.toml.</small></span></li>
+          <li class="setup-item"><span class="setup-check" aria-hidden="true">2</span><span><strong>Keep the config local</strong><small>Adds it to this repository's local Git ignore list.</small></span></li>
+          <li class="setup-item"><span class="setup-check" aria-hidden="true">3</span><span><strong>Check after install</strong><small>Confirms Partner can read the settings just written.</small></span></li>
         </ul>
         <details class="technical-details" id="technicalDetails">
-          <summary id="technicalSummary">查看完整路径和技术 diff</summary>
+          <summary id="technicalSummary">Show full paths and the technical diff</summary>
           <pre id="preview"></pre>
         </details>
         <div class="confirm" id="confirm">
-          <label class="choice"><input type="checkbox" id="confirmed"> 我确认安装到当前项目</label>
-          <button class="apply" id="apply" disabled>安装并自动检查</button>
+          <label class="choice"><input type="checkbox" id="confirmed"> I confirm installing into this project</label>
+          <button class="apply" id="apply" disabled>Install and check</button>
         </div>
       </div>
 
       <div class="output-section result" id="resultWrap" aria-live="polite">
-        <h2>执行结果</h2>
+        <h2>Result</h2>
         <pre id="result"></pre>
       </div>
     </section>
@@ -1071,21 +1071,21 @@ HTML = r'''<!doctype html>
     let mode = 'balanced';
     let matrix = {};
     let previewValid = false;
-    const MODE_LABELS = {balanced:'均衡',quality:'质量',cost:'成本',custom:'自定义'};
+    const MODE_LABELS = {balanced:'Balanced',quality:'Quality',cost:'Cost',custom:'Custom'};
     const PRESET_MODES = ['balanced','quality','cost'];
     const MODE_DESCRIPTIONS = {
-      balanced:'Claude 主理，Codex 执行',
-      quality:'更多任务交给 Claude',
-      cost:'Codex 主跑，Claude 兜底',
-      custom:'逐个角色手动设置',
+      balanced:'Claude leads, Codex executes',
+      quality:'More work goes to Claude',
+      cost:'Codex runs most of it, Claude backs it up',
+      custom:'Set each role by hand',
     };
     const EFFORT_LABELS = {
-      minimal:'最少 (minimal)',
-      low:'低 (low)',
-      medium:'中 (medium)',
-      high:'高 (high)',
-      xhigh:'极高 (xhigh)',
-      max:'最高 (max)',
+      minimal:'Minimal',
+      low:'Low',
+      medium:'Medium',
+      high:'High',
+      xhigh:'Extra high',
+      max:'Max',
     };
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const $ = (id) => document.getElementById(id);
@@ -1099,14 +1099,14 @@ HTML = r'''<!doctype html>
     }
     function sourceLabel(source) {
       return ({
-        'detected':'本机检测',
-        'built-in alias':'内置别名',
-        'existing config':'现有配置',
-        'codex model/list':'Codex CLI 自动获取',
-        'claude --help':'Claude CLI 官方别名',
-        'local claude config':'本机 Claude 配置',
-        'custom (required)':'尚未读取到',
-        'built-in':'内置值',
+        'detected':'Detected locally',
+        'built-in alias':'Built-in alias',
+        'existing config':'Existing config',
+        'codex model/list':'Read from Codex CLI',
+        'claude --help':'Official Claude CLI aliases',
+        'local claude config':'Local Claude config',
+        'custom (required)':'Not detected yet',
+        'built-in':'Built-in value',
       })[source] || source;
     }
     function modelCatalog(backend, current, source) {
@@ -1137,7 +1137,7 @@ HTML = r'''<!doctype html>
     function syncReadiness() {
       const ready = Object.values(matrix).every(values => values.model);
       $('previewBtn').disabled = !ready;
-      if (!ready) $('status').textContent = '没有读取到可用模型，请检查 CLI 登录状态后刷新';
+      if (!ready) $('status').textContent = 'No models available. Check your CLI login, then refresh.';
     }
     function syncModeControls() {
       document.querySelectorAll('.mode').forEach(el => {
@@ -1145,7 +1145,7 @@ HTML = r'''<!doctype html>
         el.classList.toggle('active', active);
         el.setAttribute('aria-pressed', String(active));
       });
-      $('currentMode').textContent = `当前模式：${MODE_LABELS[mode]}`;
+      $('currentMode').textContent = `Current mode: ${MODE_LABELS[mode]}`;
     }
     function syncHeroMap() {
       const targets = {
@@ -1157,7 +1157,7 @@ HTML = r'''<!doctype html>
         const values = matrix[identity];
         if (!values) continue;
         const backend = values.backend === 'claude' ? 'Claude Code' : 'Codex';
-        $(target).textContent = `${backend} / ${values.model || '需填写'} / ${values.effort}`;
+        $(target).textContent = `${backend} / ${values.model || 'not set'} / ${values.effort}`;
       }
     }
     function invalidate() {
@@ -1167,7 +1167,7 @@ HTML = r'''<!doctype html>
       $('confirm').style.display = 'none';
       if ($('previewWrap').style.display === 'block') $('previewWrap').classList.add('stale');
       $('technicalDetails').open = false;
-      $('status').textContent = '选择已变化，请重新生成预览';
+      $('status').textContent = 'Selection changed. Generate a new preview.';
       syncReadiness();
     }
     function selectMode(next) {
@@ -1187,12 +1187,12 @@ HTML = r'''<!doctype html>
         const models = modelCatalog(values.backend, values.model, source);
         const modelOptions = models.length
           ? models.map(option => `<option value="${esc(option.value)}" ${values.model === option.value ? 'selected' : ''}>${esc(modelOptionLabel(option))}</option>`).join('')
-          : '<option value="">未读取到可用模型</option>';
+          : '<option value="">No models available</option>';
         return `<article class="identity" data-identity="${identity}">
           <div class="identity-head"><h3>${esc(meta.label)}</h3><small>${esc(meta.hint)}</small><code class="identity-code">${identity}</code></div>
-          <div class="field"><label for="${identity}-backend">由谁执行</label><select id="${identity}-backend" data-field="backend"><option value="claude" ${values.backend === 'claude' ? 'selected' : ''}>Claude Code</option><option value="codex" ${values.backend === 'codex' ? 'selected' : ''}>Codex</option></select></div>
-          <div class="field model-field"><label for="${identity}-model">模型</label><select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select><div class="source" id="${identity}-source">来自：${esc(sourceLabel(source))}</div></div>
-          <div class="field"><label for="${identity}-effort">思考深度</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
+          <div class="field"><label for="${identity}-backend">Runs on</label><select id="${identity}-backend" data-field="backend"><option value="claude" ${values.backend === 'claude' ? 'selected' : ''}>Claude Code</option><option value="codex" ${values.backend === 'codex' ? 'selected' : ''}>Codex</option></select></div>
+          <div class="field model-field"><label for="${identity}-model">Model</label><select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select><div class="source" id="${identity}-source">Source: ${esc(sourceLabel(source))}</div></div>
+          <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
         </article>`;
       }).join('');
       document.querySelectorAll('.identity select').forEach(control => control.addEventListener('input', event => {
@@ -1215,7 +1215,7 @@ HTML = r'''<!doctype html>
         syncModeControls();
         if (field === 'backend') renderIdentities();
         syncHeroMap();
-        if (field === 'model') card.querySelector('.source').textContent = `来自：${sourceLabel(matrix[identity].model_source)}`;
+        if (field === 'model') card.querySelector('.source').textContent = `Source: ${sourceLabel(matrix[identity].model_source)}`;
         invalidate();
       }));
     }
@@ -1253,12 +1253,12 @@ HTML = r'''<!doctype html>
       mode = state.initial_mode;
       matrix = clone(state.initial_matrix);
       $('repo').textContent = state.repo;
-      const codex = state.detected.codex_model ? `${state.detected.codex_model} / ${state.detected.codex_effort || '未设置'}` : '未检测到模型';
+      const codex = state.detected.codex_model ? `${state.detected.codex_model} / ${state.detected.codex_effort || 'not set'}` : 'No model detected';
       $('detect').innerHTML = `
-        <div class="item"><div class="k">项目配置</div><div class="v">${esc(state.config_source)}</div></div>
-        <div class="item"><div class="k">Claude CLI</div><div class="v ${state.clis.claude.available ? 'ok':'bad'}">${esc(state.clis.claude.version || '未安装')}</div></div>
-        <div class="item" title="${esc(state.clis.codex.path || '')}"><div class="k">Codex CLI (${esc(state.clis.codex.source)})</div><div class="v ${state.clis.codex.available ? 'ok':'bad'}">${esc(state.clis.codex.version || '未安装')}</div></div>
-        <div class="item"><div class="k">Codex 检测值</div><div class="v ${state.detected.codex_model ? 'ok':'warn'}">${esc(codex)}</div></div>`;
+        <div class="item"><div class="k">Project config</div><div class="v">${esc(state.config_source)}</div></div>
+        <div class="item"><div class="k">Claude CLI</div><div class="v ${state.clis.claude.available ? 'ok':'bad'}">${esc(state.clis.claude.version || 'Not installed')}</div></div>
+        <div class="item" title="${esc(state.clis.codex.path || '')}"><div class="k">Codex CLI (${esc(state.clis.codex.source)})</div><div class="v ${state.clis.codex.available ? 'ok':'bad'}">${esc(state.clis.codex.version || 'Not installed')}</div></div>
+        <div class="item"><div class="k">Codex detected</div><div class="v ${state.detected.codex_model ? 'ok':'warn'}">${esc(codex)}</div></div>`;
       $('modes').innerHTML = PRESET_MODES.map(name => `<button type="button" class="mode ${name === mode ? 'active':''}" data-mode="${name}" aria-pressed="${name === mode}"><strong>${MODE_LABELS[name]}</strong><small>${modeSummary(name)}</small></button>`).join('');
       document.querySelectorAll('.mode').forEach(el => el.addEventListener('click', () => selectMode(el.dataset.mode)));
       renderIdentities();
@@ -1270,10 +1270,10 @@ HTML = r'''<!doctype html>
     $('confirmed').addEventListener('change', () => $('apply').disabled = !$('confirmed').checked || !previewValid);
     $('previewBtn').addEventListener('click', async () => {
       $('previewBtn').disabled = true;
-      $('previewBtn').textContent = '正在准备...';
+      $('previewBtn').textContent = 'Preparing...';
       $('configWorkspace').setAttribute('aria-busy', 'true');
       $('previewWrap').classList.remove('stale');
-      $('status').textContent = '正在核对将要修改的文件';
+      $('status').textContent = 'Checking which files would change';
       try {
         const data = await api('/api/preview', payload());
         $('preview').textContent = [data.output, data.error].filter(Boolean).join('\n');
@@ -1281,10 +1281,10 @@ HTML = r'''<!doctype html>
         $('previewWrap').classList.toggle('has-error', !data.ok);
         $('previewPlan').style.display = data.ok ? 'block' : 'none';
         $('technicalDetails').open = !data.ok;
-        $('technicalSummary').textContent = data.ok ? '查看完整路径和技术 diff' : '查看失败原因';
+        $('technicalSummary').textContent = data.ok ? 'Show full paths and the technical diff' : 'Show the failure reason';
         previewValid = data.ok;
         $('confirm').style.display = data.ok ? 'flex' : 'none';
-        $('status').textContent = data.ok ? '预览完成，还没有修改文件' : '预览失败，没有修改文件';
+        $('status').textContent = data.ok ? 'Preview done. No files changed.' : 'Preview failed. No files changed.';
         $('previewWrap').scrollIntoView({behavior:reduceMotion ? 'auto' : 'smooth',block:'start'});
       } catch (error) {
         $('preview').textContent = error.message;
@@ -1292,22 +1292,22 @@ HTML = r'''<!doctype html>
         $('previewWrap').classList.add('has-error');
         $('previewPlan').style.display = 'none';
         $('technicalDetails').open = true;
-        $('technicalSummary').textContent = '查看失败原因';
+        $('technicalSummary').textContent = 'Show the failure reason';
         $('confirm').style.display = 'none';
-        $('status').textContent = '预览失败，没有修改文件';
+        $('status').textContent = 'Preview failed. No files changed.';
         $('previewWrap').scrollIntoView({behavior:reduceMotion ? 'auto' : 'smooth',block:'start'});
       } finally {
-        $('previewBtn').textContent = '预览安装内容';
+        $('previewBtn').textContent = 'Preview install';
         syncReadiness();
         $('configWorkspace').setAttribute('aria-busy', 'false');
       }
     });
     $('apply').addEventListener('click', async () => {
       $('apply').disabled = true;
-      $('apply').textContent = '正在安装...';
+      $('apply').textContent = 'Installing...';
       $('previewBtn').disabled = true;
       $('configWorkspace').setAttribute('aria-busy', 'true');
-      $('status').textContent = '正在安装并自动检查';
+      $('status').textContent = 'Installing and checking';
       try {
         const data = await api('/api/apply', payload());
         const smoke = data.smoke ? `\nSmoke test:\n${data.smoke.output}${data.smoke.error}` : '';
@@ -1315,24 +1315,24 @@ HTML = r'''<!doctype html>
         $('resultWrap').style.display = 'block';
         const checksOk = !data.smoke || data.smoke.ok;
         $('resultWrap').classList.toggle('has-error', !data.ok || !checksOk);
-        $('status').textContent = !data.ok ? '安装失败' : (checksOk ? '搭子安装完成' : '安装完成，但自动检查未通过');
+        $('status').textContent = !data.ok ? 'Install failed' : (checksOk ? 'Partner installed' : 'Installed, but the automatic check did not pass');
         previewValid = false;
         $('resultWrap').scrollIntoView({behavior:reduceMotion ? 'auto' : 'smooth',block:'start'});
       } catch (error) {
         $('result').textContent = error.message;
         $('resultWrap').style.display = 'block';
         $('resultWrap').classList.add('has-error');
-        $('status').textContent = '安装失败';
+        $('status').textContent = 'Install failed';
         $('resultWrap').scrollIntoView({behavior:reduceMotion ? 'auto' : 'smooth',block:'start'});
       } finally {
-        $('apply').textContent = '安装并自动检查';
+        $('apply').textContent = 'Install and check';
         $('previewBtn').disabled = false;
         $('configWorkspace').setAttribute('aria-busy', 'false');
       }
     });
     load().catch(error => {
       $('configWorkspace').setAttribute('aria-busy', 'false');
-      $('detect').innerHTML = `<div class="item"><div class="k">环境读取失败</div><div class="v bad">${esc(error.message)}</div></div>`;
+      $('detect').innerHTML = `<div class="item"><div class="k">Environment read failed</div><div class="v bad">${esc(error.message)}</div></div>`;
       $('status').textContent = error.message;
     });
   </script>
@@ -1376,17 +1376,17 @@ def make_handler(controller: SetupController, token: str):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError:
-                raise UIError("Content-Length 无效") from None
+                raise UIError("Invalid Content-Length") from None
             if length < 1 or length > 131072:
-                raise UIError("请求大小无效")
+                raise UIError("Invalid request size")
             try:
                 return json.loads(self.rfile.read(length))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                raise UIError("请求不是有效 JSON") from None
+                raise UIError("Request is not valid JSON") from None
 
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
             if not self._authorized():
-                self._json(HTTPStatus.FORBIDDEN, {"error": "无效的本地访问令牌"})
+                self._json(HTTPStatus.FORBIDDEN, {"error": "Invalid local access token"})
                 return
             path = urlparse(self.path).path
             if path == "/":
@@ -1401,7 +1401,7 @@ def make_handler(controller: SetupController, token: str):
 
         def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
             if not self._authorized():
-                self._json(HTTPStatus.FORBIDDEN, {"error": "无效的本地访问令牌"})
+                self._json(HTTPStatus.FORBIDDEN, {"error": "Invalid local access token"})
                 return
             try:
                 body = self._body()
@@ -1417,7 +1417,7 @@ def make_handler(controller: SetupController, token: str):
             except UIError as error:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except subprocess.TimeoutExpired:
-                self._json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "setup 引擎执行超时"})
+                self._json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "Setup engine timed out"})
             except (OSError, ValueError, engine.partner_config.ConfigError) as error:
                 self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
 

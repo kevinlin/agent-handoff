@@ -12,7 +12,7 @@ hard stop.
   stay on the fast path in `references/claude-driven.md`. Do not create
   `.partner/goal.md` for this — a goal file for a five-line fix is
   ceremony, not safety.
-- **User says "完整协议" / "PR 交付" / "目标模式"** (or the equivalent in
+- **User says "full protocol" / "PR delivery" / "goal mode"** (or the equivalent in
   English — "full protocol", "deliver a PR", "goal mode"): run this file's
   four stages below.
 - **Recurring, independently-verifiable work the user wants to self-run**

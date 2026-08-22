@@ -30,7 +30,7 @@ schema_version = 2
 revision = 0
 
 [hosts.claude_code.identities.deep_reasoner]
-backend = "claude"          # claude | codex — 哪家 CLI 执行
+backend = "claude"          # claude | codex — which CLI executes
 model = "opus"
 effort = "high"
 verified = false
@@ -89,7 +89,7 @@ with any `hosts.<host>.roles.*` section even if its version says otherwise,
 fails closed in `resolve`, `get`, `set`, and `validate`. The error includes the
 configuration path and this instruction:
 
-> 检测到 schema v1 配置，请重跑 搭子，配置 升级（旧值会作为向导初值）
+> Detected a schema v1 config. Rerun "Partner, configure" to upgrade (the old values seed the wizard).
 
 The setup wizard may call `read_legacy_v1(text)` to read only the old
 `deep_reasoner` and `fast_worker` `model`/`effort` values as initial answers.

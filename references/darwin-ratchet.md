@@ -30,7 +30,7 @@ Keep a change only when all are true:
 Revert or rework when any are true:
 
 - Test prompts become less specific.
-- The workflow grows ambiguous phrases such as "consider", "maybe", "as appropriate", or "根据情况".
+- The workflow grows ambiguous phrases such as "consider", "maybe", "as appropriate", or "it depends".
 - A new rule conflicts with the safety boundary.
 - A review or fix round produces no actionable gain after repeated prompts.
 - The expected improvement is less than 1 point on a 100-point skill score.

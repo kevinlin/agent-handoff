@@ -41,7 +41,7 @@ status: pending | in_progress | delegated | review | rework-1 | rework-2 | taken
 ```
 
 Splitting a task means making **one** judgment per row: which capability
-does this work need? The three identities are defined by `搭子，配置`, each
+does this work need? The three identities are defined by `Partner, configure`, each
 carrying its own backend (which CLI executes and which meter bills), model,
 and effort — so picking the identity picks the execution channel
 automatically; there is no separate "owner" decision:

@@ -35,8 +35,8 @@
 - feat: localhost single-page setup UI with a taste-skill guided decision rail, concrete model matrix, exact diff preview, preview-bound confirmation, and smoke test without repeated chat questions
 - config: balanced preset fast_worker now uses the detected Codex model with high reasoning effort
 - feat: identity matrix — three cross-vendor identities (deep_reasoner / fast_worker / arbiter), each with its own backend/model/effort; schema v2 with fail-closed v1 migration (`5a1f3d7`, `52ad950`, `da269ce`)
-- feat: arbiter blind-solve protocol + 搭子，试跑 first-run tryout; goal.md task table drops owner in favor of identity (`f329daf`)
-- feat: idea-king adds 分工 (Assignment) section to Partner work-split reviews (`18dd247`)
+- feat: arbiter blind-solve protocol + "Partner, tryout" first-run tryout; goal.md task table drops owner in favor of identity (`f329daf`)
+- feat: idea-king adds an Assignment section to Partner work-split reviews (`18dd247`)
 - fix: wire per-task role decision into the split flow; clarify owner vs role (`983457f`, `493d561`, superseded by the identity matrix)
 
 ### Protocol, receipts, and verification
@@ -51,7 +51,7 @@
 - feat: extend Partner Session Receipt with host/scope/config_source/roles_used, schema v2 (`5246d45`)
 - feat: activate Sub Agent three-level routing, partner-* > user agent > generic Task (`3d5e077`)
 - test: test-prompts.json +9 case — 4 setup, 4 host-adapter, 1 idea-king (`c6020f5`)
-- feat: partner-setup.py wizard engine + references/setup.md, "搭子，配置" first-run setup (`5e3744b`)
+- feat: partner-setup.py wizard engine + references/setup.md, "Partner, configure" first-run setup (`5e3744b`)
 - feat: install.sh --configure forwards to the terminal setup wizard (`9e95036`)
 - feat: idea-king absorbs Occam/Murphy/Coase laws, ported from installed copy (`51a6389`)
 - feat: idea-king clarify-to-95% pre-verdict protocol, headless degrades to Open Questions (`d86ae57`)
@@ -66,7 +66,7 @@
 
 - feat: idea-king absorbs official adversarial-review, grilling, and packet hygiene (`a1ddbc9`)
 - docs: add idea-king adversarial-review showcase GIF to both READMEs (`4ab807c`)
-- docs: add Red Skill submission copy for 搭子.skill (`9ebc3e7`)
+- docs: add Red Skill submission copy for Partner (`9ebc3e7`)
 
 ## v1.4.1 (2026-07-04)
 

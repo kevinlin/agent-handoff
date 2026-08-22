@@ -1,6 +1,6 @@
-# Partner Tryout (搭子，试跑)
+# Partner Tryout ("Partner, tryout")
 
-The first-run proof pass. Triggered by "搭子，试跑" after `搭子，配置` has
+The first-run proof pass. Triggered by "Partner, tryout" after `Partner, configure` has
 been applied. Each configured identity runs one small, self-contained
 micro-task; the result is a report that lets a first-time user conclude in
 one glance: my identities are actually live, on the models I chose. This is
@@ -54,7 +54,7 @@ verdict: all identities live
 - `result` for the arbiter row states agreement or names the divergence in
   a few words. A divergence is not a failure.
 - A failed row states the actual error (CLI missing, model rejected,
-  timeout) and the fix pointer — rerun `搭子，配置` or install the missing
+  timeout) and the fix pointer — rerun `Partner, configure` or install the missing
   CLI. `verdict` then lists which identities are live and which are not;
   never report `all identities live` on a partial pass.
 - After each passing row, write `verified=true` + `verified_at` back to
@@ -71,5 +71,5 @@ verdict: all identities live
 - Do not add project files, commits, or state: all three tasks are
   answer-only. The only writes are config `verified` flags and the
   `.partner/receipts/` entry.
-- If the user has not run `搭子，配置` yet, say so and route them there
+- If the user has not run `Partner, configure` yet, say so and route them there
   first instead of improvising unconfigured identities.

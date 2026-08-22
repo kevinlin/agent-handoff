@@ -310,8 +310,8 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(0, self.run_cli(*self.custom_args(choices))[0])
         self.assertTrue(arbiter.is_file())
         rendered = arbiter.read_text(encoding="utf-8")
-        self.assertIn("独立盲解仲裁者", rendered)
-        self.assertIn("packet 不含他人答案", rendered)
+        self.assertIn("Independent blind arbiter", rendered)
+        self.assertIn("carries no one else's answer", rendered)
 
     def test_v1_preview_and_apply_migrates_owned_values_without_losing_them(self):
         config = self.repo / ".partner" / "config.toml"
@@ -341,7 +341,7 @@ always_on_host_rules = false
         config.write_text(original, encoding="utf-8")
         status, output, error = self.run_cli(*self.claude_args("--preview"))
         self.assertEqual((0, ""), (status, error))
-        self.assertIn("NOTE: v1 → v2 升级，旧值已保留为初值", output)
+        self.assertIn("NOTE: v1 → v2 upgrade; old values kept as the starting values", output)
         self.assertEqual(original, config.read_text(encoding="utf-8"))
 
         status, _, error = self.run_cli(*self.claude_args())
@@ -386,7 +386,7 @@ always_on_host_rules = false
         }
         status, output, error = self.run_cli(*self.custom_args(choices, "--preview"))
         self.assertEqual((0, ""), (status, error))
-        self.assertIn("NOTE: 盲评价值下降（same-vendor）", output)
+        self.assertIn("NOTE: blind-review value reduced (same-vendor)", output)
 
     def test_switching_agent_backend_to_codex_deletes_tracked_file(self):
         all_claude = {

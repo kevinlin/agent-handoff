@@ -101,14 +101,13 @@ copy_payload() {
   # local scratch files and logs never ship into the user's skills directory.
   local dest="$1"
   if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$ROOT" ls-files -z -- . ':!:.github' ':!:docs/TEST.md' \
+    git -C "$ROOT" ls-files -z -- . ':!:.github' \
       | (cd "$ROOT" && tar -cf - --null -T -) \
       | tar -xf - -C "$dest"
   else
     (cd "$ROOT" && find . -type f \
       ! -path './.git/*' \
       ! -path './.github/*' \
-      ! -path './docs/TEST.md' \
       ! -name '.DS_Store' \
       -print0 | tar -cf - --null -T -) \
       | tar -xf - -C "$dest"
@@ -140,4 +139,4 @@ fi
 mkdir -p "$DEST"
 copy_payload "$DEST"
 
-echo "Done. Try: 搭子，分工给 codex 后台跑，做完你全量验收。"
+echo "Done. Try: Partner, delegate the mechanical parts to Codex in the background, then full-review."

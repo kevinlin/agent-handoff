@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-`partner-skill` (搭子.skill) is an **Agent Skill**, not an application. There is nothing to build or serve. The deliverable is a directory that gets copied into `~/.claude/skills/partner-skill` by `install.sh`, plus Python/Bash helper scripts the skill invokes at runtime.
+`partner-skill` (Partner) is an **Agent Skill**, not an application. There is nothing to build or serve. The deliverable is a directory that gets copied into `~/.claude/skills/partner-skill` by `install.sh`, plus Python/Bash helper scripts the skill invokes at runtime.
 
-Consequence: prose files (`SKILL.md`, `README.md`, `README.en.md`, `references/*.md`) are **product surface**, gated by CI the same way code is. Editing them can break `check-skill-repo.sh` or `check-readme-parity.py`.
+Consequence: prose files (`SKILL.md`, `README.md`, `references/*.md`) are **product surface**, gated by CI the same way code is. Editing them can break `check-skill-repo.sh`.
 
 ## Commands
 
@@ -16,7 +16,7 @@ python3 -m unittest tests.test_partner_config  # one module
 python3 -m unittest tests.test_partner_config.ClassName.test_name  # one test
 
 bash scripts/check-skill-repo.sh .             # publish-readiness gate (required files, triggers, secret scan)
-python3 scripts/check-readme-parity.py         # zh/en README structural alignment
+python3 scripts/english-only-scan.py           # fail on CJK in any tracked file
 python3 scripts/run-test-prompts.py            # static validation of test-prompts.json
 bash install.sh --dry-run                      # install without writing
 ```
@@ -59,7 +59,7 @@ The run terminates in a **Partner Session Receipt** (schema v3, `docs/receipt-sc
 
 ## Conventions that CI enforces
 
-- **Bilingual READMEs move together.** `check-readme-parity.py` pins the heading sequence, a marker list, and the File Map entry order in both files. Adding a top-level doc usually means updating: the doc, both READMEs' File Maps, `EXPECTED_HEADINGS`/`FILE_MAP_ENTRIES`, and `check-skill-repo.sh`'s required-file list.
+- **The repo is English-only.** `english-only-scan.py` (run from `check-skill-repo.sh`) fails on CJK in any tracked file, including trigger phrases and UI strings. Adding a top-level doc means updating: the doc, the README File Map, and `check-skill-repo.sh`'s required-file list.
 - **Version strings appear in several places** — `SKILL.md` frontmatter, README badges, `CHANGELOG.md`, `docs/releases/`. Bump them together.
 - Risky command text (`git reset --hard`, `rm -rf`, `--force`) in docs is scanned. `check-skill-repo.sh` warns; `run-test-prompts.py` requires such text to sit in a `must_not` list. Use the `# risk-ok:` marker for genuine detection patterns.
 - Don't fabricate token savings. The cost numbers are a workload *pressure model* (`docs/showcase-cost-model.md`), not billing telemetry. Report verifiable behavior instead: which work ran on the Codex subscription, job and fix-round counts, the full diff reviewed against acceptance criteria, checks passed.

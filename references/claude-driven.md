@@ -1,7 +1,8 @@
 # Partner Flow
 
-Use this flow when the user asks Claude to split work with Codex ("搭子",
-"分工给 codex", "让 codex 做", "codex 后台跑"). Claude Code is the driver: it
+Use this flow when the user asks Claude to split work with Codex ("Partner",
+"delegate this to codex", "let codex do it", "run codex in the background").
+Claude Code is the driver: it
 plans, delegates
 quota-pressure work to Codex (subscription billing), monitors the background
 jobs, and quality-gates everything before accepting it. The goal is saving
@@ -44,7 +45,7 @@ Job state lives under `<repo>/.partner/jobs/`.
     paths, final acceptance. Never route these to a cheaper identity to
     save money, and never burn the driver's seat on mechanical work.
   Which CLI executes and which meter bills follows from the identity's
-  configured `backend` (`搭子，配置`), not from a separate per-task choice.
+  configured `backend` (`Partner, configure`), not from a separate per-task choice.
   Two escape hatches remain for edge cases: a one-shot Codex subagent
   (e.g. a rescue agent) for a stuck step needing a second diagnosis with
   no durable state, and a raw Task-tool subagent when no Partner identity
@@ -66,7 +67,7 @@ for it would silently swap in the wrong vendor and meter. For a
 claude-backend identity, resolve *which* agent definition to spawn with
 this three-level lookup, in order:
 
-1. **`partner-*` namespaced agent** — if `搭子，配置` has generated
+1. **`partner-*` namespaced agent** — if `Partner, configure` has generated
    `partner-deep-reasoner` / `partner-fast-worker` / `partner-arbiter`
    (project or global scope; check
    `python3 "$PARTNER_DIR/scripts/partner-config.py" resolve`
@@ -80,13 +81,14 @@ this three-level lookup, in order:
    Task-tool subagent with the identity described in the prompt. This is the
    fallback, not a signal that setup is missing something the task needs.
 
-A repo with no `搭子，配置` run yet simply falls through to level 3 every
+A repo with no `Partner, configure` run yet simply falls through to level 3 every
 time; that is normal, not broken.
 
-## Arbiter Protocol — 盲解仲裁
+## Arbiter Protocol — Blind Arbitration
 
 For contentious or high-stakes calls — the driver judges the answer
-disputable, or the user says 仲裁 / 有争议 / second opinion — do not settle
+disputable, or the user says "arbitrate" / "this is contested" / "second
+opinion" — do not settle
 for one solver's answer:
 
 1. Send the **same problem, verbatim** to both `deep_reasoner` and
@@ -116,7 +118,7 @@ the first answer.
   verifiable acceptance criteria, scope constraints, and the fixed output
   rules (no optional commentary; lessons learned at the end).
 - Submit as a background job, passing the row's identity so backend, model,
-  and effort resolve from `搭子，配置`'s config (explicit `--model`/`--effort`
+  and effort resolve from `Partner, configure`'s config (explicit `--model`/`--effort`
   still wins per field if a specific task genuinely needs an override):
 
 ```bash
@@ -128,7 +130,7 @@ bash "$PARTNER_DIR/scripts/delegate-codex.sh" submit \
 ```
 
 The tool fail-closes on both misconfigurations: no Partner config yet →
-clear error (run `搭子，配置` first, or fall back to an explicit `--effort`
+clear error (run `Partner, configure` first, or fall back to an explicit `--effort`
 for this one job and note it in `Notes`); identity configured with
 `backend = claude` → refusal with a pointer to spawn the `partner-<identity>`
 subagent instead. That is the guard against silently running a claude-backend
@@ -179,7 +181,8 @@ bash "$PARTNER_DIR/scripts/delegate-codex.sh" resume <jobId> \
 
 ## Phase 4.5 — Delivery (opt-in, `references/goal-to-pr.md`)
 
-Only runs when the user asked for the full "完整协议 / PR 交付 / 目标模式"
+Only runs when the user asked for the full "full protocol / PR delivery /
+goal mode"
 protocol (see Trigger Grading in `references/goal-to-pr.md`) and has
 authorized it via a Goal Packet (`references/handoff-template.md`). Skip
 this phase entirely on the default lightweight flow above.

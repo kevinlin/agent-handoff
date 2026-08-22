@@ -32,7 +32,6 @@ check_dir() {
 
 check_file "SKILL.md"
 check_file "README.md"
-check_file "README.en.md"
 check_file "test-prompts.json"
 check_file "install.sh"
 check_file "LICENSE"
@@ -56,6 +55,7 @@ check_file "scripts/partner_runtime.py"
 check_file "scripts/partner-setup.py"
 check_file "scripts/partner-setup-ui.py"
 check_file "scripts/goal-sync.py"
+check_file "scripts/english-only-scan.py"
 check_file "references/claude-driven.md"
 check_file "references/setup.md"
 check_file "references/tryout.md"
@@ -66,9 +66,6 @@ check_file "references/memory-protocol.md"
 check_dir "references"
 check_dir "examples"
 check_dir "scripts"
-
-python3 scripts/check-readme-parity.py
-echo "PASS README parity gate"
 
 if python3 scripts/run-test-prompts.py >/dev/null; then
   echo "PASS test-prompts static regression checks"
@@ -124,62 +121,50 @@ else
   fail=$((fail + 1))
 fi
 
-if grep -qF '"搭子"' SKILL.md; then
-  echo "PASS SKILL.md bare 搭子 trigger"
+if grep -qF '"Partner skill"' SKILL.md; then
+  echo "PASS SKILL.md bare trigger"
 else
-  echo "FAIL SKILL.md description must include bare \"搭子\" as a trigger"
+  echo "FAIL SKILL.md description must include \"Partner skill\" as a trigger"
   fail=$((fail + 1))
 fi
 
-if grep -qF '搭子.skill' README.md && grep -qF '我的 Claude Code 和 Codex 天下第一好' README.md; then
+if grep -qF '# Partner Skill' README.md && grep -qF 'best coding partners' README.md; then
   echo "PASS README identity"
 else
   echo "FAIL README must include Partner identity and slogan"
   fail=$((fail + 1))
 fi
 
-if grep -qF 'README.en.md' README.md && grep -qF 'README.md' README.en.md; then
-  echo "PASS README language split"
-else
-  echo "FAIL README.md and README.en.md must link to each other"
-  fail=$((fail + 1))
-fi
-
-if grep -qF 'docs/showcase-cost-model.md' README.md && \
-  grep -qF 'docs/showcase-cost-model.md' README.en.md; then
+if grep -qF 'docs/showcase-cost-model.md' README.md; then
   echo "PASS docs entrypoints"
 else
-  echo "FAIL README files must link the cost model doc"
+  echo "FAIL README must link the cost model doc"
   fail=$((fail + 1))
 fi
 
 if [ -f assets/v2.0.1-conversation-cost-receipt.png ] && \
-  grep -qF 'assets/v2.0.1-conversation-cost-receipt.png' README.md && \
-  grep -qF 'assets/v2.0.1-conversation-cost-receipt.png' README.en.md; then
+  grep -qF 'assets/v2.0.1-conversation-cost-receipt.png' README.md; then
   echo "PASS v2.0.1 conversation cost receipt image"
 else
-  echo "FAIL v2.0.1 conversation cost receipt image must exist and be linked by both READMEs"
+  echo "FAIL v2.0.1 conversation cost receipt image must exist and be linked by README.md"
   fail=$((fail + 1))
 fi
 
 if [ -f assets/config-switch-demo.mp4 ] && \
   [ -f assets/config-switch-demo.gif ] && \
   grep -qF 'assets/config-switch-demo.mp4' README.md && \
-  grep -qF 'assets/config-switch-demo.mp4' README.en.md && \
-  grep -qF 'assets/config-switch-demo.gif' README.md && \
-  grep -qF 'assets/config-switch-demo.gif' README.en.md; then
+  grep -qF 'assets/config-switch-demo.gif' README.md; then
   echo "PASS configuration demo video and README preview"
 else
-  echo "FAIL configuration demo video/preview must exist and be linked by both READMEs"
+  echo "FAIL configuration demo video/preview must exist and be linked by README.md"
   fail=$((fail + 1))
 fi
 
 if [ -s examples/showcase-cost-ledger.json ] && \
-  grep -qF 'examples/showcase-cost-ledger.json' README.md && \
-  grep -qF 'examples/showcase-cost-ledger.json' README.en.md; then
+  grep -qF 'examples/showcase-cost-ledger.json' README.md; then
   echo "PASS showcase cost ledger"
 else
-  echo "FAIL showcase cost ledger must exist and be linked from both README files"
+  echo "FAIL showcase cost ledger must exist and be linked from README.md"
   fail=$((fail + 1))
 fi
 
@@ -217,13 +202,24 @@ if grep -RInE 'git reset --hard|rm -rf|force push|--force' \
   --exclude='check-skill-repo.sh' \
   --exclude='test-prompts.json' \
   . \
-  | grep -vE 'risk-ok|[Dd]o not|not \`|不要|不用|不默认|避免|禁止' \
+  | grep -vE 'risk-ok|[Dd]o not|not \`' \
   >"$SCAN_TMP"; then
   echo "WARN high-risk command text found:"
   cat "$SCAN_TMP"
   warn=$((warn + 1))
 else
   echo "PASS high-risk command scan"
+fi
+
+# This repo is English-only. CJK in a tracked file is a regression.
+# python3 rather than grep -P: BSD/macOS grep has no -P. The regex below is
+# written as ASCII escapes so this file stays clean under its own scan.
+if python3 scripts/english-only-scan.py >"$SCAN_TMP"; then
+  echo "PASS English-only scan"
+else
+  echo "FAIL non-English (CJK) text found:"
+  cat "$SCAN_TMP"
+  fail=$((fail + 1))
 fi
 
 echo "SUMMARY fail=$fail warn=$warn"
