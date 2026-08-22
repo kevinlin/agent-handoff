@@ -1,15 +1,10 @@
 # Partner Packet Templates
 
-Two packets, both bounded: the delegation packet Claude sends to a Codex job,
-and the Goal Packet Claude sends to the user for authorization. Cite evidence;
-do not paste the whole repo.
+Two packets, both bounded: the delegation packet Claude sends to a Codex job, and the Goal Packet Claude sends to the user for authorization. Cite evidence; do not paste the whole repo.
 
 ## Claude → Codex Delegation Packet
 
-Use this packet when Claude Code delegates a task to Codex via
-`delegate-codex.sh submit`. It follows `references/fable5-principles.md`:
-why-forward opening, one-sentence task, verifiable acceptance, only genuine
-constraints, fixed output discipline.
+Use this packet when Claude Code delegates a task to Codex via `delegate-codex.sh submit`. It follows `references/fable5-principles.md`: why-forward opening, one-sentence task, verifiable acceptance, only genuine constraints, fixed output discipline.
 
 ```markdown
 # Partner Delegation
@@ -40,19 +35,13 @@ I'm working on [the larger task] for [who it's for]. They need
 
 Delegation packet rules:
 
-- Acceptance criteria are what the Phase 4 full review checks against;
-  write them as commands or observable behavior, never vibes.
-- Keep the constraints section short — genuine blockers only. Trust the
-  model with approach decisions inside the scope boundary.
-- For fix rounds (`delegate-codex.sh resume`), send only: the review
-  findings (prioritized), the acceptance criteria that failed, and
-  "Continue end-to-end from here." Do not resend the whole packet.
+- Acceptance criteria are what the Phase 4 full review checks against; write them as commands or observable behavior, never vibes.
+- Keep the constraints section short — genuine blockers only. Trust the model with approach decisions inside the scope boundary.
+- For fix rounds (`delegate-codex.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet.
 
 ## Goal Packet (Plan→Goal→PR→Verification, `references/goal-to-pr.md`)
 
-Use this packet to present a Stage 1 plan for authorization before writing
-`.partner/goal.md` and starting Stage 3. It is a decision artifact for the
-user, not a delegation packet for Codex.
+Use this packet to present a Stage 1 plan for authorization before writing `.partner/goal.md` and starting Stage 3. It is a decision artifact for the user, not a delegation packet for Codex.
 
 ```markdown
 # Partner Goal Packet
@@ -86,8 +75,6 @@ those needs its own explicit imperative sentence when the time comes.
 
 Rules:
 
-- Send this before creating a branch, worktree, or `.partner/goal.md` —
-  Stage 1 (Plan) touches no files.
-- A reply that only answers a question in this packet is not authorization
-  to proceed; wait for an actual imperative.
+- Send this before creating a branch, worktree, or `.partner/goal.md` — Stage 1 (Plan) touches no files.
+- A reply that only answers a question in this packet is not authorization to proceed; wait for an actual imperative.
 - Keep it bounded: cite evidence, do not paste the whole repo.
