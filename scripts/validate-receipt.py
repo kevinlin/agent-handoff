@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Validate a Partner Session Receipt.
+"""Validate a Handoff Session Receipt.
 
-Accepts either the text block format emitted at the end of a Partner run:
+Accepts either the text block format emitted at the end of a Handoff run:
 
-    [Partner session receipt]
+    [Handoff session receipt]
     phase: final fix
     claude_session: <id or none>
     ...
@@ -15,7 +15,7 @@ Usage:
     python3 scripts/validate-receipt.py --json <receipt.json>
     ... | python3 scripts/validate-receipt.py -
 
-The file may be a markdown document; the first [Partner session receipt]
+The file may be a markdown document; the first [Handoff session receipt]
 block is extracted. Exit 0 when valid, 1 with FAIL lines otherwise.
 """
 
@@ -27,7 +27,7 @@ import re
 import sys
 from pathlib import Path
 
-RECEIPT_HEADER = "[Partner session receipt]"
+RECEIPT_HEADER = "[Handoff session receipt]"
 
 PHASES = {"planning", "codex implementation", "review", "final fix"}
 SCOPES = {"project", "global", "n/a"}
@@ -153,7 +153,7 @@ def validate(fields: dict[str, object], *, strict_json_types: bool = False) -> l
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate a Partner Session Receipt.")
+    parser = argparse.ArgumentParser(description="Validate a Handoff Session Receipt.")
     parser.add_argument("path", help="File containing a receipt block, or - for stdin.")
     parser.add_argument("--json", action="store_true", help="Treat input as a JSON receipt object.")
     args = parser.parse_args()
@@ -183,7 +183,7 @@ def main() -> int:
             print(f"FAIL {failure}")
         return 1
 
-    print("PASS Partner session receipt")
+    print("PASS Handoff session receipt")
     return 0
 
 

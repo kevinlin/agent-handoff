@@ -1,5 +1,5 @@
 {
-  "schema": "partner.showcase_cost_ledger.v1",
+  "schema": "handoff.showcase_cost_ledger.v1",
   "generated_at": "2026-07-01T16:00:00+00:00",
   "claim_boundary": "Workload units are illustrative. Exact token-savings claims require measured token telemetry.",
   "session_receipt_fields": [
@@ -26,8 +26,8 @@
         "source": "not captured"
       }
     },
-    "partner": {
-      "label": "Partner",
+    "handoff": {
+      "label": "Handoff",
       "codex_workload_units": 70,
       "claude_code_workload_units": 30,
       "best_for": "UI-heavy or feature-heavy tasks where Claude API cost matters",
@@ -60,12 +60,12 @@
     }
   },
   "comparison": {
-    "partner_vs_pure_claude": {
+    "handoff_vs_pure_claude": {
       "claude_pressure_reduction": 0.7,
-      "plain_english": "In the showcase model, Partner moves implementation and verification onto the Codex subscription, leaving Claude Code on the planning, split, and review decisions."
+      "plain_english": "In the showcase model, Handoff moves implementation and verification onto the Codex subscription, leaving Claude Code on the planning, split, and review decisions."
     },
-    "partner_vs_codex_only": {
-      "tradeoff": "Partner spends focused Claude Code judgment on the split decision and the full-review gate that Codex-only skips."
+    "handoff_vs_codex_only": {
+      "tradeoff": "Handoff spends focused Claude Code judgment on the split decision and the full-review gate that Codex-only skips."
     }
   }
 }

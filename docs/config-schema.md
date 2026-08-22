@@ -1,6 +1,6 @@
-# Partner configuration schema v2
+# Agent Handoff configuration schema v2
 
-Partner uses one TOML configuration shape at project and global scope. The writer owns only the `hosts.claude_code` namespace; top-level comments, `[routing]`, and unknown sections are preserved as raw bytes.
+Handoff uses one TOML configuration shape at project and global scope. The writer owns only the `hosts.claude_code` namespace; top-level comments, `[routing]`, and unknown sections are preserved as raw bytes.
 
 An identity is the complete routing choice `backend + model + effort`. Tasks select one of `deep_reasoner`, `fast_worker`, or `arbiter`; the identity's `backend` determines which CLI executes it.
 
@@ -9,8 +9,8 @@ An identity is the complete routing choice `backend + model + effort`. Tasks sel
 Values resolve from highest to lowest priority:
 
 1. Session override supplied by the current task.
-2. `<repo>/.partner/config.toml`.
-3. `${XDG_CONFIG_HOME:-$HOME/.config}/partner/config.toml`.
+2. `<repo>/.handoff/config.toml`.
+3. `${XDG_CONFIG_HOME:-$HOME/.config}/handoff/config.toml`.
 4. Built-in defaults.
 
 Project and global files use the same schema. Higher layers merge by field, so an override for one identity field does not erase unrelated lower-layer fields. Built-in defaults provide schema metadata, empty identity maps, and `always_on_host_rules = false`; model presets belong to setup and are not duplicated in this engine.
@@ -70,7 +70,7 @@ Comments and formatting inside an owned section are intentionally not retained. 
 
 Schema v1 is never converted silently. A file with `schema_version = 1`, or with any `hosts.<host>.roles.*` section even if its version says otherwise, fails closed in `resolve`, `get`, `set`, and `validate`. The error includes the configuration path and this instruction:
 
-> Detected a schema v1 config. Rerun "Partner, configure" to upgrade (the old values seed the wizard).
+> Detected a schema v1 config. Rerun `/agent-handoff config` to upgrade (the old values seed the wizard).
 
 The setup wizard may call `read_legacy_v1(text)` to read only the old `deep_reasoner` and `fast_worker` `model`/`effort` values as initial answers. That path does not write or convert the source text. The wizard's eventual save writes schema v2 identities through the normal locked, atomic writer.
 
@@ -103,12 +103,12 @@ The engine parses only top-level schema metadata, `[routing]`, and the owned ide
 Run from the repository root:
 
 ```sh
-python3 scripts/partner-config.py --scope project init
-python3 scripts/partner-config.py --scope project validate
-python3 scripts/partner-config.py --scope project get hosts.claude_code.identities.deep_reasoner.backend
-python3 scripts/partner-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
-python3 scripts/partner-config.py --repo /path/to/repo resolve
-python3 scripts/partner-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
+python3 scripts/handoff-config.py --scope project init
+python3 scripts/handoff-config.py --scope project validate
+python3 scripts/handoff-config.py --scope project get hosts.claude_code.identities.deep_reasoner.backend
+python3 scripts/handoff-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
+python3 scripts/handoff-config.py --repo /path/to/repo resolve
+python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
 ```
 
 The `set` command retains `--role` as its identity selector. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Partner behavior regression prompts.
+"""Run the Handoff behavior regression prompts.
 
 Two modes:
 
@@ -10,9 +10,9 @@ Static (default, CI-safe, no agent needed):
   text confined to must_not, and receipt-contract coverage.
 
 Live (experimental, needs a real agent):
-    PARTNER_AGENT_CMD='<command>' python3 scripts/run-test-prompts.py --live
+    HANDOFF_AGENT_CMD='<command>' python3 scripts/run-test-prompts.py --live
   Runs each prompt through the agent command (prompt appended as the last
-  argument) and checks the output for a Partner Session Receipt block,
+  argument) and checks the output for a Handoff Session Receipt block,
   which is then validated with scripts/validate-receipt.py. Live mode is
   a smoke signal, not proof: it checks the output contract, not judgment
   quality.
@@ -35,7 +35,7 @@ VALIDATOR = ROOT / "scripts" / "validate-receipt.py"
 
 RISKY = re.compile(r"git reset --hard|rm -rf|force push|--force")  # risk-ok: detection pattern, not a command
 REQUIRED_KEYS = {"id", "prompt", "expected_behavior", "must_not"}
-RECEIPT_HEADER = "[Partner session receipt]"
+RECEIPT_HEADER = "[Handoff session receipt]"
 
 
 def static_check(entries: list[dict]) -> list[str]:
@@ -100,7 +100,7 @@ def live_check(entries: list[dict], agent_cmd: str) -> list[str]:
                 print(f"PASS live {case_id} (correctly did not trigger)")
             continue
         if RECEIPT_HEADER not in output:
-            failures.append(f"{case_id}: no Partner Session Receipt in output")
+            failures.append(f"{case_id}: no Handoff Session Receipt in output")
             continue
         validation = subprocess.run(
             [sys.executable, str(VALIDATOR), "-"],
@@ -116,8 +116,8 @@ def live_check(entries: list[dict], agent_cmd: str) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Partner test prompts.")
-    parser.add_argument("--live", action="store_true", help="Run prompts through PARTNER_AGENT_CMD.")
+    parser = argparse.ArgumentParser(description="Run Handoff test prompts.")
+    parser.add_argument("--live", action="store_true", help="Run prompts through HANDOFF_AGENT_CMD.")
     args = parser.parse_args()
 
     entries = json.loads(PROMPTS.read_text(encoding="utf-8"))
@@ -130,9 +130,9 @@ def main() -> int:
         print(f"PASS static checks ({len(entries)} cases)")
 
     if args.live and not failures:
-        agent_cmd = os.environ.get("PARTNER_AGENT_CMD", "")
+        agent_cmd = os.environ.get("HANDOFF_AGENT_CMD", "")
         if not agent_cmd:
-            print("FAIL --live requires PARTNER_AGENT_CMD")
+            print("FAIL --live requires HANDOFF_AGENT_CMD")
             return 1
         failures.extend(live_check(entries, agent_cmd))
 

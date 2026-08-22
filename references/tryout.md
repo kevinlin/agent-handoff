@@ -1,6 +1,6 @@
-# Partner Tryout ("Partner, tryout")
+# Agent Handoff Tryout (`/agent-handoff tryout`)
 
-The first-run proof pass. Triggered by "Partner, tryout" after `Partner, configure` has been applied. Each configured identity runs one small, self-contained micro-task; the result is a report that lets a first-time user conclude in one glance: my identities are actually live, on the models I chose. This is a real end-to-end run (it spends real quota, minutes not seconds at high effort tiers). `partner-setup.py --smoke` is the bounded installation check: Codex identities use the delegate dry-run chain, while each Claude identity uses one minimal tool-free fresh session so model/effort/auth are genuinely checked. The tryout remains the proof that all three identities can complete their intended work, not merely answer the installation probe.
+The first-run proof pass. Triggered by `/agent-handoff tryout` after `/agent-handoff config` has been applied. Each configured identity runs one small, self-contained micro-task; the result is a report that lets a first-time user conclude in one glance: my identities are actually live, on the models I chose. This is a real end-to-end run (it spends real quota, minutes not seconds at high effort tiers). `handoff-setup.py --smoke` is the bounded installation check: Codex identities use the delegate dry-run chain, while each Claude identity uses one minimal tool-free fresh session so model/effort/auth are genuinely checked. The tryout remains the proof that all three identities can complete their intended work, not merely answer the installation probe.
 
 ## The three micro-tasks
 
@@ -13,7 +13,7 @@ Fixed content, independent of the target repo's state. Run them through each ide
 ## The tryout report (fixed format)
 
 ```text
-[Partner tryout report]
+[Handoff tryout report]
 identity       backend  model         effort  elapsed  result
 fast_worker    codex    gpt-5.6-sol   medium  28s      PASS
 deep_reasoner  claude   opus          high    1m42s    PASS
@@ -23,12 +23,12 @@ verdict: all identities live
 
 - `elapsed` is measured, not estimated. High-effort tiers legitimately take minutes; report reality.
 - `result` for the arbiter row states agreement or names the divergence in a few words. A divergence is not a failure.
-- A failed row states the actual error (CLI missing, model rejected, timeout) and the fix pointer — rerun `Partner, configure` or install the missing CLI. `verdict` then lists which identities are live and which are not; never report `all identities live` on a partial pass.
-- After each passing row, write `verified=true` + `verified_at` back to the config via `python3 "$PARTNER_DIR/scripts/partner-config.py" set --role <identity> --verified --verified-at <utc>` (goes through the same lock as every config write).
-- Close the session with a normal Partner Session Receipt; the three rows become its `roles_used` entries with `verified: true`.
+- A failed row states the actual error (CLI missing, model rejected, timeout) and the fix pointer — rerun `/agent-handoff config` or install the missing CLI. `verdict` then lists which identities are live and which are not; never report `all identities live` on a partial pass.
+- After each passing row, write `verified=true` + `verified_at` back to the config via `python3 "$HANDOFF_DIR/scripts/handoff-config.py" set --role <identity> --verified --verified-at <utc>` (goes through the same lock as every config write).
+- Close the session with a normal Handoff Session Receipt; the three rows become its `roles_used` entries with `verified: true`.
 
 ## Rules
 
 - Never substitute a different model to make a row pass; a failing row fails visibly (no silent fallback — same principle as setup).
-- Do not add project files, commits, or state: all three tasks are answer-only. The only writes are config `verified` flags and the `.partner/receipts/` entry.
-- If the user has not run `Partner, configure` yet, say so and route them there first instead of improvising unconfigured identities.
+- Do not add project files, commits, or state: all three tasks are answer-only. The only writes are config `verified` flags and the `.handoff/receipts/` entry.
+- If the user has not run `/agent-handoff config` yet, say so and route them there first instead of improvising unconfigured identities.

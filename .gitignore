@@ -23,7 +23,7 @@ node_modules/
 .pytest_cache/
 
 # Per-repo skill runtime state: config, goal, jobs, receipts, handoffs, backups
-.partner/
+.handoff/
 
 # Marker written by install.sh into an installed skill dir
 .install-meta

@@ -28,7 +28,7 @@ class DelegateRoleTests(unittest.TestCase):
         prompt = root / "prompt.md"
         prompt.write_text("test prompt\n", encoding="utf-8")
         if config is not None:
-            config_path = repo / ".partner" / "config.toml"
+            config_path = repo / ".handoff" / "config.toml"
             config_path.parent.mkdir()
             config_path.write_text(config, encoding="utf-8")
         fake_codex = root / "codex"
@@ -42,7 +42,7 @@ class DelegateRoleTests(unittest.TestCase):
             {
                 "HOME": str(root / "home"),
                 "XDG_CONFIG_HOME": str(root / "xdg"),
-                "PARTNER_CODEX_BIN": str(fake_codex),
+                "HANDOFF_CODEX_BIN": str(fake_codex),
             }
         )
         result = subprocess.run(
@@ -133,7 +133,7 @@ class DelegateRoleTests(unittest.TestCase):
             self.config(include_deep_reasoner=False), "--role", "deep_reasoner"
         )
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("python3 scripts/partner-config.py init", result.stderr)
+        self.assertIn("python3 scripts/handoff-config.py init", result.stderr)
         self.assertIn("set --role deep_reasoner", result.stderr)
 
     def test_without_role_uses_default_effort(self):
@@ -149,7 +149,7 @@ class DelegateRoleTests(unittest.TestCase):
     def test_dry_run_does_not_create_jobs_directory(self):
         result, repo = self.run_submit(self.config(), "--role", "deep_reasoner")
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertFalse((repo / ".partner" / "jobs").exists())
+        self.assertFalse((repo / ".handoff" / "jobs").exists())
 
     def test_dry_run_reports_selected_codex_binary(self):
         result, _ = self.run_submit(self.config(), "--role", "deep_reasoner")
@@ -178,7 +178,7 @@ class DelegateRoleTests(unittest.TestCase):
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("backend=claude", result.stderr)
-        self.assertIn("spawn the partner-deep_reasoner subagent", result.stderr)
+        self.assertIn("spawn the handoff-deep_reasoner subagent", result.stderr)
 
     def test_non_git_repo_appends_skip_git_repo_check(self):
         result, repo = self.run_submit(None)

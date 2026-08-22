@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "partner.receipt.v3",
-  "title": "Partner Session Receipt",
-  "description": "Machine-readable form of the [Partner session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 3 records one Claude-driven flow: the fields that only described Codex supervising a Claude Code session are gone. A receipt carrying them is a v2 receipt and fails validation as the upgrade signal.",
+  "$id": "handoff.receipt.v3",
+  "title": "Handoff Session Receipt",
+  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 3 records one Claude-driven flow: the fields that only described Codex supervising a Claude Code session are gone. A receipt carrying them is a v2 receipt and fails validation as the upgrade signal.",
   "type": "object",
   "required": [
     "phase",

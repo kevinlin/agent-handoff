@@ -1,9 +1,9 @@
-# Partner Goal File Template
+# Agent Handoff Goal File Template
 
-The Partner flow persists its plan and delegation state in `<repo>/.partner/goal.md` so a `/loop` tick, a resumed session, or the other agent can pick up the state without rebuilding context. Update it in place as jobs progress; do not create parallel copies.
+The Handoff flow persists its plan and delegation state in `<repo>/.handoff/goal.md` so a `/loop` tick, a resumed session, or the other agent can pick up the state without rebuilding context. Update it in place as jobs progress; do not create parallel copies.
 
 ```markdown
-# Partner Goal
+# Handoff Goal
 
 ## Goal
 [One why-forward sentence: working on X for Y, so that Z. Done when: <verifiable completion condition>. Anti-Goodhart: the done_when check must not be satisfiable by deleting tests, skipping steps, or weakening the acceptance bar — if it can be, fix the check, not the standard.]
@@ -37,7 +37,7 @@ status: pending | in_progress | delegated | review | rework-1 | rework-2 | taken
 [Integration decisions and takebacks worth carrying into the receipt and memory.]
 ```
 
-Splitting a task means making **one** judgment per row: which capability does this work need? The three identities are defined by `Partner, configure`, each carrying its own backend (which CLI executes and which meter bills), model, and effort — so picking the identity picks the execution channel automatically; there is no separate "owner" decision:
+Splitting a task means making **one** judgment per row: which capability does this work need? The three identities are defined by `/agent-handoff config`, each carrying its own backend (which CLI executes and which meter bills), model, and effort — so picking the identity picks the execution channel automatically; there is no separate "owner" decision:
 
 - **`deep_reasoner`** — architecture, ambiguous requirements, root-cause diagnosis, anything where a wrong premise in step one is expensive to discover late.
 - **`fast_worker`** — mechanical, well-scoped, specification-complete work where the acceptance criteria alone are enough to verify correctness.
@@ -45,7 +45,7 @@ Splitting a task means making **one** judgment per row: which capability does th
 
 Rows the driver keeps for itself — the split decision, cross-task integration, final acceptance — take identity `-`: they run inline in the driving session and never spawn or delegate.
 
-At execution time, resolve the identity's config (`partner-config.py resolve`): `backend = codex` → submit through `delegate-codex.sh --role <identity>` (Codex subscription meter); `backend = claude` → spawn the `partner-<identity>` subagent (Claude API meter). The same identity can point at either vendor — that mapping lives in `.partner/config.toml`, not in this table.
+At execution time, resolve the identity's config (`handoff-config.py resolve`): `backend = codex` → submit through `delegate-codex.sh --role <identity>` (Codex subscription meter); `backend = claude` → spawn the `handoff-<identity>` subagent (Claude API meter). The same identity can point at either vendor — that mapping lives in `.handoff/config.toml`, not in this table.
 
 Rules:
 

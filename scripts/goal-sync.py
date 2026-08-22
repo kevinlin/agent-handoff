@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hash-checked read/write for .partner/goal.md.
+"""Hash-checked read/write for .handoff/goal.md.
 
 goal.md has no lock (see docs/config-schema.md's neighbor design in
 references/goal-to-pr.md): write frequency is low and the driver usually
@@ -18,13 +18,13 @@ from pathlib import Path
 from typing import Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CONFIG_SCRIPT = SCRIPT_DIR / "partner-config.py"
-SPEC = importlib.util.spec_from_file_location("partner_config", CONFIG_SCRIPT)
+CONFIG_SCRIPT = SCRIPT_DIR / "handoff-config.py"
+SPEC = importlib.util.spec_from_file_location("handoff_config", CONFIG_SCRIPT)
 if SPEC is None or SPEC.loader is None:  # pragma: no cover - installation failure
     raise RuntimeError(f"cannot load {CONFIG_SCRIPT}")
-partner_config = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = partner_config
-SPEC.loader.exec_module(partner_config)
+handoff_config = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = handoff_config
+SPEC.loader.exec_module(handoff_config)
 
 
 class GoalSyncError(Exception):
@@ -32,7 +32,7 @@ class GoalSyncError(Exception):
 
 
 def goal_path(repo: Path) -> Path:
-    return repo.resolve() / ".partner" / "goal.md"
+    return repo.resolve() / ".handoff" / "goal.md"
 
 
 def sha256(text: str) -> str:
@@ -63,7 +63,7 @@ def write_goal(repo: Path, new_text: str, expect_sha256: Optional[str]) -> str:
             f"(expected sha256={expect_sha256}, found {current_hash}); re-read and retry"
         )
     path.parent.mkdir(parents=True, exist_ok=True)
-    partner_config.atomic_write(path, new_text)
+    handoff_config.atomic_write(path, new_text)
     return sha256(new_text)
 
 
@@ -83,7 +83,7 @@ def cmd_write(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Hash-checked read/write for .partner/goal.md.")
+    parser = argparse.ArgumentParser(description="Hash-checked read/write for .handoff/goal.md.")
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Repository root (default: current directory).")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

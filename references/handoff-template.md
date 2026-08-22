@@ -1,4 +1,4 @@
-# Partner Packet Templates
+# Agent Handoff Packet Templates
 
 Two packets, both bounded: the delegation packet Claude sends to a Codex job, and the Goal Packet Claude sends to the user for authorization. Cite evidence; do not paste the whole repo.
 
@@ -7,7 +7,7 @@ Two packets, both bounded: the delegation packet Claude sends to a Codex job, an
 Use this packet when Claude Code delegates a task to Codex via `delegate-codex.sh submit`. It follows `references/fable5-principles.md`: why-forward opening, one-sentence task, verifiable acceptance, only genuine constraints, fixed output discipline.
 
 ```markdown
-# Partner Delegation
+# Handoff Delegation
 
 ## Context
 I'm working on [the larger task] for [who it's for]. They need
@@ -41,10 +41,10 @@ Delegation packet rules:
 
 ## Goal Packet (Plan→Goal→PR→Verification, `references/goal-to-pr.md`)
 
-Use this packet to present a Stage 1 plan for authorization before writing `.partner/goal.md` and starting Stage 3. It is a decision artifact for the user, not a delegation packet for Codex.
+Use this packet to present a Stage 1 plan for authorization before writing `.handoff/goal.md` and starting Stage 3. It is a decision artifact for the user, not a delegation packet for Codex.
 
 ```markdown
-# Partner Goal Packet
+# Handoff Goal Packet
 
 ## Ask
 [One why-forward sentence: what the user asked for and why it matters.]
@@ -75,6 +75,6 @@ those needs its own explicit imperative sentence when the time comes.
 
 Rules:
 
-- Send this before creating a branch, worktree, or `.partner/goal.md` — Stage 1 (Plan) touches no files.
+- Send this before creating a branch, worktree, or `.handoff/goal.md` — Stage 1 (Plan) touches no files.
 - A reply that only answers a question in this packet is not authorization to proceed; wait for an actual imperative.
 - Keep it bounded: cite evidence, do not paste the whole repo.

@@ -18,7 +18,7 @@ jobs:
           bash -n install.sh
           bash -n scripts/check-skill-repo.sh
           bash -n scripts/delegate-codex.sh
-          python3 -m py_compile scripts/english-only-scan.py scripts/showcase-cost-ledger.py scripts/validate-receipt.py scripts/run-test-prompts.py scripts/partner_runtime.py scripts/partner-setup.py scripts/partner-setup-ui.py scripts/partner-config.py scripts/goal-sync.py scripts/make-receipt.py
+          python3 -m py_compile scripts/english-only-scan.py scripts/showcase-cost-ledger.py scripts/validate-receipt.py scripts/run-test-prompts.py scripts/handoff_runtime.py scripts/handoff-setup.py scripts/handoff-setup-ui.py scripts/handoff-config.py scripts/goal-sync.py scripts/make-receipt.py
 
       - name: Unit suite
         run: python3 -m unittest discover -s tests

@@ -3,28 +3,28 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Partner installer
+Agent Handoff installer
 
 Usage:
   bash install.sh [--dry-run]
   bash install.sh --status
-  bash install.sh --configure [partner-setup-ui.py args...]
-  bash install.sh --configure-cli [partner-setup.py args...]
+  bash install.sh --config [handoff-setup-ui.py args...]
+  bash install.sh --config-cli [handoff-setup.py args...]
 
-Installs to ~/.claude/skills/partner-skill.
+Installs to ~/.claude/skills/agent-handoff.
 
 --status compares the installed copy's .install-meta commit against this
 repository's HEAD so a stale copy is visible before it causes confusion.
 
---configure opens the localhost-only single-page setup UI; any extra arguments
-are passed to partner-setup-ui.py. --configure-cli keeps the terminal fallback.
+--config opens the localhost-only single-page setup UI; any extra arguments
+are passed to handoff-setup-ui.py. --config-cli keeps the terminal fallback.
 USAGE
 }
 
 DRY_RUN="false"
 STATUS="false"
 BACKUP_KEEP=3
-DEST="$HOME/.claude/skills/partner-skill"
+DEST="$HOME/.claude/skills/agent-handoff"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -36,13 +36,13 @@ while [ "$#" -gt 0 ]; do
       STATUS="true"
       shift
       ;;
-    --configure)
+    --config)
       shift
-      exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/partner-setup-ui.py" "$@"
+      exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/handoff-setup-ui.py" "$@"
       ;;
-    --configure-cli)
+    --config-cli)
       shift
-      exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/partner-setup.py" --interactive "$@"
+      exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/handoff-setup.py" --interactive "$@"
       ;;
     -h|--help)
       usage
@@ -58,7 +58,7 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ ! -f "$ROOT/SKILL.md" ]; then
-  echo "ERROR: install.sh must run from the partner-skill repository." >&2
+  echo "ERROR: install.sh must run from the agent-handoff repository." >&2
   exit 1
 fi
 
@@ -120,7 +120,7 @@ if [ "$ROOT" = "$DEST" ]; then
   exit 0
 fi
 
-echo "Install Partner -> $DEST"
+echo "Install Agent Handoff -> $DEST"
 if [ "$DRY_RUN" = "true" ]; then
   exit 0
 fi
@@ -139,4 +139,4 @@ fi
 mkdir -p "$DEST"
 copy_payload "$DEST"
 
-echo "Done. Try: Partner, delegate the mechanical parts to Codex in the background, then full-review."
+echo "Done. Try: hand the mechanical parts off to Codex in the background, then full-review."

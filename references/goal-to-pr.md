@@ -4,7 +4,7 @@ This is the escalated protocol for when the user asks for the full pipeline, not
 
 ## Trigger Grading
 
-- **One-off small change** (a bug fix, a small file, an isolated task): stay on the fast path in `references/claude-driven.md`. Do not create `.partner/goal.md` for this — a goal file for a five-line fix is ceremony, not safety.
+- **One-off small change** (a bug fix, a small file, an isolated task): stay on the fast path in `references/claude-driven.md`. Do not create `.handoff/goal.md` for this — a goal file for a five-line fix is ceremony, not safety.
 - **User says "full protocol" / "PR delivery" / "goal mode"** (or the equivalent in English — "full protocol", "deliver a PR", "goal mode"): run this file's four stages below.
 - **Recurring, independently-verifiable work the user wants to self-run** (a nightly sweep, a repeating audit): hand off to the `loop-engineering` skill itself instead of stretching this protocol to fit. This file and that skill interlink; neither absorbs the other.
 
@@ -19,7 +19,7 @@ The `ordinary-pr-no-trigger` test case exists specifically to keep small changes
 
 ## Stage 2 — Goal
 
-- Write `<repo>/.partner/goal.md` from `references/goal-template.md`, including its `## Delivery` section (branch/worktree, pr, ci, preview, live, authorization). The task table's `status` enum is unchanged from the base template — do not add or rename values; `/loop` monitoring's stop rule and older goal.md copies depend on the existing enum. Use `scripts/goal-sync.py read`/`write --expect-sha256 <hash>` for the write so a concurrent update from the monitor loop aborts your write instead of being silently lost.
+- Write `<repo>/.handoff/goal.md` from `references/goal-template.md`, including its `## Delivery` section (branch/worktree, pr, ci, preview, live, authorization). The task table's `status` enum is unchanged from the base template — do not add or rename values; `/loop` monitoring's stop rule and older goal.md copies depend on the existing enum. Use `scripts/goal-sync.py read`/`write --expect-sha256 <hash>` for the write so a concurrent update from the monitor loop aborts your write instead of being silently lost.
 - Every `done_when` gets the anti-Goodhart clause next to it: the check must not be satisfiable by deleting tests, skipping steps, or weakening the acceptance bar. A done_when that a maker could trivially "pass" by making the check meaningless is not a valid done_when — fix the check, not the standard.
 - `done_when` and `hard_stops` are orthogonal: reaching every done_when condition never implies permission to cross a hard stop. They compose by AND, not by either substituting for the other.
 
@@ -54,7 +54,7 @@ Fast feedback first, escalate only as needed:
 2. Lint / typecheck.
 3. The affected module's test suite.
 4. Full test suite / build.
-5. Diff-against-acceptance: re-read `.partner/goal.md`'s acceptance criteria and the actual diff — not the maker's self-report of what it did. A checker who only reads the diff confidently redefines the spec as "consistent with what changed" and misses undone tasks (see `references/fable5-principles.md`'s Superpowers 6 citation).
+5. Diff-against-acceptance: re-read `.handoff/goal.md`'s acceptance criteria and the actual diff — not the maker's self-report of what it did. A checker who only reads the diff confidently redefines the spec as "consistent with what changed" and misses undone tasks (see `references/fable5-principles.md`'s Superpowers 6 citation).
 6. Secret scan.
 7. Migration check, if the change touches schema or persisted state.
 

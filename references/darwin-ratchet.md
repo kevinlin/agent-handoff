@@ -1,6 +1,6 @@
-# Darwin Ratchet For Partner
+# Darwin Ratchet For Agent Handoff
 
-Partner uses a validation-gated improvement loop inspired by Darwin-style skill optimization: evaluate, improve one dimension, test, then keep or revert. The point is not to make the skill longer. The point is to make the next real run more reliable.
+Handoff uses a validation-gated improvement loop inspired by Darwin-style skill optimization: evaluate, improve one dimension, test, then keep or revert. The point is not to make the skill longer. The point is to make the next real run more reliable.
 
 ## Editable Dimensions
 

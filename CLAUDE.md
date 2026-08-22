@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-`partner-skill` (Partner) is an **Agent Skill**, not an application. There is nothing to build or serve. The deliverable is a directory that gets copied into `~/.claude/skills/partner-skill` by `install.sh`, plus Python/Bash helper scripts the skill invokes at runtime.
+`agent-handoff` (Handoff) is an **Agent Skill**, not an application. There is nothing to build or serve. The deliverable is a directory that gets copied into `~/.claude/skills/agent-handoff` by `install.sh`, plus Python/Bash helper scripts the skill invokes at runtime.
 
 Consequence: prose files (`SKILL.md`, `README.md`, `references/*.md`) are **product surface**, gated by CI the same way code is. Editing them can break `check-skill-repo.sh`.
 
@@ -12,8 +12,8 @@ Consequence: prose files (`SKILL.md`, `README.md`, `references/*.md`) are **prod
 
 ```bash
 python3 -m unittest discover -s tests          # unit suite
-python3 -m unittest tests.test_partner_config  # one module
-python3 -m unittest tests.test_partner_config.ClassName.test_name  # one test
+python3 -m unittest tests.test_handoff_config  # one module
+python3 -m unittest tests.test_handoff_config.ClassName.test_name  # one test
 
 bash scripts/check-skill-repo.sh .             # publish-readiness gate (required files, triggers, secret scan)
 python3 scripts/english-only-scan.py           # fail on CJK in any tracked file
@@ -43,19 +43,19 @@ python3 scripts/make-receipt.py --phase review --claude-session x \
 
 **One flow.** `SKILL.md` is the core contract; `references/claude-driven.md` is the flow it loads — five phases (preflight, plan and split, delegate, monitor, full review, wrap up) plus an arbiter protocol. Claude Code drives; Codex executes delegated work on its own subscription.
 
-The run terminates in a **Partner Session Receipt** (schema v3, `docs/receipt-schema.json`). Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
+The run terminates in a **Handoff Session Receipt** (schema v3, `docs/receipt-schema.json`). Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
 
-**Identity layer.** Three identities — `deep_reasoner`, `fast_worker`, `arbiter` — each a `backend + model + effort` triple, freely mixed across vendors. Values live *only* in `.partner/config.toml` (project) or `~/.config/partner/config.toml` (global), never in prompts or docs. Resolution order: session override → project → global → built-in defaults, merged per field. Schema in `docs/config-schema.md`.
+**Identity layer.** Three identities — `deep_reasoner`, `fast_worker`, `arbiter` — each a `backend + model + effort` triple, freely mixed across vendors. Values live *only* in `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global), never in prompts or docs. Resolution order: session override → project → global → built-in defaults, merged per field. Schema in `docs/config-schema.md`.
 
-- `scripts/partner-config.py` — pure read/write/resolve engine. It owns only `hosts.claude_code.identities.*` and must preserve `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from dual-host-era configs) byte-for-byte. The `hosts.*` nesting is kept so existing configs keep loading.
-- `scripts/partner-setup.py` — the plan/preview/apply/smoke/rollback/uninstall engine. All writes are atomic with backups.
-- `scripts/partner-setup-ui.py` — localhost-only single-page wizard; delegates every preview and write to `partner-setup.py`. Model and effort lists come from probing the local CLIs (`model/list`, `claude --help`), never from hardcoded guesses.
+- `scripts/handoff-config.py` — pure read/write/resolve engine. It owns only `hosts.claude_code.identities.*` and must preserve `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from dual-host-era configs) byte-for-byte. The `hosts.*` nesting is kept so existing configs keep loading.
+- `scripts/handoff-setup.py` — the plan/preview/apply/smoke/rollback/uninstall engine. All writes are atomic with backups.
+- `scripts/handoff-setup-ui.py` — localhost-only single-page wizard; delegates every preview and write to `handoff-setup.py`. Model and effort lists come from probing the local CLIs (`model/list`, `claude --help`), never from hardcoded guesses.
 
 **Runtime primitives.**
 
-- `scripts/delegate-codex.sh` — wraps `codex exec --json` as durable background jobs under `<repo>/.partner/jobs/<jobId>/`. Subcommands: `submit|status|result|resume|cancel|list`. `--role` resolves backend/model/effort from config and fail-closes when the identity's backend is `claude`.
-- `scripts/goal-sync.py` — hash-checked read/write for `.partner/goal.md`, so the Phase 3 monitor loop and the driver cannot silently clobber each other.
-- `scripts/partner_runtime.py` — `clean_claude_env()`, stripping `ANTHROPIC_*`/`CLAUDE_CODE_*` before spawning a child CLI so it authenticates like a fresh terminal. Any new script that spawns a CLI should use it.
+- `scripts/delegate-codex.sh` — wraps `codex exec --json` as durable background jobs under `<repo>/.handoff/jobs/<jobId>/`. Subcommands: `submit|status|result|resume|cancel|list`. `--role` resolves backend/model/effort from config and fail-closes when the identity's backend is `claude`.
+- `scripts/goal-sync.py` — hash-checked read/write for `.handoff/goal.md`, so the Phase 3 monitor loop and the driver cannot silently clobber each other.
+- `scripts/handoff_runtime.py` — `clean_claude_env()`, stripping `ANTHROPIC_*`/`CLAUDE_CODE_*` before spawning a child CLI so it authenticates like a fresh terminal. Any new script that spawns a CLI should use it.
 
 ## Conventions that CI enforces
 

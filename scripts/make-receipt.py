@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate a valid Partner Session Receipt.
+"""Generate a valid Handoff Session Receipt.
 
 Receipts written by hand drift in format and invite optimistic guesses.
 This tool builds the receipt from arguments, validates the result with
 scripts/validate-receipt.py logic before printing, and can persist it under
-the target repo's .partner/receipts/.
+the target repo's .handoff/receipts/.
 
 Usage:
     python3 make-receipt.py --phase "final fix" --claude-session abc123 \
@@ -12,7 +12,7 @@ Usage:
         [--scope project] [--config-source project] [--roles-used '[]'] \
         [--anomalies none] [--save] [--repo PATH]
 
-Tip: get --codex-jobs from the job directories under <repo>/.partner/jobs/
+Tip: get --codex-jobs from the job directories under <repo>/.handoff/jobs/
 instead of recalling how many were submitted.
 """
 
@@ -35,7 +35,7 @@ def load_validator():
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate a valid Partner Session Receipt.")
+    parser = argparse.ArgumentParser(description="Generate a valid Handoff Session Receipt.")
     parser.add_argument("--phase", required=True)
     parser.add_argument("--claude-session", required=True, help="Session id, or 'none'.")
     parser.add_argument("--checks", required=True)
@@ -44,7 +44,7 @@ def main() -> int:
     parser.add_argument("--scope", default="n/a", help="project | global | n/a (default: n/a, when no configured role was touched).")
     parser.add_argument("--config-source", default="n/a", help="session | project | global | default | n/a.")
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
-    parser.add_argument("--save", action="store_true", help="Also write to <repo>/.partner/receipts/.")
+    parser.add_argument("--save", action="store_true", help="Also write to <repo>/.handoff/receipts/.")
     parser.add_argument("--repo", default=".", help="Target repo for --save (default: current directory).")
     args = parser.parse_args()
 
@@ -67,13 +67,13 @@ def main() -> int:
             print(f"FAIL {failure}", file=sys.stderr)
         return 1
 
-    lines = ["[Partner session receipt]"]
+    lines = ["[Handoff session receipt]"]
     lines.extend(f"{key}: {value}" for key, value in fields.items())
     receipt = "\n".join(lines)
     print(receipt)
 
     if args.save:
-        save_dir = Path(args.repo).resolve() / ".partner" / "receipts"
+        save_dir = Path(args.repo).resolve() / ".handoff" / "receipts"
         save_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         save_path = save_dir / f"receipt-{stamp}.md"

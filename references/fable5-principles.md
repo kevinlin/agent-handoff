@@ -1,6 +1,6 @@
 # Frontier-Model Prompting Principles (Fable 5 Masterclass distillation)
 
-Shared rules for every agent-to-agent prompt in Partner. Distilled from Anthropic's Fable 5 (Mythos) Prompting Masterclass; the principles transfer to any frontier agentic model, including the Codex side.
+Shared rules for every agent-to-agent prompt in Handoff. Distilled from Anthropic's Fable 5 (Mythos) Prompting Masterclass; the principles transfer to any frontier agentic model, including the Codex side.
 
 ## Why-Forward Context
 
@@ -27,7 +27,7 @@ Put this rule in the goal file and in every delegation packet.
 
 ## Effort as a Handoff Parameter
 
-Effort level is the intelligence/latency/cost dial. Prefer `delegate-codex.sh --role <identity>` so backend, effort, and model resolve from `Partner, configure`'s config instead of being picked ad hoc per call; pass an explicit `--effort` only when a specific task genuinely needs to override its identity's default. Without a `--role` or explicit `--effort`, the tool falls back to `high` — reserve `xhigh` for the hardest, quality-critical jobs (expect long runtimes); `medium` only for genuinely trivial mechanical work. On a subscription plan, do not economize on effort at the price of rework.
+Effort level is the intelligence/latency/cost dial. Prefer `delegate-codex.sh --role <identity>` so backend, effort, and model resolve from `/agent-handoff config`'s config instead of being picked ad hoc per call; pass an explicit `--effort` only when a specific task genuinely needs to override its identity's default. Without a `--role` or explicit `--effort`, the tool falls back to `high` — reserve `xhigh` for the hardest, quality-critical jobs (expect long runtimes); `medium` only for genuinely trivial mechanical work. On a subscription plan, do not economize on effort at the price of rework.
 
 ## Resume Instead of Restart
 
@@ -65,13 +65,13 @@ Three execution channels, in order of preference for delegable work:
 
 | Channel | Billing | Shape | Use when |
 |---|---|---|---|
-| Partner `delegate-codex.sh` | Codex subscription | out-of-process background job, durable state, loop monitoring, resume rework, receipt | a real unit of delegated work: runs while you continue, gets full-reviewed, may need fix rounds |
+| Handoff `delegate-codex.sh` | Codex subscription | out-of-process background job, durable state, loop monitoring, resume rework, receipt | a real unit of delegated work: runs while you continue, gets full-reviewed, may need fix rounds |
 | Codex subagent (one-shot, e.g. a rescue/second-opinion agent) | Codex subscription | in-process, blocking, no durable state | stuck and want a second diagnosis, or a throwaway assist |
 | Claude subagent (Task tool, cheaper Claude tier) | Claude API metered | in-process, isolated context, returns a summary | the step genuinely needs Claude-grade reasoning at a lower tier and the metered spend is acceptable |
 
-Picking *which* Claude subagent to spawn is a separate, three-level lookup — see "Sub Agent Routing" in `references/claude-driven.md`: a `partner-*` namespaced agent configured via `Partner, configure` first, the user's own similarly-named agent second, the generic `Task` tool last. This is about which agent definition answers the call, not which channel bills for it.
+Picking *which* Claude subagent to spawn is a separate, three-level lookup — see "Sub Agent Routing" in `references/claude-driven.md`: a `handoff-*` namespaced agent configured via `/agent-handoff config` first, the user's own similarly-named agent second, the generic `Task` tool last. This is about which agent definition answers the call, not which channel bills for it.
 
-Only the Codex channels move the whole meter to the subscription; a cheaper-Claude subagent still bills the API. A subagent is a single-call primitive; the Partner job is an orchestration layer (submit → monitor → review → rework → receipt → memory) — pick by whether the work needs that lifecycle, not by habit.
+Only the Codex channels move the whole meter to the subscription; a cheaper-Claude subagent still bills the API. A subagent is a single-call primitive; the Handoff job is an orchestration layer (submit → monitor → review → rework → receipt → memory) — pick by whether the work needs that lifecycle, not by habit.
 
 ## Don't Throttle the Planner's Thinking
 

@@ -50,10 +50,10 @@ check_file "scripts/make-receipt.py"
 check_file "scripts/validate-receipt.py"
 check_file "scripts/run-test-prompts.py"
 check_file "scripts/delegate-codex.sh"
-check_file "scripts/partner-config.py"
-check_file "scripts/partner_runtime.py"
-check_file "scripts/partner-setup.py"
-check_file "scripts/partner-setup-ui.py"
+check_file "scripts/handoff-config.py"
+check_file "scripts/handoff_runtime.py"
+check_file "scripts/handoff-setup.py"
+check_file "scripts/handoff-setup-ui.py"
 check_file "scripts/goal-sync.py"
 check_file "scripts/english-only-scan.py"
 check_file "references/claude-driven.md"
@@ -107,10 +107,10 @@ PY
   fi
 fi
 
-if grep -q '^name: partner-skill$' SKILL.md; then
+if grep -q '^name: agent-handoff$' SKILL.md; then
   echo "PASS SKILL.md name"
 else
-  echo "FAIL SKILL.md frontmatter name must be partner-skill"
+  echo "FAIL SKILL.md frontmatter name must be agent-handoff"
   fail=$((fail + 1))
 fi
 
@@ -121,17 +121,17 @@ else
   fail=$((fail + 1))
 fi
 
-if grep -qF '"Partner skill"' SKILL.md; then
+if grep -qF '"agent handoff"' SKILL.md; then
   echo "PASS SKILL.md bare trigger"
 else
-  echo "FAIL SKILL.md description must include \"Partner skill\" as a trigger"
+  echo "FAIL SKILL.md description must include \"agent handoff\" as a trigger"
   fail=$((fail + 1))
 fi
 
-if grep -qF '# Partner Skill' README.md && grep -qF 'best coding partners' README.md; then
+if grep -qF '# Agent Handoff' README.md && grep -qF 'every handoff leaves a receipt' README.md; then
   echo "PASS README identity"
 else
-  echo "FAIL README must include Partner identity and slogan"
+  echo "FAIL README must include Agent Handoff identity and slogan"
   fail=$((fail + 1))
 fi
 
@@ -168,14 +168,14 @@ else
   fail=$((fail + 1))
 fi
 
-if grep -qF 'Partner Session Receipt' SKILL.md && \
+if grep -qF 'Handoff Session Receipt' SKILL.md && \
   grep -qF 'codex_jobs' SKILL.md && \
   grep -qF 'roles_used' SKILL.md && \
-  grep -qF 'Partner Session Receipt' README.md && \
+  grep -qF 'Handoff Session Receipt' README.md && \
   grep -qF 'session-receipt-required' test-prompts.json; then
-  echo "PASS Partner Session Receipt contract"
+  echo "PASS Handoff Session Receipt contract"
 else
-  echo "FAIL Partner Session Receipt contract must be present in SKILL.md, README.md, and test-prompts.json"
+  echo "FAIL Handoff Session Receipt contract must be present in SKILL.md, README.md, and test-prompts.json"
   fail=$((fail + 1))
 fi
 

@@ -1,4 +1,4 @@
-# Partner Showcase Cost Model
+# Agent Handoff Showcase Cost Model
 
 Updated: 2026-07-29
 
@@ -6,7 +6,7 @@ This document backs the README showcase. It separates verified behavior from ill
 
 ## What Is Verified
 
-The Partner workflow can verify these facts without billing telemetry:
+The Handoff workflow can verify these facts without billing telemetry:
 
 - which tasks ran on the Codex subscription, and under which role, model, and effort;
 - how many background jobs ran, fix rounds included;
@@ -14,7 +14,7 @@ The Partner workflow can verify these facts without billing telemetry:
 - which checks passed;
 - which anomalies occurred.
 
-These facts belong in the Partner Session Receipt.
+These facts belong in the Handoff Session Receipt.
 
 ## What Is A Model
 
@@ -23,20 +23,20 @@ The current showcase uses workload units, not exact API token counts:
 | Mode | Codex workload | Claude Code workload | Claude pressure |
 |---|---:|---:|---:|
 | Codex-only | 100 | 0 | 0.0x |
-| Partner | 70 | 30 | 0.3x |
+| Handoff | 70 | 30 | 0.3x |
 | Pure Claude Code | 0 | 100 | 1.0x |
 
 Interpretation:
 
 - Codex-only is cheapest for Claude but has no independent sign-off.
-- Partner keeps Claude on planning, the split decision, and the full-review gate while Codex carries implementation and verification.
+- Handoff keeps Claude on planning, the split decision, and the full-review gate while Codex carries implementation and verification.
 - Pure Claude Code spends Claude capacity on planning, implementation, fixes, checks, and review.
 
 Do not present this model as measured token savings.
 
 ## Archived v2.0.1 Planning Evidence
 
-Partner 2.0.1 shipped a bounded repository planner, removed in 3.0.0. Its cost evidence is kept here because it is real and verifiable per run. It describes a component that no longer exists, does **not** replace the workload model above, and never measured the whole Partner loop.
+Handoff 2.0.1 shipped a bounded repository planner, removed in 3.0.0. Its cost evidence is kept here because it is real and verifiable per run. It describes a component that no longer exists, does **not** replace the workload model above, and never measured the whole Handoff loop.
 
 | Run | Session mode | Outcome | Cost returned by Claude CLI |
 |---|---|---|---:|
@@ -45,7 +45,7 @@ Partner 2.0.1 shipped a bounded repository planner, removed in 3.0.0. Its cost e
 | `fable-candidate-r2-resume` | exact same session | valid eight-section plan | `$0.382695` |
 | `fable-candidate-final` | fresh, bounded | valid plan; exact model/session/hashes | `$0.45282` |
 
-The failed bounded attempt has `unknown` cost because Claude CLI did not emit a final result/cost event before the runner's 180-second accepted-event timeout. Partner did not estimate the missing value. The runner retained failure metadata and recovery, the exact same session resumed successfully, and a separate fresh candidate later passed the release gate.
+The failed bounded attempt has `unknown` cost because Claude CLI did not emit a final result/cost event before the runner's 180-second accepted-event timeout. Handoff did not estimate the missing value. The runner retained failure metadata and recovery, the exact same session resumed successfully, and a separate fresh candidate later passed the release gate.
 
 See `docs/releases/v2.0.1.md` for that release's boundary.
 
@@ -63,7 +63,7 @@ For a measured end-to-end run, record one row per phase:
 | `output_tokens` | Exact provider/API count if available |
 | `changed_files` | Diff scope for the phase |
 | `checks` | Commands run and result |
-| `receipt_evidence` | Evidence copied into the Partner Session Receipt |
+| `receipt_evidence` | Evidence copied into the Handoff Session Receipt |
 
 When exact token fields are missing, report `unknown` and keep the workload model separate.
 
@@ -72,13 +72,13 @@ When exact token fields are missing, report `unknown` and keep the workload mode
 Allowed:
 
 ```text
-Partner reduced Claude pressure in the showcase model by keeping Claude to planning, the split decision, and review while Codex handled implementation.
+Handoff reduced Claude pressure in the showcase model by keeping Claude to planning, the split decision, and review while Codex handled implementation.
 ```
 
 Not allowed:
 
 ```text
-Partner saved 70% of Claude tokens.
+Handoff saved 70% of Claude tokens.
 ```
 
 That claim requires exact Claude and Codex token telemetry from the run.
@@ -107,7 +107,7 @@ The measured JSON is keyed by mode:
 
 ```json
 {
-  "partner": {
+  "handoff": {
     "codex_input_tokens": 120000,
     "codex_output_tokens": 8000,
     "claude_input_tokens": 30000,

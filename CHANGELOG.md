@@ -2,6 +2,18 @@
 
 ## v3.0.0 (2026-08-22)
 
+### Breaking: renamed to agent-handoff
+
+The skill was called `partner-skill` ("Partner") through v2.x. Every name below changed at once, and there is no compatibility shim — a machine with the old install re-runs setup.
+
+- refactor!: skill name `partner-skill` → `agent-handoff`; install destination `~/.claude/skills/agent-handoff`. Triggers are now the skill name or the word handoff: `/agent-handoff` (bare), `/agent-handoff config` (also `setup`/`init`), `/agent-handoff tryout`, `/agent-handoff resume`, plus "config agent handoff", "setup agent handoff", "tryout agent handoff", "hand this off to codex". The verb is `config`, never `configure` — `install.sh --configure`/`--configure-cli` became `--config`/`--config-cli`
+- refactor!: per-repo state directory `.partner/` → `.handoff/` (config, goal, jobs, receipts, backups, generated manifest), and global config `~/.config/partner/config.toml` → `~/.config/handoff/config.toml`. Nothing reads the old locations
+- refactor!: `scripts/partner-{config,setup,setup-ui}.py` and `scripts/partner_runtime.py` → `scripts/handoff-{config,setup,setup-ui}.py` and `scripts/handoff_runtime.py`; tests renamed to match
+- refactor!: `$PARTNER_DIR` → `$HANDOFF_DIR`, `PARTNER_CODEX_BIN` → `HANDOFF_CODEX_BIN`, `PARTNER_AGENT_CMD` → `HANDOFF_AGENT_CMD`; generated subagents `partner-deep-reasoner`/`-fast-worker`/`-arbiter` → `handoff-*`; managed routing markers now say `HANDOFF MANAGED ROUTING`
+- refactor!: receipt header `[Partner session receipt]` → `[Handoff session receipt]` and schema `$id` `partner.receipt.v3` → `handoff.receipt.v3`. Field set is unchanged, so `receipt_schema_version` stays `3`; a receipt written under the old header no longer validates
+- refactor!: showcase ledger schema `handoff.showcase_cost_ledger.v1` with mode key `handoff` and comparisons `handoff_vs_pure_claude` / `handoff_vs_codex_only`
+- docs: release notes under `docs/releases/`, the three archived receipts under `examples/`, and older changelog entries keep the Partner name — that was the name when they were written
+
 ### Breaking: one flow, one host
 
 - refactor!: remove the Codex-driven flow (Direction A). Partner is now a single flow — Claude Code plans and splits, Codex executes delegated background jobs, Claude full-reviews before accepting. `references/codex-driven.md`, `monitoring.md`, `scenarios.md`, `failure-playbook.md`, and `bounded-planning.md` are gone, along with `make-handoff.sh`, `check-claude-cli.sh`, `session-snapshot.sh`, and `run-claude-plan.py`

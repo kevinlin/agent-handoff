@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# delegate-codex.sh — Claude-driven Partner delegation primitive.
+# delegate-codex.sh — Claude-driven Handoff delegation primitive.
 #
 # Wraps `codex exec --json` as background jobs with durable state under
-# <repo>/.partner/jobs/<jobId>/ so a Claude Code session (or a /loop tick)
+# <repo>/.handoff/jobs/<jobId>/ so a Claude Code session (or a /loop tick)
 # can submit work to Codex, poll it, collect the result, and send follow-up
 # fix rounds against the same Codex session.
 #
@@ -20,7 +20,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-delegate-codex.sh — background Codex jobs for the Claude-driven Partner flow
+delegate-codex.sh — background Codex jobs for the Claude-driven Handoff flow
 
 Usage:
   delegate-codex.sh submit --repo <path> --prompt-file <file>
@@ -33,13 +33,13 @@ Usage:
   delegate-codex.sh cancel <jobId> --repo <path>
   delegate-codex.sh list   --repo <path>
 
-Defaults: --effort high (Partner default for delegated work), read-write
+Defaults: --effort high (Handoff default for delegated work), read-write
 sandbox per the user's codex config. Use --read-only for review/adversarial
 jobs that must not touch the repo. --role resolves backend, model, and effort
-from Partner config; an identity with backend=claude must be spawned as a
+from Handoff config; an identity with backend=claude must be spawned as a
 subagent instead of delegated here.
 
-Codex binary: set PARTNER_CODEX_BIN to an executable path or command name to
+Codex binary: set HANDOFF_CODEX_BIN to an executable path or command name to
 override discovery. On macOS the ChatGPT/Codex app-bundled CLI is preferred
 when present so app-only models use a compatible client; otherwise PATH is used.
 
@@ -48,7 +48,7 @@ returns non-zero on timeout or failure so callers can branch on it.
 USAGE
 }
 
-JOBS_SUBDIR=".partner/jobs"
+JOBS_SUBDIR=".handoff/jobs"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() {
@@ -84,7 +84,7 @@ is_git_repo() {
 }
 
 resolve_codex_bin() {
-  local configured="${PARTNER_CODEX_BIN:-}"
+  local configured="${HANDOFF_CODEX_BIN:-}"
   local candidate=""
 
   CODEX_BIN_SOURCE="path"
@@ -95,7 +95,7 @@ resolve_codex_bin() {
     else
       candidate="$(command -v "$configured" 2>/dev/null || true)"
     fi
-    [ -n "$candidate" ] && [ -x "$candidate" ] || die "PARTNER_CODEX_BIN is not executable: $configured"
+    [ -n "$candidate" ] && [ -x "$candidate" ] || die "HANDOFF_CODEX_BIN is not executable: $configured"
   elif [ "$(uname -s)" = "Darwin" ]; then
     for candidate in "/Applications/ChatGPT.app/Contents/Resources/codex" "/Applications/Codex.app/Contents/Resources/codex"; do
       if [ -x "$candidate" ]; then
@@ -110,7 +110,7 @@ resolve_codex_bin() {
     candidate="$(command -v codex 2>/dev/null || true)"
     CODEX_BIN_SOURCE="path"
   fi
-  [ -n "$candidate" ] && [ -x "$candidate" ] || die "codex CLI not found; install it or set PARTNER_CODEX_BIN"
+  [ -n "$candidate" ] && [ -x "$candidate" ] || die "codex CLI not found; install it or set HANDOFF_CODEX_BIN"
 
   CODEX_BIN="$candidate"
   CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
@@ -205,18 +205,18 @@ cmd_submit() {
 
   if [ -n "$ROLE" ]; then
     local CONFIG_JSON CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
-    if ! CONFIG_JSON="$(python3 "$SCRIPT_DIR/partner-config.py" --repo "$REPO" resolve)"; then
-      die "failed to resolve Codex identity config; run 'python3 scripts/partner-config.py init' and then 'set --role $ROLE --backend codex --model <model> --effort <effort>'"
+    if ! CONFIG_JSON="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve)"; then
+      die "failed to resolve Codex identity config; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend codex --model <model> --effort <effort>'"
     fi
-    CONFIG_SOURCE="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("source", ""))')" || die "invalid JSON from partner-config.py resolve"
-    ROLE_BACKEND="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("backend", ""))' "$ROLE")" || die "invalid JSON from partner-config.py resolve"
-    ROLE_MODEL="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("model", ""))' "$ROLE")" || die "invalid JSON from partner-config.py resolve"
-    ROLE_EFFORT="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("effort", ""))' "$ROLE")" || die "invalid JSON from partner-config.py resolve"
+    CONFIG_SOURCE="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("source", ""))')" || die "invalid JSON from handoff-config.py resolve"
+    ROLE_BACKEND="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("backend", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
+    ROLE_MODEL="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("model", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
+    ROLE_EFFORT="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("effort", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
     if [ -z "$ROLE_BACKEND" ] || [ -z "$ROLE_MODEL" ] || [ -z "$ROLE_EFFORT" ]; then
-      die "Codex identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/partner-config.py init' and then 'set --role $ROLE --backend codex --model <model> --effort <effort>'"
+      die "Codex identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend codex --model <model> --effort <effort>'"
     fi
     if [ "$ROLE_BACKEND" != "codex" ]; then
-      die "identity $ROLE is configured as backend=$ROLE_BACKEND; spawn the partner-$ROLE subagent instead of delegating to Codex"
+      die "identity $ROLE is configured as backend=$ROLE_BACKEND; spawn the handoff-$ROLE subagent instead of delegating to Codex"
     fi
     if [ "$MODEL_EXPLICIT" = "false" ]; then
       MODEL="$ROLE_MODEL"

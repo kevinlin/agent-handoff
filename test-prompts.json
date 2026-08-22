@@ -1,12 +1,12 @@
 [
   {
     "id": "session-receipt-required",
-    "prompt": "Partner, delegate this task to Codex and see it through, then give me a receipt \u2014 I want to see exactly which work it did.",
+    "prompt": "Hand this task off to Codex and see it through, then give me a receipt \u2014 I want to see exactly which work it did.",
     "should_trigger": true,
     "expected_behavior": [
-      "End with a Partner Session Receipt for any non-trivial run.",
+      "End with a Handoff Session Receipt for any non-trivial run.",
       "Generate the receipt with scripts/make-receipt.py rather than hand-typing the fields.",
-      "Set codex_jobs from the job directories under .partner/jobs/, counting fix rounds.",
+      "Set codex_jobs from the job directories under .handoff/jobs/, counting fix rounds.",
       "List every role actually invoked in roles_used, each with the verified value from config, not a guess.",
       "Report verifiable behavior instead of fabricating token savings."
     ],
@@ -17,11 +17,11 @@
     ]
   },
   {
-    "id": "bare-partner-trigger",
-    "prompt": "Partner skill",
+    "id": "bare-handoff-trigger",
+    "prompt": "agent handoff",
     "should_trigger": true,
     "expected_behavior": [
-      "Treat the bare skill name as a Partner trigger.",
+      "Treat the bare skill name as a Handoff trigger.",
       "Ask for the target repo or task if the user has not provided enough scope.",
       "Explain that Claude plans and quality-gates while Codex executes the delegated work.",
       "Do not delegate anything until there is a concrete repo and stop condition."
@@ -34,7 +34,7 @@
   },
   {
     "id": "publish-readiness-check",
-    "prompt": "Do a public-release readiness pass on Partner the Darwin-ratchet way: run the local checks first, and do not cut a tag or a release.",
+    "prompt": "Do a public-release readiness pass on Handoff the Darwin-ratchet way: run the local checks first, and do not cut a tag or a release.",
     "should_trigger": true,
     "expected_behavior": [
       "Treat this as publish readiness, not ordinary code review.",
@@ -50,32 +50,32 @@
     ]
   },
   {
-    "id": "resume-from-partner-state",
-    "prompt": "Partner, resume the last task and keep going.",
+    "id": "resume-from-handoff-state",
+    "prompt": "/agent-handoff resume the last task and keep going.",
     "should_trigger": true,
     "expected_behavior": [
-      "Look for .partner/goal.md and the job directories under .partner/jobs/ in the target repo.",
+      "Look for .handoff/goal.md and the job directories under .handoff/jobs/ in the target repo.",
       "Use that persisted state as the cold-start payload instead of rebuilding context from the repository.",
       "Report which tasks are already done and which jobs were still running, then continue from there.",
-      "Ask for the target repo if no .partner/ state exists anywhere obvious."
+      "Ask for the target repo if no .handoff/ state exists anywhere obvious."
     ],
     "must_not": [
       "Rebuild project context from scratch when persisted state exists.",
-      "Silently start a brand-new task when .partner/ state is missing.",
+      "Silently start a brand-new task when .handoff/ state is missing.",
       "Treat the persisted plan as license to skip the full review gate or the final receipt."
     ]
   },
   {
     "id": "claude-driven-delegation",
-    "prompt": "Partner, plan this request, delegate the mechanical parts to Codex as background jobs, watch their progress, and read the whole thing yourself once they finish.",
+    "prompt": "Agent handoff: plan this request, delegate the mechanical parts to Codex as background jobs, watch their progress, and read the whole thing yourself once they finish.",
     "should_trigger": true,
     "expected_behavior": [
       "Follow the phases in references/claude-driven.md.",
-      "Write the refined plan and task split into .partner/goal.md with verifiable acceptance criteria per task.",
+      "Write the refined plan and task split into .handoff/goal.md with verifiable acceptance criteria per task.",
       "Delegate mechanical tasks to Codex via scripts/delegate-codex.sh background jobs at effort high, recording jobIds in the goal file.",
       "Monitor long-running jobs with a loop and update task statuses from job state, not guesses.",
       "Full-review every Codex diff before accepting it, with at most two bounded fix rounds via delegate-codex.sh resume.",
-      "End with a Partner Session Receipt whose codex_jobs counts all delegated jobs including fix rounds."
+      "End with a Handoff Session Receipt whose codex_jobs counts all delegated jobs including fix rounds."
     ],
     "must_not": [
       "Accept Codex output without reading the diff.",
@@ -86,7 +86,7 @@
   },
   {
     "id": "split-adversarial-gate",
-    "prompt": "Partner, split part of this refactor out to Codex, but check whether the split actually holds up before you do.",
+    "prompt": "Hand part of this refactor off to Codex, but check whether the split actually holds up before you do.",
     "should_trigger": true,
     "expected_behavior": [
       "Attack the proposed split before delegating anything.",
@@ -102,13 +102,13 @@
   },
   {
     "id": "full-review-receipt-gate",
-    "prompt": "Partner, the Codex background jobs are done. Sign them off and give me the receipt.",
+    "prompt": "The Codex background jobs are done. Sign them off and give me the receipt.",
     "should_trigger": true,
     "expected_behavior": [
       "Collect each job with delegate-codex.sh result and read the complete diff scoped to the files the job touched.",
       "Run the fastest relevant check from the task's acceptance criteria before accepting.",
       "Send findings back as a bounded fix round to the same Codex session when the work falls short, and take the task back into Claude after two failed rounds.",
-      "Emit a Partner Session Receipt with an honest codex_jobs count and any monitoring anomalies."
+      "Emit a Handoff Session Receipt with an honest codex_jobs count and any monitoring anomalies."
     ],
     "must_not": [
       "Mark a task done based on the job's own summary instead of repo evidence.",
@@ -118,11 +118,11 @@
   },
   {
     "id": "execution-channel-routing",
-    "prompt": "Partner, break this request into pieces, push anything that saves quota down a tier, and tell me who runs what.",
+    "prompt": "Agent handoff: break this request into pieces, push anything that saves quota down a tier, and tell me who runs what.",
     "should_trigger": true,
     "expected_behavior": [
-      "Name an execution channel per delegated task in the goal file: Partner background job, one-shot Codex subagent, or cheaper-Claude subagent.",
-      "Default delegable work to the Partner background job so it bills the Codex subscription, not the Claude API.",
+      "Name an execution channel per delegated task in the goal file: Handoff background job, one-shot Codex subagent, or cheaper-Claude subagent.",
+      "Default delegable work to the Handoff background job so it bills the Codex subscription, not the Claude API.",
       "Keep quality-critical steps (architecture, split decision, integration, security/correctness, final acceptance) in Claude even though it is the expensive seat.",
       "Have the adversarial gate confirm each task is on the right channel before delegating."
     ],
@@ -134,23 +134,23 @@
   },
   {
     "id": "setup-wizard-first-run",
-    "prompt": "Partner, configure",
+    "prompt": "/agent-handoff config",
     "should_trigger": true,
     "expected_behavior": [
-      "Open the localhost single-page UI from references/setup.md instead of hand-editing .partner/config.toml.",
+      "Open the localhost single-page UI from references/setup.md instead of hand-editing .handoff/config.toml.",
       "Display the current host, both CLIs, existing configuration, and all three concrete model/effort values in the UI.",
       "Let the user select work mode, full identity matrix, scope, and write items without repeated chat questions.",
       "Preview the exact file paths and diffs in the UI and require confirmation before running --apply."
     ],
     "must_not": [
-      "Write to .partner/config.toml directly instead of going through scripts/partner-setup.py.",
+      "Write to .handoff/config.toml directly instead of going through scripts/handoff-setup.py.",
       "Apply changes without a preview step.",
       "Collect setup choices through a sequence of chat questions when the local UI is available."
     ]
   },
   {
     "id": "setup-codex-no-guessed-model",
-    "prompt": "Partner, configure the Codex-side roles. I have never set a model before.",
+    "prompt": "/agent-handoff config the Codex-side roles. I have never set a model before.",
     "should_trigger": true,
     "expected_behavior": [
       "Try to detect a model from ${CODEX_HOME:-$HOME/.codex}/config.toml first.",
@@ -169,38 +169,38 @@
     "prompt": "Take a look at what is wrong in this nginx config file. The reverse proxy keeps returning 502.",
     "should_trigger": false,
     "expected_behavior": [
-      "Treat this as an ordinary debugging request unrelated to Partner setup.",
-      "Do not invoke the Partner setup wizard or mention .partner/config.toml."
+      "Treat this as an ordinary debugging request unrelated to Handoff setup.",
+      "Do not invoke the Handoff setup wizard or mention .handoff/config.toml."
     ],
     "must_not": [
-      "Trigger the Partner skill because the message contains the word \"configure\".",
+      "Trigger the Agent Handoff skill because the message contains the word \"config\".",
       "Ask setup-wizard questions about hosts, scopes, or roles."
     ]
   },
   {
     "id": "goal-to-pr-full-protocol-trigger",
-    "prompt": "Partner, run the full protocol and deliver a PR.",
+    "prompt": "Run the full handoff protocol and deliver a PR.",
     "should_trigger": true,
     "expected_behavior": [
       "Escalate to the Plan→Goal→PR→Verification protocol in references/goal-to-pr.md instead of the lightweight flow.",
-      "Run Stage 1 (Plan) with no file writes, then send a Goal Packet for authorization before creating a branch or .partner/goal.md.",
-      "Write .partner/goal.md with its Delivery section once authorized.",
+      "Run Stage 1 (Plan) with no file writes, then send a Goal Packet for authorization before creating a branch or .handoff/goal.md.",
+      "Write .handoff/goal.md with its Delivery section once authorized.",
       "State clearly that authorization to proceed only covers up to merge-ready PR + preview verified, not merge itself."
     ],
     "must_not": [
       "Skip the Goal Packet and start writing code directly after \"full protocol\".",
       "Treat the initial authorization as covering merge, tags, or production.",
-      "Create .partner/goal.md during the Plan stage before authorization."
+      "Create .handoff/goal.md during the Plan stage before authorization."
     ]
   },
   {
     "id": "goal-to-pr-hard-stop-at-merge-ready",
-    "prompt": "(Delivery stage in progress, CI green, preview verified) Partner, continue.",
+    "prompt": "(Delivery stage in progress, CI green, preview verified) Agent handoff: continue.",
     "should_trigger": true,
     "expected_behavior": [
       "Report the PR as merge-ready with CI green and preview verified, then stop.",
       "Ask for a separate explicit imperative before merging, tagging, deploying, or force-pushing.",
-      "Record the current Delivery state (branch/pr/ci/preview) in .partner/goal.md."
+      "Record the current Delivery state (branch/pr/ci/preview) in .handoff/goal.md."
     ],
     "must_not": [
       "Merge, tag, deploy, or force-push because \"continue\" was said.",
@@ -232,7 +232,7 @@
       "Open a normal PR through the repo's usual process without invoking Plan→Goal→PR→Verification."
     ],
     "must_not": [
-      "Create .partner/goal.md or a Delivery section for a one-line parameter validation fix.",
+      "Create .handoff/goal.md or a Delivery section for a one-line parameter validation fix.",
       "Escalate into the full protocol just because a PR was mentioned.",
       "Run the full Goal Packet flow for a change this small."
     ]
@@ -255,7 +255,7 @@
   },
   {
     "id": "tryout-identity-report",
-    "prompt": "Partner, tryout",
+    "prompt": "/agent-handoff tryout",
     "should_trigger": true,
     "expected_behavior": [
       "Run the tryout in references/tryout.md: each configured identity executes its fixed micro-task through its own backend.",

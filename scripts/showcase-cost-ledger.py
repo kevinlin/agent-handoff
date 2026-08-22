@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Partner showcase cost-pressure ledger.
+"""Generate the Handoff showcase cost-pressure ledger.
 
 The default ledger uses workload units, not provider billing telemetry. If a
 future run has exact token counts, pass them as JSON with --measured-json and
@@ -26,8 +26,8 @@ MODEL = {
         "claude_code_workload_units": 0,
         "best_for": "Low-risk tasks with no UI taste requirement",
     },
-    "partner": {
-        "label": "Partner",
+    "handoff": {
+        "label": "Handoff",
         "codex_workload_units": 70,
         "claude_code_workload_units": 30,
         "best_for": "UI-heavy or feature-heavy tasks where Claude API cost matters",
@@ -71,9 +71,9 @@ def mode_row(key: str, measured: dict[str, Any]) -> dict[str, Any]:
 
 def build_ledger(measured: dict[str, Any]) -> dict[str, Any]:
     modes = {key: mode_row(key, measured) for key in MODEL}
-    partner = modes["partner"]
+    handoff = modes["handoff"]
     pure = modes["pure_claude_code"]
-    claude_pressure_reduction = 1 - partner["claude_pressure_vs_pure_claude"]
+    claude_pressure_reduction = 1 - handoff["claude_pressure_vs_pure_claude"]
     source_date_epoch = os.environ.get("SOURCE_DATE_EPOCH")
     if source_date_epoch:
         generated_at = datetime.fromtimestamp(int(source_date_epoch), timezone.utc).replace(microsecond=0).isoformat()
@@ -81,7 +81,7 @@ def build_ledger(measured: dict[str, Any]) -> dict[str, Any]:
         generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     return {
-        "schema": "partner.showcase_cost_ledger.v1",
+        "schema": "handoff.showcase_cost_ledger.v1",
         "generated_at": generated_at,
         "claim_boundary": "Workload units are illustrative. Exact token-savings claims require measured token telemetry.",
         "session_receipt_fields": [
@@ -93,12 +93,12 @@ def build_ledger(measured: dict[str, Any]) -> dict[str, Any]:
         ],
         "modes": modes,
         "comparison": {
-            "partner_vs_pure_claude": {
+            "handoff_vs_pure_claude": {
                 "claude_pressure_reduction": round(claude_pressure_reduction, 2),
-                "plain_english": "In the showcase model, Partner moves implementation and verification onto the Codex subscription, leaving Claude Code on the planning, split, and review decisions.",
+                "plain_english": "In the showcase model, Handoff moves implementation and verification onto the Codex subscription, leaving Claude Code on the planning, split, and review decisions.",
             },
-            "partner_vs_codex_only": {
-                "tradeoff": "Partner spends focused Claude Code judgment on the split decision and the full-review gate that Codex-only skips.",
+            "handoff_vs_codex_only": {
+                "tradeoff": "Handoff spends focused Claude Code judgment on the split decision and the full-review gate that Codex-only skips.",
             },
         },
     }
@@ -109,7 +109,7 @@ def markdown_summary(ledger: dict[str, Any]) -> str:
         "| Mode | Codex workload | Claude Code workload | Claude pressure | Measured tokens |",
         "|---|---:|---:|---:|---|",
     ]
-    for key in ["codex_only", "partner", "pure_claude_code"]:
+    for key in ["codex_only", "handoff", "pure_claude_code"]:
         row = ledger["modes"][key]
         measured = row["measured_tokens"]
         measured_text = measured["source"] if measured["source"] != "not captured" else "not captured"
@@ -120,7 +120,7 @@ def markdown_summary(ledger: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate Partner showcase cost-pressure ledger.")
+    parser = argparse.ArgumentParser(description="Generate Handoff showcase cost-pressure ledger.")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Output JSON path.")
     parser.add_argument("--measured-json", help="Optional measured token JSON keyed by mode.")
     parser.add_argument("--markdown", action="store_true", help="Print a README-ready markdown table.")

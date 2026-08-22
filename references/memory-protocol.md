@@ -1,6 +1,6 @@
-# Partner Memory Protocol (wrap-up phase)
+# Agent Handoff Memory Protocol (wrap-up phase)
 
-Run this at the end of every non-trivial Partner session. The point is that the *next* split decision starts smarter: which task types Codex handles well, which effort levels fit, where rework happened.
+Run this at the end of every non-trivial Handoff session. The point is that the *next* split decision starts smarter: which task types Codex handles well, which effort levels fit, where rework happened.
 
 ## What to Record
 
@@ -17,7 +17,7 @@ Skip sessions with nothing new to say — memory hygiene beats volume.
 ## Layers (write in this order, skip layers that are unavailable)
 
 1. **claude-mem (automatic)** — if the claude-mem plugin is installed, the SessionEnd hook captures a semantic summary on its own. No action needed; do not duplicate its raw event capture by hand.
-2. **mem0 MCP (active, cross-tool)** — when mem0 tools are available, call its add-memory tool with the structured record above, tagged `partner-skill` plus the repo name. Both Claude Code and Codex read the same mem0 store, so this is the shared cross-agent layer.
+2. **mem0 MCP (active, cross-tool)** — when mem0 tools are available, call its add-memory tool with the structured record above, tagged `agent-handoff` plus the repo name. Both Claude Code and Codex read the same mem0 store, so this is the shared cross-agent layer.
 3. **Claude Code auto-memory** — persist durable *routing* lessons (for example "Codex writes vitest suites well at effort=high, zero rework") as normal auto-memory notes, following the built-in rules: one fact per note, update rather than duplicate, delete wrong notes.
 4. **Codex rollout memory (passive)** — Codex's `[memories]` system absorbs the delegated sessions automatically. Make it useful by always ending delegation packets with the lessons-learned instruction (see `references/fable5-principles.md`, Output Discipline), so the rollout contains an explicit distillation, not just a transcript.
 
