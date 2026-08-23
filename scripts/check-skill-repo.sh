@@ -179,6 +179,13 @@ else
   fail=$((fail + 1))
 fi
 
+if python3 scripts/validate-receipt.py examples/session-receipt.md >/dev/null; then
+  echo "PASS examples/session-receipt.md validates against the v3 schema"
+else
+  echo "FAIL examples/session-receipt.md must be a valid receipt"
+  fail=$((fail + 1))
+fi
+
 if find . -path './.git' -prune -o -type f \( -name '.env' -o -name '.env.*' \) -print | grep -q .; then
   echo "FAIL .env-like files are tracked or present in the package tree"
   fail=$((fail + 1))
