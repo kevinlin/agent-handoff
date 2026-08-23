@@ -119,7 +119,7 @@ resolve_codex_bin() {
 
 make_job_id() {
   local label="$1"
-  printf 'job-%s-%s-%s-%s\n' "$(date +%Y%m%d%H%M%S)" "$$" "$RANDOM" "${label:-task}"
+  printf 'job-%s-%s-%s\n' "$(date +%Y-%m-%dT%H-%M-%S)" "$$" "${label:-task}"
 }
 
 kill_tree() {
