@@ -10,35 +10,31 @@ the identity sections under hosts.claude_code.  Every other chunk -- comments,
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
 import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 
 HOST = "claude_code"
-HOSTS = (HOST,)
 IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
 IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "verified", "verified_at")
 BACKENDS = ("claude", "codex")
 V1_UPGRADE_MESSAGE = (
     'Detected a schema v1 config. Rerun /agent-handoff config to upgrade '
-    "(the old values seed the wizard)."
+    "(setup replaces it with a schema v2 document and backs up the old file)."
 )
 SUBSET_GUIDE = "See docs/config-schema.md#supported-toml-subset."
 SECTION_RE = re.compile(r"^[ \t]*\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\][ \t]*(?:#.*)?(?:\r?\n)?$")
+ARRAY_SECTION_RE = re.compile(r"^[ \t]*\[\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\]\][ \t]*(?:#.*)?(?:\r?\n)?$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 INTEGER_RE = re.compile(r"^[+-]?(?:0|[1-9](?:_?[0-9])*)$")
-DATETIME_RE = re.compile(
-    r"^(?:\d{4}-\d{2}-\d{2})(?:[Tt ][0-9:.+-]+[Zz]?)?$|^[0-9]{2}:[0-9]{2}:[0-9]{2}"
-)
 
 
 DEFAULTS: Dict[str, Any] = {
@@ -80,12 +76,7 @@ class SectionChunk:
 
 
 def _copy(value: Any) -> Any:
-    return json.loads(json.dumps(value))
-
-
-def _validate_host(host: str) -> None:
-    if host not in HOSTS:
-        raise ConfigValidationError(f"host must be one of {', '.join(HOSTS)}; got {host!r}")
+    return copy.deepcopy(value)
 
 
 def _legacy_v1_error(path: Optional[Path] = None) -> ConfigValidationError:
@@ -105,11 +96,14 @@ def split_sections(text: str) -> List[SectionChunk]:
     current_lines: List[str] = []
     start_line = 1
 
+    interpreted = ("routing", f"hosts.{HOST}.identities")
     for line_number, line in enumerate(lines, 1):
         stripped = line.lstrip(" \t")
+        match = ARRAY_SECTION_RE.match(line) or SECTION_RE.match(line)
         if stripped.startswith("[["):
-            raise ConfigParseError(line_number, len(line) - len(stripped) + 1, "array-of-tables headers are not supported.")
-        match = SECTION_RE.match(line)
+            name = match.group(1) if match else ""
+            if any(name == owned or name.startswith(f"{owned}.") for owned in interpreted):
+                raise ConfigParseError(line_number, len(line) - len(stripped) + 1, "array-of-tables headers are not supported.")
         if match:
             if current_lines:
                 chunks.append(SectionChunk(current_name, "".join(current_lines), start_line))
@@ -142,43 +136,6 @@ def _strip_comment(raw: str) -> str:
     return raw
 
 
-def _split_array_items(value: str, line: int, column: int) -> List[Tuple[str, int]]:
-    inner = value[1:-1]
-    items: List[Tuple[str, int]] = []
-    start = 0
-    depth = 0
-    in_string = False
-    escaped = False
-    for index, char in enumerate(inner):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "[":
-            depth += 1
-        elif char == "]":
-            depth -= 1
-            if depth < 0:
-                raise ConfigParseError(line, column + index + 1, "unbalanced array brackets.")
-        elif char == "," and depth == 0:
-            items.append((inner[start:index], column + start + 1))
-            start = index + 1
-    if in_string or depth:
-        raise ConfigParseError(line, column, "unterminated string or array.")
-    items.append((inner[start:], column + start + 1))
-    if len(items) == 1 and not items[0][0].strip():
-        return []
-    if items and not items[-1][0].strip():
-        items.pop()  # TOML permits a trailing comma in arrays.
-    return items
-
-
 def _parse_value(raw: str, line: int, column: int) -> Any:
     value = _strip_comment(raw).strip()
     leading = len(raw) - len(raw.lstrip())
@@ -187,8 +144,6 @@ def _parse_value(raw: str, line: int, column: int) -> Any:
         raise ConfigParseError(line, value_column, "missing value.")
     if '"""' in value or "'''" in value:
         raise ConfigParseError(line, value_column, "multiline strings are not supported.")
-    if value.startswith("{"):
-        raise ConfigParseError(line, value_column, "inline tables are not supported.")
     if value.startswith('"'):
         try:
             parsed = json.loads(value)
@@ -197,21 +152,10 @@ def _parse_value(raw: str, line: int, column: int) -> Any:
         if not isinstance(parsed, str):
             raise ConfigParseError(line, value_column, "only double-quoted strings are supported here.")
         return parsed
-    if value.startswith("'"):
-        raise ConfigParseError(line, value_column, "literal strings are outside the supported subset.")
     if value in ("true", "false"):
         return value == "true"
     if INTEGER_RE.fullmatch(value):
         return int(value.replace("_", ""))
-    if value.startswith("["):
-        if not value.endswith("]"):
-            raise ConfigParseError(line, value_column, "multiline arrays are not supported.")
-        return [
-            _parse_value(item, line, item_column)
-            for item, item_column in _split_array_items(value, line, value_column)
-        ]
-    if DATETIME_RE.match(value):
-        raise ConfigParseError(line, value_column, "datetime values are not supported.")
     raise ConfigParseError(line, value_column, "value is outside the supported TOML subset.")
 
 
@@ -255,7 +199,6 @@ def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> M
 def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) -> Dict[str, Any]:
     """Parse schema metadata, routing, and only ``host`` identity sections."""
 
-    _validate_host(host)
     result: Dict[str, Any] = {"hosts": {host: {"identities": {}}}}
     seen_sections = set()
     identity_prefix = f"hosts.{host}.identities."
@@ -289,47 +232,6 @@ def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) ->
                 raise ConfigParseError(chunk.start_line, 1, f"duplicate [{chunk.name}] section.")
             seen_sections.add(chunk.name)
             result["hosts"][host]["identities"][identity] = _parse_assignments(chunk)
-    return result
-
-
-LEGACY_ROLE_RE = re.compile(r"^hosts\.([^.]+)\.roles\.(.+)$")
-
-
-def read_legacy_v1(text: str) -> Dict[str, Dict[str, Any]]:
-    """Read legacy role model/effort values for setup defaults without writing.
-
-    A v1 file may carry roles under any host namespace -- earlier versions wrote
-    hosts.codex.roles.* for a Codex-side install. Read them all so the wizard can
-    still seed its initial answers; the owned namespace wins on conflict.
-    """
-
-    result: Dict[str, Dict[str, Any]] = {}
-    owned: set[str] = set()
-    seen_sections = set()
-    for chunk in split_sections(text):
-        match = LEGACY_ROLE_RE.match(chunk.name) if chunk.name else None
-        if not match:
-            continue
-        host, role = match.group(1), match.group(2)
-        if "." in role or not role:
-            raise ConfigParseError(chunk.start_line, 1, f"invalid legacy role section [{chunk.name}].")
-        if chunk.name in seen_sections:
-            raise ConfigParseError(chunk.start_line, 1, f"duplicate [{chunk.name}] section.")
-        seen_sections.add(chunk.name)
-        if role not in IDENTITIES[:2]:
-            continue
-        if role in owned and host != HOST:
-            continue
-        fields = _parse_assignments(chunk)
-        extracted = {
-            field: fields[field]
-            for field in ("model", "effort")
-            if field in fields and isinstance(fields[field], str)
-        }
-        if extracted:
-            result[role] = extracted
-            if host == HOST:
-                owned.add(role)
     return result
 
 
@@ -392,18 +294,14 @@ def _format_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, int) and not isinstance(value, bool):
         return str(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(_format_value(item) for item in value) + "]"
     raise ConfigValidationError(f"cannot emit unsupported value {value!r}")
 
 
 def emit_host_sections(identities: Mapping[str, Mapping[str, Any]], host: str = HOST) -> str:
     """Return canonical identity sections for one host."""
 
-    _validate_host(host)
     blocks: List[str] = []
     ordered_identities = [identity for identity in IDENTITIES if identity in identities]
-    ordered_identities.extend(sorted(set(identities) - set(IDENTITIES)))
     for identity in ordered_identities:
         fields = identities[identity]
         lines = [f"[hosts.{host}.identities.{identity}]"]
@@ -430,7 +328,6 @@ def update_host(
     if identities is None:
         identities = {}
 
-    _validate_host(host)
     candidate_identities = _copy(dict(identities))
     for identity in candidate_identities:
         if identity not in IDENTITIES:
@@ -508,122 +405,42 @@ def atomic_write(path: Path, text: str) -> None:
 
 
 class ConfigLock:
-    """A mkdir-based lock with bounded retry and stale-owner recovery."""
+    """A mkdir lock over the config directory, reclaimed once it goes stale.
 
-    def __init__(
-        self,
-        config_path: Path,
-        *,
-        stale_after: float = 15.0,
-        retries: int = 5,
-        base_delay: float = 0.05,
-        clock: Callable[[], float] = time.time,
-        sleep: Callable[[float], None] = time.sleep,
-        pid_alive: Optional[Callable[[int], bool]] = None,
-        pid: Optional[int] = None,
-        owner_host: str = "unknown",
-    ):
-        self.config_path = Path(config_path)
-        self.path = self.config_path.parent / ".config.lock"
-        self.info_path = self.path / "info"
+    Writes here take milliseconds and come from one user at a time, so the
+    only real job is stopping a wizard apply from interleaving with a
+    `handoff-config.py set` from a running session.
+    """
+
+    # ponytail: staleness is age-only; a writer stuck past stale_after loses the
+    # lock. Add owner liveness only if writes ever become long-running.
+    def __init__(self, config_path: Path, *, stale_after: float = 15.0):
+        self.path = Path(config_path).parent / ".config.lock"
         self.stale_after = stale_after
-        self.retries = retries
-        self.base_delay = base_delay
-        self.clock = clock
-        self.sleep = sleep
-        self.pid_alive = pid_alive or self._pid_alive
-        self.pid = os.getpid() if pid is None else pid
-        self.owner_host = owner_host
-        self.token = uuid.uuid4().hex
         self.acquired = False
-
-    @staticmethod
-    def _pid_alive(pid: int) -> bool:
-        if pid <= 0:
-            return False
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
-
-    def _read_owner(self) -> Optional[Dict[str, Any]]:
-        try:
-            value = json.loads(_read_text(self.info_path))
-        except (FileNotFoundError, OSError, ValueError):
-            return None
-        return value if isinstance(value, dict) else None
-
-    def _remove_stale(self) -> None:
-        try:
-            self.info_path.unlink()
-            self.path.rmdir()
-        except FileNotFoundError:
-            return
-        except OSError as error:
-            raise ConfigLockError(
-                f"cannot reclaim stale lock {self.path}: {error}; inspect and remove it manually"
-            ) from None
-
-    def _is_stale(self, owner: Optional[Mapping[str, Any]]) -> bool:
-        if not owner:
-            return False
-        pid = owner.get("pid")
-        timestamp = owner.get("ts")
-        if not isinstance(pid, int) or not isinstance(timestamp, (int, float)):
-            return False
-        if not self.pid_alive(pid):
-            return True
-        return self.clock() - float(timestamp) > self.stale_after
-
-    def _failure(self, owner: Optional[Mapping[str, Any]]) -> ConfigLockError:
-        pid = owner.get("pid", "unknown") if owner else "unknown"
-        timestamp = owner.get("ts", "unknown") if owner else "unknown"
-        return ConfigLockError(
-            f"config lock is held by pid={pid}, ts={timestamp}; retries exhausted. "
-            f"If no writer is active, remove {self.path} manually"
-        )
 
     def acquire(self) -> "ConfigLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        owner: Optional[Mapping[str, Any]] = None
-        attempt = 0
-        while True:
-            try:
-                os.mkdir(str(self.path))
-            except FileExistsError:
-                owner = self._read_owner()
-                if self._is_stale(owner):
-                    self._remove_stale()
-                    continue
-                if attempt >= self.retries:
-                    raise self._failure(owner)
-                self.sleep(self.base_delay * (2 ** attempt))
-                attempt += 1
-                continue
-            info = {"pid": self.pid, "ts": self.clock(), "host": self.owner_host, "token": self.token}
-            try:
-                with self.info_path.open("x", encoding="utf-8", newline="") as handle:
-                    json.dump(info, handle, sort_keys=True)
-                    handle.write("\n")
-            except BaseException:
-                shutil.rmtree(str(self.path), ignore_errors=True)
-                raise
-            self.acquired = True
-            return self
+        try:
+            os.mkdir(str(self.path))
+        except FileExistsError:
+            age = time.time() - self.path.stat().st_mtime
+            if age <= self.stale_after:
+                raise ConfigLockError(
+                    f"another handoff config write is in progress ({self.path}, "
+                    f"held {age:.0f}s); retry, or remove that directory if no writer is active"
+                ) from None
+            os.utime(str(self.path))
+        self.acquired = True
+        return self
 
     def release(self) -> None:
         if not self.acquired:
             return
-        owner = self._read_owner()
-        if owner and owner.get("token") == self.token:
-            try:
-                self.info_path.unlink()
-                self.path.rmdir()
-            except FileNotFoundError:
-                pass
+        try:
+            self.path.rmdir()
+        except OSError:
+            pass
         self.acquired = False
 
     def __enter__(self) -> "ConfigLock":
@@ -637,17 +454,13 @@ def write_host_config(
     path: Path,
     host: str = HOST,
     identities: Optional[Mapping[str, Mapping[str, Any]]] = None,
-    *,
-    lock_options: Optional[Mapping[str, Any]] = None,
 ) -> str:
     """Lock, read, replace the identity sections, and atomically persist."""
 
     if identities is None:
         identities = {}
 
-    options = dict(lock_options or {})
-    options.setdefault("owner_host", host)
-    with ConfigLock(path, **options):
+    with ConfigLock(path):
         current = _read_text(path) if Path(path).exists() else ""
         updated = update_host(current, host, identities, path=Path(path))
         atomic_write(Path(path), updated)
@@ -703,7 +516,6 @@ def resolve_config(
 ) -> Dict[str, Any]:
     """Resolve defaults < global < project < session and report the top source."""
 
-    _validate_host(host)
     resolved = _copy(DEFAULTS)
     source = "default"
     global_path = global_config_path(env)

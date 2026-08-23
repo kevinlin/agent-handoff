@@ -313,7 +313,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("Independent blind arbiter", rendered)
         self.assertIn("carries no one else's answer", rendered)
 
-    def test_v1_preview_and_apply_migrates_owned_values_without_losing_them(self):
+    def test_v1_config_is_replaced_by_a_fresh_v2_document_and_backed_up(self):
         config = self.repo / ".handoff" / "config.toml"
         config.parent.mkdir()
         original = """schema_version = 1
@@ -323,41 +323,27 @@ revision = 7
 model = "claude-old-deep"
 effort = "high"
 
-[hosts.claude_code.roles.fast_worker]
-model = "claude-old-fast"
-effort = "low"
-
-[hosts.codex.roles.deep_reasoner]
-model = "codex-old-deep"
-effort = "xhigh"
-
-[hosts.codex.roles.fast_worker]
-model = "codex-old-fast"
-effort = "medium"
-
 [routing]
 always_on_host_rules = false
 """
         config.write_text(original, encoding="utf-8")
         status, output, error = self.run_cli(*self.claude_args("--preview"))
         self.assertEqual((0, ""), (status, error))
-        self.assertIn("NOTE: v1 → v2 upgrade; old values kept as the starting values", output)
+        self.assertIn("NOTE: v1 config replaced by a fresh schema v2 document", output)
         self.assertEqual(original, config.read_text(encoding="utf-8"))
 
         status, _, error = self.run_cli(*self.claude_args())
         self.assertEqual((0, ""), (status, error))
-        migrated = config.read_text(encoding="utf-8")
-        self.assertIn("schema_version = 2", migrated)
+        rewritten = config.read_text(encoding="utf-8")
+        self.assertIn("schema_version = 2", rewritten)
+        self.assertNotIn("roles", rewritten)
         identities = handoff_setup.handoff_config.validate_config(
-            migrated
+            rewritten
         )["hosts"]["claude_code"]["identities"]
-        self.assertEqual("claude", identities["deep_reasoner"]["backend"])
-        self.assertEqual("claude-old-deep", identities["deep_reasoner"]["model"])
-        self.assertEqual("high", identities["deep_reasoner"]["effort"])
-        self.assertEqual("claude-old-fast", identities["fast_worker"]["model"])
-        self.assertEqual("low", identities["fast_worker"]["effort"])
-        # The second host no longer exists, so its v1 roles are not carried over.
-        self.assertNotIn("hosts.codex", migrated)
+        self.assertEqual("opus", identities["deep_reasoner"]["model"])
+
+        backups = sorted((self.repo / ".handoff" / "backups").glob("*/files/*"))
+        self.assertTrue(any(path.read_text(encoding="utf-8") == original for path in backups))
 
     def test_missing_codex_cli_refuses_apply_without_writing(self):
         claude_only = self.root / "claude-only-bin"
@@ -583,7 +569,7 @@ always_on_host_rules = false
             "CLAUDE_CODE_SSE_PORT": "12345",
             "CLAUDECODE": "1",
         }
-        cleaned = handoff_setup._nested_claude_env(source)
+        cleaned = handoff_setup.clean_claude_env(source)
         for key in cleaned:
             self.assertFalse(key.startswith("ANTHROPIC_"), key)
             self.assertFalse(key.startswith("CLAUDE_CODE_"), key)

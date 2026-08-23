@@ -70,30 +70,28 @@ Comments and formatting inside an owned section are intentionally not retained. 
 
 Schema v1 is never converted silently. A file with `schema_version = 1`, or with any `hosts.<host>.roles.*` section even if its version says otherwise, fails closed in `resolve`, `get`, `set`, and `validate`. The error includes the configuration path and this instruction:
 
-> Detected a schema v1 config. Rerun `/agent-handoff config` to upgrade (the old values seed the wizard).
+> Detected a schema v1 config. Rerun `/agent-handoff config` to upgrade (setup replaces it with a schema v2 document and backs up the old file).
 
-The setup wizard may call `read_legacy_v1(text)` to read only the old `deep_reasoner` and `fast_worker` `model`/`effort` values as initial answers. That path does not write or convert the source text. The wizard's eventual save writes schema v2 identities through the normal locked, atomic writer.
+The setup wizard treats a v1 file as a blank starting point: the preview shows the full replacement, the apply backs the original up under `.handoff/backups/`, and `--rollback` restores it. Old v1 values are not carried into the new document; pick them again in the wizard if you still want them.
 
 ## Concurrency and atomicity
 
-A write creates `.config.lock` in the directory containing `config.toml` using atomic `os.mkdir`. Its `info` file records `pid`, Unix `ts`, and the lock holder (plus an internal ownership token). While holding the lock, the writer reads the latest file, changes its identity sections, writes a same-directory temporary file, and commits with `os.replace`.
+A write creates `.config.lock` in the directory containing `config.toml` using atomic `os.mkdir`. A lock directory older than 15 seconds is treated as abandoned and reclaimed. While holding the lock, the writer reads the latest file, changes its identity sections, writes a same-directory temporary file, and commits with `os.replace`.
 
-- A lock whose PID is dead is reclaimed immediately.
-- A live PID holding the lock for more than 15 seconds is treated as stuck and reclaimed.
-- Otherwise the writer retries five times with exponential backoff (about 1.6 seconds total), then fails closed and reports the owner and manual cleanup path.
+- A lock younger than that fails closed straight away, naming the lock directory to remove if no writer is actually active.
 
 `revision` remains reserved for a later defense-in-depth optimistic concurrency check and has no concurrency behavior in schema v2.
 
 ## Supported TOML subset
 
-The parser supports bare keys, double-quoted strings, integers, booleans, standard table headers, basic single-line arrays, and `#` comments. It is not a general TOML parser.
+The parser supports bare keys, double-quoted strings, integers, booleans, standard table headers, and `#` comments. It is not a general TOML parser. Sections it does not own are never parsed, only carried across a write byte-for-byte, so they may use syntax outside this subset.
 
 The following constructs fail closed with a line number, character position, and a pointer back to this section:
 
 - inline tables (`value = { ... }`);
 - multiline strings;
 - datetime values;
-- array-of-tables headers (`[[...]]`);
+- array-of-tables headers (`[[...]]`) naming `[routing]` or an owned identity section (elsewhere they are treated as an unowned section and preserved);
 - dotted-key assignments (`a.b = ...`).
 
 The engine parses only top-level schema metadata, `[routing]`, and the owned identity sections. This boundary allows any future unknown section to round-trip without reformatting.

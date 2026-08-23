@@ -41,7 +41,6 @@ BACKEND_EFFORTS = {
     "claude": CLAUDE_EFFORTS,
     "codex": CODEX_EFFORTS,
 }
-EFFORTS = tuple(dict.fromkeys((*CODEX_EFFORTS, *CLAUDE_EFFORTS)))
 BEGIN_MARKER = "<!-- BEGIN HANDOFF MANAGED ROUTING (do not edit; managed by agent-handoff) -->"
 END_MARKER = "<!-- END HANDOFF MANAGED ROUTING -->"
 HASH_PREFIX = "<!-- handoff-content-hash:sha256:"
@@ -239,11 +238,6 @@ def choose_identities(
         if backend not in BACKENDS:
             raise SetupError(
                 f"--role-backend for {identity} must be one of {', '.join(BACKENDS)}"
-            )
-    for identity, effort in efforts.items():
-        if effort not in EFFORTS:
-            raise SetupError(
-                f"--role-effort for {identity} must be one of {', '.join(EFFORTS)}"
             )
     identities: Dict[str, Dict[str, Any]] = {}
     sources: Dict[str, Dict[str, str]] = {}
@@ -478,33 +472,6 @@ def _is_legacy_v1(text: str) -> bool:
         for chunk in handoff_config.split_sections(text)
     )
 
-def _migrate_v1(
-    text: str,
-    desired: Dict[str, Dict[str, Any]],
-    sources: Dict[str, Dict[str, str]],
-) -> str:
-    legacy = handoff_config.read_legacy_v1(text)
-    identities = {identity: dict(values) for identity, values in desired.items()}
-    for identity, old_values in legacy.items():
-        if sources[identity]["backend"] != "custom":
-            identities[identity]["backend"] = "claude"
-            sources[identity]["backend"] = "legacy"
-        for field in ("model", "effort"):
-            if field in old_values and sources[identity][field] != "custom":
-                identities[identity][field] = old_values[field]
-                sources[identity][field] = "legacy"
-    desired.clear()
-    desired.update(identities)
-
-    blocks = ["schema_version = 2\nrevision = 0\n"]
-    emitted = handoff_config.emit_host_sections(identities)
-    if emitted:
-        blocks.append(emitted)
-    blocks.append("[routing]\nalways_on_host_rules = false\n")
-    candidate = "\n".join(block.rstrip("\n") for block in blocks) + "\n"
-    handoff_config.validate_config(candidate)
-    return candidate
-
 def _cli_unavailable(
     desired: Mapping[str, Mapping[str, Any]],
     env: Mapping[str, str],
@@ -527,17 +494,21 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     current_identities: Mapping[str, Mapping[str, Any]] = {}
     legacy = bool(old_config and _is_legacy_v1(old_config))
     if legacy:
-        new_config = _migrate_v1(old_config, desired, sources)
-        notes.append("v1 → v2 upgrade; old values kept as the starting values")
+        # A v1 document has no v2 chunks worth keeping, so start from a blank
+        # one; create_backup holds the original and --rollback restores it.
+        notes.append(
+            "v1 config replaced by a fresh schema v2 document; "
+            "the old file is kept in the apply backup"
+        )
     else:
         if old_config:
             parsed = handoff_config.validate_config(old_config, path=path)
             current_identities = parsed["hosts"][handoff_config.HOST]["identities"]
         preserve_verification(current_identities, desired)
-        new_config = handoff_config.update_host(old_config, identities=desired, path=path)
-        # A newly created base document has one transitional separator; converge it
-        # before the first write so the next identical apply is byte-idempotent.
-        new_config = handoff_config.update_host(new_config, identities=desired, path=path)
+    new_config = handoff_config.update_host("" if legacy else old_config, identities=desired, path=path)
+    # A newly created base document has one transitional separator; converge it
+    # before the first write so the next identical apply is byte-idempotent.
+    new_config = handoff_config.update_host(new_config, identities=desired, path=path)
 
     unavailable = _cli_unavailable(desired, env)
     for identity in IDENTITIES:
@@ -761,12 +732,6 @@ def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 
-def _nested_claude_env(env: Mapping[str, str]) -> Dict[str, str]:
-    """Backward-compatible local name for the shared Claude env boundary."""
-
-    return clean_claude_env(env)
-
-
 def smoke_claude_identity(
     args: argparse.Namespace,
     env: Mapping[str, str],
@@ -801,7 +766,7 @@ def smoke_claude_identity(
         result = subprocess.run(
             command,
             cwd=args.repo,
-            env=_nested_claude_env(env),
+            env=clean_claude_env(env),
             text=True,
             capture_output=True,
             check=False,
@@ -857,13 +822,6 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             if result.returncode == 0:
                 successes.append(identity)
                 print(f"{identity}: PASS")
-            elif identity == "arbiter" and re.search(
-                r"(?:invalid|unknown|unsupported).*(?:--role|arbiter)|"
-                r"(?:--role|arbiter).*(?:invalid|unknown|unsupported)",
-                result.stderr,
-                re.IGNORECASE,
-            ):
-                print("arbiter: SKIP delegate does not support --role arbiter yet")
             else:
                 failures = True
                 print(f"{identity}: FAIL\n{result.stderr.rstrip()}", file=sys.stderr)

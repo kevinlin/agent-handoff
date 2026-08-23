@@ -111,6 +111,12 @@ class ConfigRoundTripTests(unittest.TestCase):
         self.assertEqual(stale, updated_stale)
         self.assertIn('effort = "low"', updated)
 
+    def test_unknown_array_of_tables_section_is_preserved(self):
+        original = document() + "\n[[future.plugins]]\nname = \"x\"\n"
+        identities = {"deep_reasoner": {"backend": "claude", "model": "new", "effort": "high"}}
+        updated = handoff_config.update_host(original, identities=identities)
+        self.assertIn("[[future.plugins]]\nname = \"x\"\n", updated)
+
     def test_emitter_is_idempotent(self):
         parsed = handoff_config.validate_config(document())
         identities = parsed["hosts"]["claude_code"]["identities"]
@@ -236,23 +242,6 @@ class LegacyMigrationTests(unittest.TestCase):
         with self.assertRaises(handoff_config.ConfigValidationError) as raised:
             handoff_config.validate_config(text, path=path)
         self.assert_upgrade_error(str(raised.exception), path)
-
-    def test_read_legacy_v1_extracts_only_model_and_effort_without_writing(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "config.toml"
-            path.write_text(legacy_document(), encoding="utf-8")
-            before = path.read_bytes()
-            extracted = handoff_config.read_legacy_v1(
-                path.read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                {
-                    "deep_reasoner": {"model": "gpt-legacy", "effort": "xhigh"},
-                    "fast_worker": {"model": "gpt-legacy-fast", "effort": "medium"},
-                },
-                extracted,
-            )
-            self.assertEqual(before, path.read_bytes())
 
 
 class ResolveTests(unittest.TestCase):
@@ -491,58 +480,22 @@ class CliTests(unittest.TestCase):
 
 
 class LockTests(unittest.TestCase):
-    def make_lock(self, root: Path, pid: int, timestamp: float):
-        lock_path = root / ".config.lock"
-        lock_path.mkdir()
-        (lock_path / "info").write_text(
-            json.dumps({"pid": pid, "ts": timestamp, "host": "test", "token": "old"}) + "\n",
-            encoding="utf-8",
-        )
-
-    def test_dead_pid_is_reclaimed_immediately(self):
+    def test_held_lock_refuses_and_stale_lock_is_reclaimed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.make_lock(root, 123, 100.0)
-            lock = handoff_config.ConfigLock(
-                root / "config.toml", clock=lambda: 101.0, sleep=lambda _: None,
-                pid_alive=lambda _: False, retries=0,
-            )
-            with lock:
-                owner = json.loads((root / ".config.lock" / "info").read_text(encoding="utf-8"))
-                self.assertEqual(os.getpid(), owner["pid"])
-                self.assertEqual("unknown", owner["host"])
+            config = root / "config.toml"
+            with handoff_config.ConfigLock(config):
+                self.assertTrue((root / ".config.lock").is_dir())
+                with self.assertRaises(handoff_config.ConfigLockError) as raised:
+                    handoff_config.ConfigLock(config).acquire()
+                self.assertIn(str(root / ".config.lock"), str(raised.exception))
             self.assertFalse((root / ".config.lock").exists())
 
-    def test_live_but_timed_out_pid_is_reclaimed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.make_lock(root, 456, 10.0)
-            lock = handoff_config.ConfigLock(
-                root / "config.toml", clock=lambda: 30.0, stale_after=15.0,
-                sleep=lambda _: None, pid_alive=lambda _: True, retries=0,
-            )
-            with lock:
+            (root / ".config.lock").mkdir()
+            os.utime(root / ".config.lock", (0, 0))
+            with handoff_config.ConfigLock(config, stale_after=15.0):
                 self.assertTrue((root / ".config.lock").is_dir())
             self.assertFalse((root / ".config.lock").exists())
-
-    def test_live_owner_fails_after_bounded_backoff(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.make_lock(root, 789, 99.0)
-            delays = []
-            lock = handoff_config.ConfigLock(
-                root / "config.toml", clock=lambda: 100.0, stale_after=15.0,
-                retries=3, base_delay=0.001, sleep=delays.append,
-                pid_alive=lambda _: True,
-            )
-            with self.assertRaises(handoff_config.ConfigLockError) as raised:
-                lock.acquire()
-            self.assertEqual([0.001, 0.002, 0.004], delays)
-            message = str(raised.exception)
-            self.assertIn("pid=789", message)
-            self.assertIn("ts=99.0", message)
-            self.assertIn(str(root / ".config.lock"), message)
-            self.assertTrue((root / ".config.lock").exists())
 
 
 if __name__ == "__main__":

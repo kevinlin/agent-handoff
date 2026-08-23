@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import os
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -230,48 +233,75 @@ class SetupUITests(unittest.TestCase):
                 model_options=controller.initial_state["model_options"],
             )
 
-    def test_ui_keeps_the_taste_design_and_accessibility_contract(self):
+    def serve(self, token="test-token"):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), handoff_setup_ui.make_handler(controller, token)
+        )
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05})
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        return server.server_port
+
+    def request(self, port, method, path, headers=None, body=None):
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            return response.status, response.read().decode("utf-8")
+        finally:
+            connection.close()
+
+    def test_server_refuses_anything_without_the_local_token(self):
+        port = self.serve()
+        status, body = self.request(port, "GET", "/?token=test-token")
+        self.assertEqual(200, status)
+        self.assertIn("<!doctype html>", body)
+
+        self.assertEqual(403, self.request(port, "GET", "/")[0])
+        self.assertEqual(403, self.request(port, "GET", "/?token=wrong")[0])
+        self.assertEqual(403, self.request(port, "GET", "/api/state")[0])
+        self.assertEqual(
+            403, self.request(port, "POST", "/api/preview?token=wrong", body=b"{}")[0]
+        )
+
+    def test_server_refuses_a_non_loopback_host_header(self):
+        port = self.serve()
+        status, _ = self.request(
+            port, "GET", "/?token=test-token", headers={"Host": "attacker.example"}
+        )
+        self.assertEqual(403, status)
+
+    def test_server_rejects_an_oversized_or_unparsable_body(self):
+        port = self.serve()
+        headers = {"X-Handoff-Token": "test-token", "Content-Type": "application/json"}
+        status, body = self.request(
+            port,
+            "POST",
+            "/api/preview",
+            headers={**headers, "Content-Length": "999999"},
+        )
+        self.assertEqual(400, status)
+        self.assertIn("Invalid request size", body)
+
+        status, body = self.request(port, "POST", "/api/preview", headers=headers, body=b"not json")
+        self.assertEqual(400, status)
+        self.assertIn("not valid JSON", body)
+
+    def test_ui_keeps_its_accessibility_and_theme_contract(self):
         html = handoff_setup_ui.HTML
-        self.assertIn("Variance 4, motion 5, density 4", html)
-        self.assertIn('class="hero-map"', html)
-        self.assertIn('class="matrix" id="identities"', html)
-        self.assertIn(".main-heading,.settings-head", html)
-        self.assertIn(".identity:nth-child(2) { --row:1; }", html)
-        self.assertNotIn("margin-left:clamp", html)
-        self.assertNotIn("margin-right:clamp", html)
-        self.assertIn("@keyframes signal-run", html)
-        self.assertIn("syncHeroMap()", html)
-        self.assertIn("renderIdentities();\n      syncHeroMap();", html)
-        self.assertIn(':root[data-theme="dark"]', html)
-        self.assertIn("prefers-color-scheme: dark", html)
-        self.assertIn('id="themeSwitch"', html)
-        self.assertIn("localStorage.getItem('handoff-theme')", html)
-        self.assertIn("prefers-reduced-motion:no-preference", html)
-        self.assertIn("prefers-reduced-motion:reduce", html)
-        self.assertIn('role="status" aria-live="polite"', html)
-        self.assertIn('aria-describedby="${identity}-source"', html)
-        self.assertIn('<select id="${identity}-model" data-field="model"', html)
-        self.assertNotIn('type="text" data-field="model"', html)
-        self.assertIn("Codex models are read from your local account", html)
-        self.assertIn('id="technicalDetails"', html)
-        self.assertIn("Show full paths and the technical diff", html)
-        self.assertIn("I confirm installing into this project", html)
-        self.assertIn("scope: 'project'", html)
-        self.assertIn("exclude_choice: 'git-exclude'", html)
-        self.assertIn("function effortCatalog(backend, model)", html)
-        self.assertIn("syncEffort(matrix[identity])", html)
-        self.assertIn("Installed, but the automatic check did not pass", html)
-        for advanced_label in (
-            "Write and verify",
-            "Write scope",
-            "All projects",
-            "Git handling for the project config",
-            "Persistent routing block",
-            "smoke test",
+        for required in (
+            'role="status" aria-live="polite"',
+            'aria-describedby="${identity}-source"',
+            "prefers-reduced-motion:reduce",
+            ':root[data-theme="dark"]',
+            "prefers-color-scheme: dark",
+            'id="themeSwitch"',
         ):
-            self.assertNotIn(advanced_label, html)
-        for forbidden in ("backdrop-filter", "—", "–", " · "):
-            self.assertNotIn(forbidden, html)
+            self.assertIn(required, html)
 
 
 if __name__ == "__main__":

@@ -39,8 +39,6 @@ SCOPES = ("project", "global")
 EXCLUDE_CHOICES = ("git-exclude", "self", "track")
 ROUTING_ACTIONS = ("none", "write", "remove")
 CLAUDE_MODEL_ALIASES = ("fable", "opus", "sonnet", "haiku")
-CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
-CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
 IDENTITY_META = {
     "deep_reasoner": {
         "label": "Deep reasoning",
@@ -67,7 +65,7 @@ def _binary_version(path: Optional[str], env: Mapping[str, str], source: str) ->
     try:
         result = subprocess.run(
             [path, "--version"],
-            env=engine._nested_claude_env(env),
+            env=engine.clean_claude_env(env),
             text=True,
             capture_output=True,
             check=False,
@@ -77,10 +75,6 @@ def _binary_version(path: Optional[str], env: Mapping[str, str], source: str) ->
     except (OSError, subprocess.TimeoutExpired):
         version = "Found, version unreadable"
     return {"available": True, "path": path, "version": version, "source": source}
-
-
-def _version(name: str, env: Mapping[str, str]) -> Dict[str, Any]:
-    return _binary_version(shutil.which(name, path=env.get("PATH")), env, "PATH")
 
 
 def _codex_path(env: Mapping[str, str]) -> Tuple[Optional[str], str]:
@@ -194,7 +188,7 @@ def _codex_model_options(
                 entry["reasoningEffort"]
                 for entry in effort_items
                 if isinstance(entry, dict)
-                and entry.get("reasoningEffort") in CODEX_EFFORTS
+                and entry.get("reasoningEffort") in engine.CODEX_EFFORTS
             ]
             options.append(
                 {
@@ -233,12 +227,12 @@ def _claude_model_options(
     path: Optional[str], env: Mapping[str, str], detected: Mapping[str, str]
 ) -> Tuple[List[Dict[str, Any]], str]:
     aliases: List[str] = []
-    efforts = list(CLAUDE_EFFORTS)
+    efforts = list(engine.CLAUDE_EFFORTS)
     if path:
         try:
             result = subprocess.run(
                 [path, "--help"],
-                env=engine._nested_claude_env(env),
+                env=engine.clean_claude_env(env),
                 text=True,
                 capture_output=True,
                 check=False,
@@ -355,7 +349,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
     }
     codex_detected = engine.detect_codex(env)
     claude_detected = engine.detect_claude(env)
-    claude_cli = _version("claude", env)
+    claude_cli = _binary_version(shutil.which("claude", path=env.get("PATH")), env, "PATH")
     codex_cli = _codex_version(env)
     codex_options, codex_discovery = _codex_model_options(codex_cli["path"], env)
     claude_options, claude_discovery = _claude_model_options(
@@ -396,8 +390,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "initial_mode": initial_mode,
         "initial_matrix": initial_matrix,
         "efforts_by_backend": {
-            "claude": list(CLAUDE_EFFORTS),
-            "codex": list(CODEX_EFFORTS),
+            backend: list(efforts) for backend, efforts in engine.BACKEND_EFFORTS.items()
         },
         "identity_meta": IDENTITY_META,
         "write_agents_available": True,

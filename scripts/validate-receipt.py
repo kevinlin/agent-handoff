@@ -8,11 +8,10 @@ Accepts either the text block format emitted at the end of a Handoff run:
     claude_session: <id or none>
     ...
 
-or a JSON object (with --json) matching docs/receipt-schema.json.
+The field semantics are documented in docs/receipt-schema.json.
 
 Usage:
     python3 scripts/validate-receipt.py <file-with-receipt-block>
-    python3 scripts/validate-receipt.py --json <receipt.json>
     ... | python3 scripts/validate-receipt.py -
 
 The file may be a markdown document; the first [Handoff session receipt]
@@ -67,10 +66,6 @@ def extract_block(text: str) -> dict[str, str] | None:
     return fields
 
 
-def is_non_bool_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 def parse_roles_used(value: object) -> list[dict]:
     if value == "none":
         return []
@@ -98,7 +93,7 @@ def parse_roles_used(value: object) -> list[dict]:
     return parsed
 
 
-def validate(fields: dict[str, object], *, strict_json_types: bool = False) -> list[str]:
+def validate(fields: dict[str, object]) -> list[str]:
     failures: list[str] = []
 
     for field in REQUIRED_FIELDS:
@@ -116,13 +111,7 @@ def validate(fields: dict[str, object], *, strict_json_types: bool = False) -> l
     if as_text("phase") not in PHASES:
         failures.append(f"phase must be one of {sorted(PHASES)}, got {as_text('phase')!r}")
 
-    if strict_json_types:
-        value = fields["codex_jobs"]
-        if not is_non_bool_int(value):
-            failures.append(f"codex_jobs must be an integer, got {value!r}")
-        elif value < 0:
-            failures.append(f"codex_jobs must be >= 0, got {value!r}")
-    elif not re.fullmatch(r"\d+", as_text("codex_jobs")):
+    if not re.fullmatch(r"\d+", as_text("codex_jobs")):
         failures.append(f"codex_jobs must be an integer, got {as_text('codex_jobs')!r}")
 
     if as_text("scope") not in SCOPES:
@@ -136,12 +125,8 @@ def validate(fields: dict[str, object], *, strict_json_types: bool = False) -> l
     except (ValueError, json.JSONDecodeError) as error:
         failures.append(f"roles_used is invalid: {error}")
 
-    version = fields["receipt_schema_version"]
     version_text = as_text("receipt_schema_version")
-    if strict_json_types:
-        if version != 3:
-            failures.append(f"receipt_schema_version must be 3, got {version!r}")
-    elif version_text != "3":
+    if version_text != "3":
         failures.append(f"receipt_schema_version must be 3, got {version_text!r}")
 
     for placeholder_field in ("phase", "claude_session", "checks", "anomalies"):
@@ -155,29 +140,15 @@ def validate(fields: dict[str, object], *, strict_json_types: bool = False) -> l
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate a Handoff Session Receipt.")
     parser.add_argument("path", help="File containing a receipt block, or - for stdin.")
-    parser.add_argument("--json", action="store_true", help="Treat input as a JSON receipt object.")
     args = parser.parse_args()
 
     text = sys.stdin.read() if args.path == "-" else Path(args.path).read_text(encoding="utf-8")
+    extracted = extract_block(text)
+    if extracted is None:
+        print(f"FAIL no '{RECEIPT_HEADER}' block found in input")
+        return 1
 
-    if args.json:
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as error:
-            print(f"FAIL invalid JSON: {error}")
-            return 1
-        if not isinstance(data, dict):
-            print("FAIL JSON receipt must be an object")
-            return 1
-        fields: dict[str, object] = data
-    else:
-        extracted = extract_block(text)
-        if extracted is None:
-            print(f"FAIL no '{RECEIPT_HEADER}' block found in input")
-            return 1
-        fields = dict(extracted)
-
-    failures = validate(fields, strict_json_types=args.json)
+    failures = validate(dict(extracted))
     if failures:
         for failure in failures:
             print(f"FAIL {failure}")

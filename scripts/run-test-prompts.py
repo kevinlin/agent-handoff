@@ -1,41 +1,25 @@
 #!/usr/bin/env python3
-"""Run the Handoff behavior regression prompts.
+"""Statically validate the Handoff behavior regression prompts.
 
-Two modes:
-
-Static (default, CI-safe, no agent needed):
     python3 scripts/run-test-prompts.py
-  Validates every entry in test-prompts.json structurally: unique ids,
-  non-empty prompt, expected_behavior and must_not lists, risky command
-  text confined to must_not, and receipt-contract coverage.
 
-Live (experimental, needs a real agent):
-    HANDOFF_AGENT_CMD='<command>' python3 scripts/run-test-prompts.py --live
-  Runs each prompt through the agent command (prompt appended as the last
-  argument) and checks the output for a Handoff Session Receipt block,
-  which is then validated with scripts/validate-receipt.py. Live mode is
-  a smoke signal, not proof: it checks the output contract, not judgment
-  quality.
+Checks every entry in test-prompts.json structurally: unique ids, non-empty
+prompt, expected_behavior and must_not lists, risky command text confined to
+must_not, and receipt-contract coverage.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import shlex
-import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPTS = ROOT / "test-prompts.json"
-VALIDATOR = ROOT / "scripts" / "validate-receipt.py"
 
 RISKY = re.compile(r"git reset --hard|rm -rf|force push|--force")  # risk-ok: detection pattern, not a command
 REQUIRED_KEYS = {"id", "prompt", "expected_behavior", "must_not"}
-RECEIPT_HEADER = "[Handoff session receipt]"
 
 
 def static_check(entries: list[dict]) -> list[str]:
@@ -76,49 +60,8 @@ def static_check(entries: list[dict]) -> list[str]:
     return failures
 
 
-def live_check(entries: list[dict], agent_cmd: str) -> list[str]:
-    failures: list[str] = []
-    base = shlex.split(agent_cmd)
-    for entry in entries:
-        case_id = entry["id"]
-        try:
-            result = subprocess.run(
-                [*base, entry["prompt"]],
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            failures.append(f"{case_id}: agent command failed: {error}")
-            continue
-        output = result.stdout + result.stderr
-        should_trigger = entry.get("should_trigger", True)
-        if not should_trigger:
-            if RECEIPT_HEADER in output:
-                failures.append(f"{case_id}: expected no trigger, but a receipt was emitted")
-            else:
-                print(f"PASS live {case_id} (correctly did not trigger)")
-            continue
-        if RECEIPT_HEADER not in output:
-            failures.append(f"{case_id}: no Handoff Session Receipt in output")
-            continue
-        validation = subprocess.run(
-            [sys.executable, str(VALIDATOR), "-"],
-            input=output,
-            capture_output=True,
-            text=True,
-        )
-        if validation.returncode != 0:
-            failures.append(f"{case_id}: receipt invalid: {validation.stdout.strip()}")
-        else:
-            print(f"PASS live {case_id}")
-    return failures
-
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Handoff test prompts.")
-    parser.add_argument("--live", action="store_true", help="Run prompts through HANDOFF_AGENT_CMD.")
-    args = parser.parse_args()
+    argparse.ArgumentParser(description="Validate Handoff test prompts.").parse_args()
 
     entries = json.loads(PROMPTS.read_text(encoding="utf-8"))
     if not isinstance(entries, list):
@@ -128,13 +71,6 @@ def main() -> int:
     failures = static_check(entries)
     if not failures:
         print(f"PASS static checks ({len(entries)} cases)")
-
-    if args.live and not failures:
-        agent_cmd = os.environ.get("HANDOFF_AGENT_CMD", "")
-        if not agent_cmd:
-            print("FAIL --live requires HANDOFF_AGENT_CMD")
-            return 1
-        failures.extend(live_check(entries, agent_cmd))
 
     if failures:
         for failure in failures:

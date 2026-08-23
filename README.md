@@ -218,7 +218,7 @@ scripts/check-skill-repo.sh             Publish readiness smoke check
 scripts/english-only-scan.py            Fails if any tracked file contains CJK text
 scripts/make-receipt.py                 Generates a pre-validated receipt, can persist to .handoff/
 scripts/validate-receipt.py             Validates Handoff Session Receipt fields and values
-scripts/run-test-prompts.py             Static checks plus experimental live mode for the regression prompts
+scripts/run-test-prompts.py             Static validation of the regression prompts
 scripts/delegate-codex.sh               Codex background-job primitive: submit / status / result / resume / cancel
 scripts/handoff-config.py               Config engine: TOML-subset parsing, deterministic writes, locking (schema v2)
 scripts/handoff_runtime.py              Shared Claude child-process environment boundary for first-party OAuth
