@@ -52,6 +52,14 @@ IDENTITY_META = {
         "label": "Independent arbitration",
         "hint": "Blind second solve for contested conclusions",
     },
+    "e2e_specifier": {
+        "label": "Acceptance authoring",
+        "hint": "Gherkin scenarios and repo-native executable tests",
+    },
+    "e2e_verifier": {
+        "label": "Acceptance execution",
+        "hint": "Runs the reviewed tests and reports a validated verdict",
+    },
 }
 
 
@@ -393,6 +401,8 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
             backend: list(efforts) for backend, efforts in engine.BACKEND_EFFORTS.items()
         },
         "identity_meta": IDENTITY_META,
+        "core_identities": list(engine.CORE_IDENTITIES),
+        "optional_identities": list(engine.OPTIONAL_IDENTITIES),
         "write_agents_available": True,
     }
 
@@ -430,8 +440,12 @@ def normalize_payload(
     supplied = raw.get("identities")
     if not isinstance(supplied, dict):
         raise UIError("Missing identity matrix")
+    with_e2e = bool(raw.get("with_e2e"))
+    required = list(engine.CORE_IDENTITIES)
+    if with_e2e:
+        required.extend(engine.OPTIONAL_IDENTITIES)
     identities: Dict[str, Dict[str, str]] = {}
-    for identity in engine.IDENTITIES:
+    for identity in required:
         values = supplied.get(identity)
         if not isinstance(values, dict):
             raise UIError(f"Missing settings for {identity}")
@@ -469,7 +483,7 @@ def normalize_payload(
                 field: expected[identity][field]
                 for field in ("backend", "model", "effort")
             }
-            for identity in engine.IDENTITIES
+            for identity in required
         }
         if identities != comparable:
             raise UIError("Identity settings changed. Switch to custom mode and preview again.")
@@ -481,6 +495,7 @@ def normalize_payload(
         "routing_action": routing_action,
         "write_agents": bool(raw.get("write_agents")),
         "smoke": bool(raw.get("smoke", True)),
+        "with_e2e": with_e2e,
         "identities": identities,
     }
 
@@ -498,11 +513,12 @@ def engine_arguments(payload: Mapping[str, Any], action: str) -> list[str]:
         str(payload["exclude_choice"]),
     ]
     if payload["mode"] == "custom":
-        for identity in engine.IDENTITIES:
+        for identity in payload["identities"]:
             values = payload["identities"][identity]
             args.extend(("--role-backend", f"{identity}={values['backend']}"))
             args.extend(("--role-model", f"{identity}={values['model']}"))
             args.extend(("--role-effort", f"{identity}={values['effort']}"))
+    args.append("--with-e2e" if payload["with_e2e"] else "--no-with-e2e")
     args.append("--write-agents" if payload["write_agents"] else "--no-write-agents")
     if payload["routing_action"] == "write":
         args.append("--routing-block")
@@ -973,6 +989,8 @@ HTML = r'''<!doctype html>
         <div class="role-node deep"><span>Deep reasoning</span><strong id="heroDeep">Detecting</strong></div>
         <div class="role-node fast"><span>Fast execution</span><strong id="heroFast">Detecting</strong></div>
         <div class="role-node arbiter"><span>Independent arbitration</span><strong id="heroArbiter">Detecting</strong></div>
+        <div class="role-node e2e-spec"><span>Acceptance authoring</span><strong id="heroE2eSpec">Off</strong></div>
+        <div class="role-node e2e-verify"><span>Acceptance execution</span><strong id="heroE2eVerify">Off</strong></div>
       </div>
     </header>
 
@@ -991,6 +1009,13 @@ HTML = r'''<!doctype html>
             <span class="current-mode" id="currentMode">Current mode: loading</span>
           </div>
           <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
+          <details id="e2eAddOn" class="e2e-addon">
+            <summary>E2E acceptance testing (optional)</summary>
+            <p>Adds two identities that write and run acceptance tests for
+               user-observable changes. Leave off if you do not run end-to-end tests.</p>
+            <label class="e2e-toggle"><input type="checkbox" id="withE2e"> Configure e2e identities</label>
+            <div class="matrix" id="e2eCards"></div>
+          </details>
         </section>
 
         <aside class="settings-panel" aria-label="Pre-install confirmation">
@@ -1137,10 +1162,18 @@ HTML = r'''<!doctype html>
         deep_reasoner:'heroDeep',
         fast_worker:'heroFast',
         arbiter:'heroArbiter',
+        e2e_specifier:'heroE2eSpec',
+        e2e_verifier:'heroE2eVerify',
       };
+      const withE2e = $('withE2e').checked;
       for (const [identity, target] of Object.entries(targets)) {
         const values = matrix[identity];
         if (!values) continue;
+        if (state.optional_identities.includes(identity) && !withE2e) {
+          $(target).textContent = 'Off';
+          $(target).title = 'Not configured';
+          continue;
+        }
         const backend = values.backend === 'claude' ? 'Claude Code' : 'Codex';
         const summary = `${backend} / ${values.model || 'not set'} / ${values.effort}`;
         $(target).textContent = summary;
@@ -1166,7 +1199,13 @@ HTML = r'''<!doctype html>
       invalidate();
     }
     function renderIdentities() {
-      $('identities').innerHTML = Object.entries(state.identity_meta).map(([identity, meta]) => {
+      renderCards('identities', state.core_identities);
+      renderCards('e2eCards', $('withE2e').checked ? state.optional_identities : []);
+      bindIdentityInputs();
+    }
+    function renderCards(container, names) {
+      $(container).innerHTML = names.map(identity => {
+        const meta = state.identity_meta[identity];
         const values = matrix[identity];
         const efforts = syncEffort(values);
         const verified = modelOption(values.backend, values.model);
@@ -1182,6 +1221,8 @@ HTML = r'''<!doctype html>
           <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
         </article>`;
       }).join('');
+    }
+    function bindIdentityInputs() {
       document.querySelectorAll('.identity select').forEach(control => control.addEventListener('input', event => {
         const card = event.target.closest('.identity');
         const identity = card.dataset.identity;
@@ -1207,8 +1248,12 @@ HTML = r'''<!doctype html>
       }));
     }
     function payload() {
+      const withE2e = $('withE2e').checked;
+      const names = withE2e
+        ? state.core_identities.concat(state.optional_identities)
+        : state.core_identities;
       const identities = {};
-      for (const identity of Object.keys(state.identity_meta)) {
+      for (const identity of names) {
         identities[identity] = {
           backend: matrix[identity].backend,
           model: matrix[identity].model,
@@ -1218,6 +1263,7 @@ HTML = r'''<!doctype html>
       return {
         mode,
         identities,
+        with_e2e: withE2e,
         scope: 'project',
         exclude_choice: 'git-exclude',
         write_agents: state.write_agents_available,
@@ -1254,6 +1300,11 @@ HTML = r'''<!doctype html>
       syncReadiness();
       $('configWorkspace').setAttribute('aria-busy', 'false');
     }
+    $('withE2e').addEventListener('change', () => {
+      renderIdentities();
+      syncHeroMap();
+      invalidate();
+    });
     $('confirmed').addEventListener('change', () => $('apply').disabled = !$('confirmed').checked || !previewValid);
     $('previewBtn').addEventListener('click', async () => {
       $('previewBtn').disabled = true;

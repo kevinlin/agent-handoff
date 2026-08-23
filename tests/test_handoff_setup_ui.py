@@ -306,3 +306,47 @@ class SetupUITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class E2eAddOnTests(SetupUITests):
+    def test_identity_meta_covers_every_identity(self):
+        self.assertEqual(
+            set(handoff_setup_ui.engine.IDENTITIES),
+            set(handoff_setup_ui.IDENTITY_META),
+        )
+
+    def test_payload_without_the_flag_ignores_optional_identities(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        normalized = handoff_setup_ui.normalize_payload(
+            raw, repo=self.repo, env=self.env
+        )
+        self.assertFalse(normalized["with_e2e"])
+        self.assertNotIn("e2e_specifier", normalized["identities"])
+
+    def test_payload_with_the_flag_keeps_optional_identities(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        raw["with_e2e"] = True
+        normalized = handoff_setup_ui.normalize_payload(
+            raw, repo=self.repo, env=self.env
+        )
+        self.assertTrue(normalized["with_e2e"])
+        self.assertIn("e2e_verifier", normalized["identities"])
+
+    def test_payload_with_the_flag_rejects_a_missing_optional_identity(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        raw["with_e2e"] = True
+        del raw["identities"]["e2e_specifier"]
+        with self.assertRaisesRegex(handoff_setup_ui.UIError, "e2e_specifier"):
+            handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+
+    def test_engine_arguments_always_state_the_flag(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        off = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertIn("--no-with-e2e", handoff_setup_ui.engine_arguments(off, "preview"))
+        raw["with_e2e"] = True
+        on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertIn("--with-e2e", handoff_setup_ui.engine_arguments(on, "preview"))
