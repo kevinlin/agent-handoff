@@ -25,19 +25,29 @@ delegate-codex.sh — background Codex jobs for the Claude-driven Handoff flow
 Usage:
   delegate-codex.sh submit --repo <path> --prompt-file <file>
                     [--label <name>] [--effort minimal|low|medium|high|xhigh]
-                    [--model <model>] [--role deep_reasoner|fast_worker|arbiter]
+                    [--model <model>]
+                    [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
+                    [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
-  delegate-codex.sh status <jobId> --repo <path> [--wait] [--timeout <seconds>]
-  delegate-codex.sh result <jobId> --repo <path> [--json]
-  delegate-codex.sh resume <jobId> --repo <path> --prompt-file <file> [--read-only]
-  delegate-codex.sh cancel <jobId> --repo <path>
-  delegate-codex.sh list   --repo <path>
+  delegate-codex.sh status  <jobId> --repo <path> [--wait] [--timeout <seconds>]
+  delegate-codex.sh result  <jobId> --repo <path> [--json]
+  delegate-codex.sh resume  <jobId> --repo <path> --prompt-file <file> [--read-only]
+  delegate-codex.sh cancel  <jobId> --repo <path>
+  delegate-codex.sh cleanup <jobId> --repo <path>
+  delegate-codex.sh list    --repo <path>
 
 Defaults: --effort high (Handoff default for delegated work), read-write
 sandbox per the user's codex config. Use --read-only for review/adversarial
 jobs that must not touch the repo. --role resolves backend, model, and effort
 from Handoff config; an identity with backend=claude must be spawned as a
 subagent instead of delegated here.
+
+--worktree runs the job in a dedicated Git worktree under
+<repo>/.handoff/worktrees/<jobId>, cut from --base (default HEAD) resolved to
+an immutable commit SHA. The worker commits on that branch; merging, pushing,
+and removal stay with the driver. `cleanup <jobId>` removes the worktree and
+refuses one holding uncommitted changes. --repo always names the main repo,
+never a worktree.
 
 Codex binary: set HANDOFF_CODEX_BIN to an executable path or command name to
 override discovery. On macOS the ChatGPT/Codex app-bundled CLI is preferred
@@ -184,6 +194,7 @@ PY
 
 cmd_submit() {
   local PROMPT_FILE="" LABEL="task" EFFORT="high" MODEL="" ROLE="" READ_ONLY="false" DRY_RUN="false"
+  local WORKTREE_BRANCH="" WORKTREE_BASE="" BASE_COMMIT=""
   local EFFORT_EXPLICIT="false" MODEL_EXPLICIT="false"
   local EFFORT_SOURCE="default" MODEL_SOURCE="default"
   while [ "$#" -gt 0 ]; do
@@ -194,6 +205,8 @@ cmd_submit() {
       --effort) EFFORT="${2:-}"; EFFORT_EXPLICIT="true"; shift 2 ;;
       --model) MODEL="${2:-}"; MODEL_EXPLICIT="true"; shift 2 ;;
       --role) ROLE="${2:-}"; shift 2 ;;
+      --worktree) WORKTREE_BRANCH="${2:-}"; shift 2 ;;
+      --base) WORKTREE_BASE="${2:-}"; shift 2 ;;
       --read-only) READ_ONLY="true"; shift ;;
       --dry-run) DRY_RUN="true"; shift ;;
       *) die "unknown submit argument: $1" ;;
@@ -201,7 +214,16 @@ cmd_submit() {
   done
   require_repo
   [ -n "$PROMPT_FILE" ] && [ -f "$PROMPT_FILE" ] || die "--prompt-file is required and must exist"
-  case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter) ;; *) die "invalid --role: $ROLE" ;; esac
+  case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier) ;; *) die "invalid --role: $ROLE" ;; esac
+
+  if [ -n "$WORKTREE_BRANCH" ]; then
+    is_git_repo "$REPO" || die "--worktree requires --repo to be a git repository"
+    # Pin to an immutable SHA: a branch name can advance between cutting the
+    # worktree and reading the verdict, and then the verdict names a commit
+    # nobody tested.
+    BASE_COMMIT="$(git -C "$REPO" rev-parse --verify "${WORKTREE_BASE:-HEAD}^{commit}" 2>/dev/null)" \
+      || die "--base is not a valid commit: ${WORKTREE_BASE:-HEAD}"
+  fi
 
   if [ -n "$ROLE" ]; then
     local CONFIG_JSON CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
@@ -248,13 +270,26 @@ cmd_submit() {
   mkdir -p "$JOB"
   cp "$PROMPT_FILE" "$JOB/prompt.md"
 
+  local WORKDIR="$REPO"
+  if [ -n "$WORKTREE_BRANCH" ]; then
+    WORKDIR="$REPO/.handoff/worktrees/$JOB_ID"
+    mkdir -p "$REPO/.handoff/worktrees"
+    git -C "$REPO" worktree add --quiet -b "$WORKTREE_BRANCH" "$WORKDIR" "$BASE_COMMIT" \
+      || die "git worktree add failed for branch: $WORKTREE_BRANCH"
+  fi
+
   {
     printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=codex\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=fresh\n' \
       "$LABEL" "$EFFORT" "${MODEL:-default}" "${ROLE:-none}" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
       "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)"
   } >"$JOB/meta"
 
-  write_run_script "$JOB" "$EFFORT" "$MODEL" "$READ_ONLY" ""
+  if [ -n "$WORKTREE_BRANCH" ]; then
+    printf 'worktree=%s\nbranch=%s\nbase_commit=%s\n' \
+      "$WORKDIR" "$WORKTREE_BRANCH" "$BASE_COMMIT" >>"$JOB/meta"
+  fi
+
+  write_run_script "$JOB" "$EFFORT" "$MODEL" "$READ_ONLY" "" "$WORKDIR"
   launch_job "$JOB"
   echo "$JOB_ID"
 }
@@ -276,6 +311,15 @@ cmd_resume() {
   [ "$(job_state)" = "RUNNING" ] && die "parent job still running; wait or cancel first"
 
   local PARENT_JOB="$JOB"
+  # `codex exec resume` takes its cwd from the shell, so without this a fix
+  # round would land in the main repo instead of the parent's worktree.
+  local PARENT_WORKDIR
+  PARENT_WORKDIR="$(sed -n 's/^worktree=//p' "$PARENT_JOB/meta")"
+  if [ -n "$PARENT_WORKDIR" ]; then
+    [ -d "$PARENT_WORKDIR" ] || die "parent job worktree is missing: $PARENT_WORKDIR"
+  else
+    PARENT_WORKDIR="$REPO"
+  fi
   local SESSION_ID
   SESSION_ID="$(extract_session_id)"
   [ -n "$SESSION_ID" ] || die "no session id found in $PARENT_JOB/log.jsonl; cannot resume"
@@ -304,18 +348,22 @@ cmd_resume() {
       "${EFFORT:-high}" "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)" "$PARENT_ID"
   } >"$JOB/meta"
 
-  write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID"
+  if [ "$PARENT_WORKDIR" != "$REPO" ]; then
+    printf 'worktree=%s\n' "$PARENT_WORKDIR" >>"$JOB/meta"
+  fi
+
+  write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID" "$PARENT_WORKDIR"
   launch_job "$JOB"
   echo "$JOB_ID"
 }
 
 write_run_script() {
-  local job="$1" effort="$2" model="$3" read_only="$4" session_id="$5"
+  local job="$1" effort="$2" model="$3" read_only="$4" session_id="$5" workdir="${6:-$REPO}"
   {
     echo '#!/usr/bin/env bash'
     echo 'set -uo pipefail'
     printf 'JOB=%q\n' "$job"
-    printf 'REPO=%q\n' "$REPO"
+    printf 'WORKDIR=%q\n' "$workdir"
     printf 'CODEX_BIN=%q\n' "$CODEX_BIN"
     echo 'PROMPT="$(cat "$JOB/prompt.md")"'
     # </dev/null: a long prompt can make codex exec also wait on stdin for
@@ -327,13 +375,13 @@ write_run_script() {
       # sandbox and effort go through -c config overrides.
       local args="--json -c 'model_reasoning_effort=\"$effort\"'"
       [ "$read_only" = "true" ] && args="$args -c 'sandbox_mode=\"read-only\"'"
-      echo 'cd "$REPO"'
+      echo 'cd "$WORKDIR"'
       printf '"$CODEX_BIN" exec resume %q "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$session_id" "$args"
     else
-      local args="--json -C \"\$REPO\" -c 'model_reasoning_effort=\"$effort\"'"
+      local args="--json -C \"\$WORKDIR\" -c 'model_reasoning_effort=\"$effort\"'"
       # Non-git --repo targets need --skip-git-repo-check or codex exec
       # refuses to run ("Not inside a trusted directory").
-      is_git_repo "$REPO" || args="$args --skip-git-repo-check"
+      is_git_repo "$workdir" || args="$args --skip-git-repo-check"
       [ -n "$model" ] && args="$args -m \"$model\""
       [ "$read_only" = "true" ] && args="$args -s read-only"
       printf '"$CODEX_BIN" exec "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
@@ -474,7 +522,34 @@ cmd_cancel() {
     kill_tree "$(cat "$JOB/pid")"
   fi
   touch "$JOB/cancelled"
+  cmd_cleanup "$JOB_ID" --repo "$REPO" || echo "worktree kept for inspection: $JOB_ID"
   echo "cancelled: $JOB_ID"
+}
+
+# Returns rather than dies on the dirty path: die exits, which would abort
+# cmd_cancel half-way through.
+cmd_cleanup() {
+  local JOB_ID="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --repo) REPO="${2:-}"; shift 2 ;;
+      *) die "unknown cleanup argument: $1" ;;
+    esac
+  done
+  require_repo
+  require_job "$JOB_ID"
+  local WT
+  WT="$(sed -n 's/^worktree=//p' "$JOB/meta")"
+  if [ -z "$WT" ] || [ ! -d "$WT" ]; then
+    echo "no worktree: $JOB_ID"
+    return 0
+  fi
+  if [ -n "$(git -C "$WT" status --porcelain 2>/dev/null)" ]; then
+    echo "worktree has uncommitted changes: $WT" >&2
+    return 1
+  fi
+  git -C "$REPO" worktree remove "$WT" || { echo "git worktree remove failed: $WT" >&2; return 1; }
+  echo "removed worktree: $WT"
 }
 
 cmd_list() {
@@ -503,7 +578,7 @@ REPO="${REPO:-}"
 
 case "$COMMAND" in
   submit) cmd_submit "$@" ;;
-  status|result|resume|cancel)
+  status|result|resume|cancel|cleanup)
     [ "$#" -ge 1 ] || die "$COMMAND requires a jobId"
     JOB_ID_ARG="$1"; shift
     "cmd_$COMMAND" "$JOB_ID_ARG" "$@"
