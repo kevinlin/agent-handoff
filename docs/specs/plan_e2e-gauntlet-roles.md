@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 standard library only (no third-party imports anywhere in this repo), Bash, `unittest`. No new dependencies.
 
-**Spec:** [docs/specs/design_e2e-gauntlet-roles.md](docs/specs/design_e2e-gauntlet-roles.md) — read it alongside this plan. The design review it answers is [docs/specs/review_e2e-gauntlet-roles.md](docs/specs/review_e2e-gauntlet-roles.md).
+**Spec:** [docs/specs/design_e2e-gauntlet-roles.md](docs/specs/design_e2e-gauntlet-roles.md) — read it alongside this plan. Its "Rejected review findings" section records what an independent review asked for and what was deliberately not done.
 
 ## Global Constraints
 

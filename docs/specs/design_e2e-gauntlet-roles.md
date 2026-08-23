@@ -1,6 +1,6 @@
 # Add e2e_specifier and e2e_verifier identities
 
-Revised after [design review](docs/specs/review_e2e-gauntlet-roles.md). Attack points 2 and 3 and all four P2 findings are accepted and folded in below; attack point 1 is declined, with reasons in [Rejected review findings](#rejected-review-findings).
+Revised after an independent design review. Its attack points 2 and 3 and all four P2 findings are accepted and folded in below; attack point 1 is declined, with reasons in [Rejected review findings](#rejected-review-findings).
 
 ## Context
 
