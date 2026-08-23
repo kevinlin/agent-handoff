@@ -23,7 +23,12 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 
 
 HOST = "claude_code"
-IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
+CORE_IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
+# Optional add-on identities. Appended, never inserted: emit_host_sections
+# orders sections by IDENTITIES, so an existing three-identity document must
+# keep writing back byte-identically.
+OPTIONAL_IDENTITIES = ("e2e_specifier", "e2e_verifier")
+IDENTITIES = CORE_IDENTITIES + OPTIONAL_IDENTITIES
 IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "verified", "verified_at")
 BACKENDS = ("claude", "codex")
 V1_UPGRADE_MESSAGE = (

@@ -500,3 +500,76 @@ class LockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OptionalIdentityTests(unittest.TestCase):
+    def test_optional_identities_append_after_core(self):
+        self.assertEqual(
+            ("deep_reasoner", "fast_worker", "arbiter"),
+            handoff_config.CORE_IDENTITIES,
+        )
+        self.assertEqual(
+            ("e2e_specifier", "e2e_verifier"),
+            handoff_config.OPTIONAL_IDENTITIES,
+        )
+        self.assertEqual(
+            handoff_config.CORE_IDENTITIES + handoff_config.OPTIONAL_IDENTITIES,
+            handoff_config.IDENTITIES,
+        )
+
+    def test_three_identity_config_is_written_unchanged_by_the_widening(self):
+        # Appending identities must not reorder what an existing three-identity
+        # config emits, nor add sections for identities it does not configure.
+        text = handoff_config.emit_host_sections(
+            {
+                "arbiter": {"backend": "codex", "model": "m", "effort": "xhigh"},
+                "deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"},
+                "fast_worker": {"backend": "codex", "model": "m", "effort": "high"},
+            }
+        )
+        self.assertEqual(
+            [
+                "[hosts.claude_code.identities.deep_reasoner]",
+                "[hosts.claude_code.identities.fast_worker]",
+                "[hosts.claude_code.identities.arbiter]",
+            ],
+            [line for line in text.splitlines() if line.startswith("[")],
+        )
+
+    def test_optional_identity_round_trips(self):
+        text = handoff_config.update_host(
+            "",
+            identities={
+                "e2e_verifier": {
+                    "backend": "codex",
+                    "model": "gpt-test",
+                    "effort": "high",
+                    "verified": False,
+                }
+            },
+        )
+        self.assertIn("[hosts.claude_code.identities.e2e_verifier]", text)
+        parsed = handoff_config.parse_config(text)
+        identity = parsed["hosts"][handoff_config.HOST]["identities"]["e2e_verifier"]
+        self.assertEqual("codex", identity["backend"])
+        self.assertEqual("gpt-test", identity["model"])
+
+    def test_emitted_sections_follow_identity_order(self):
+        text = handoff_config.emit_host_sections(
+            {
+                "e2e_verifier": {"backend": "codex", "model": "m", "effort": "high"},
+                "deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"},
+                "e2e_specifier": {"backend": "codex", "model": "m", "effort": "xhigh"},
+            }
+        )
+        positions = [
+            text.index("identities.deep_reasoner"),
+            text.index("identities.e2e_specifier"),
+            text.index("identities.e2e_verifier"),
+        ]
+        self.assertEqual(sorted(positions), positions)
+
+    def test_override_accepts_optional_identity(self):
+        override = handoff_config._parse_override(["e2e_verifier.effort=low"])
+        identities = override["hosts"][handoff_config.HOST]["identities"]
+        self.assertEqual("low", identities["e2e_verifier"]["effort"])

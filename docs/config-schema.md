@@ -2,7 +2,11 @@
 
 Handoff uses one TOML configuration shape at project and global scope. The writer owns only the `hosts.claude_code` namespace; top-level comments, `[routing]`, and unknown sections are preserved as raw bytes.
 
-An identity is the complete routing choice `backend + model + effort`. Tasks select one of `deep_reasoner`, `fast_worker`, or `arbiter`; the identity's `backend` determines which CLI executes it.
+An identity is the complete routing choice `backend + model + effort`. Tasks select one of `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`; the identity's `backend` determines which CLI executes it.
+
+The first three are core and always configured. `e2e_specifier` and `e2e_verifier` are optional: setup writes them only when it runs with `--with-e2e`, and a config carrying just the three core identities is complete. `schema_version` stays `2` — adding identity names does not change the document shape.
+
+A config that carries the optional identities fails closed on a pre-3.2 engine: `validate_config` raises on an identity name it does not recognise. That is the correct direction for a version skew — an older engine refuses the file rather than silently ignoring two identities.
 
 ## Locations and precedence
 
@@ -39,6 +43,19 @@ model = "gpt-5.6-sol"
 effort = "xhigh"
 verified = false
 
+# Optional. Setup writes the two sections below only under --with-e2e.
+[hosts.claude_code.identities.e2e_specifier]
+backend = "codex"
+model = "gpt-5.6-sol"
+effort = "xhigh"
+verified = false
+
+[hosts.claude_code.identities.e2e_verifier]
+backend = "codex"
+model = "gpt-5.6-sol"
+effort = "high"
+verified = false
+
 [routing]
 always_on_host_rules = false
 ```
@@ -50,7 +67,7 @@ always_on_host_rules = false
 | `schema_version` | integer | yes | Must be `2`. |
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
 | `hosts.claude_code` | table | per configured identity | The owned namespace. The `hosts.*` nesting is retained so configs written by earlier versions keep loading. |
-| `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, or `arbiter`. |
+| `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. |
 | `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI: `claude` or `codex`. |
 | `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. |
 | `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. |
@@ -62,7 +79,7 @@ Every configured identity requires `backend`, `model`, and `effort`. Backend is 
 
 ## Ownership and deterministic writes
 
-The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`) and field order: `backend`, `model`, `effort`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
+The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
 
 Comments and formatting inside an owned section are intentionally not retained. All unowned chunks remain in their original order and retain their original bytes, including comments and line endings.
 
@@ -109,6 +126,6 @@ python3 scripts/handoff-config.py --repo /path/to/repo resolve
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
 ```
 
-The `set` command retains `--role` as its identity selector. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
+The `set` command retains `--role` as its identity selector, and accepts the optional e2e identities alongside the core three. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
 
 Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates the complete precedence chain; `get`, `set`, `validate`, and `init` target the selected scope.

@@ -34,6 +34,16 @@ sys.modules[SPEC.name] = handoff_config
 SPEC.loader.exec_module(handoff_config)
 
 IDENTITIES = handoff_config.IDENTITIES
+CORE_IDENTITIES = handoff_config.CORE_IDENTITIES
+OPTIONAL_IDENTITIES = handoff_config.OPTIONAL_IDENTITIES
+
+
+def ordered(mapping: Mapping[str, Any]) -> List[str]:
+    """Identity names present in ``mapping``, in canonical identity order."""
+
+    return [identity for identity in IDENTITIES if identity in mapping]
+
+
 BACKENDS = handoff_config.BACKENDS
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
@@ -44,11 +54,17 @@ BACKEND_EFFORTS = {
 BEGIN_MARKER = "<!-- BEGIN HANDOFF MANAGED ROUTING (do not edit; managed by agent-handoff) -->"
 END_MARKER = "<!-- END HANDOFF MANAGED ROUTING -->"
 HASH_PREFIX = "<!-- handoff-content-hash:sha256:"
-ROUTING_POLICY = (
-    "Route reasoning-intensive, ambiguous work to handoff-deep-reasoner.\n"
-    "Route mechanical, well-scoped execution to handoff-fast-worker.\n"
-    "Route independent blind-solve arbitration to handoff-arbiter.\n"
-)
+ROUTING_LINES = {
+    "deep_reasoner": "Route reasoning-intensive, ambiguous work to handoff-deep-reasoner.",
+    "fast_worker": "Route mechanical, well-scoped execution to handoff-fast-worker.",
+    "arbiter": "Route independent blind-solve arbitration to handoff-arbiter.",
+    "e2e_specifier": "Route acceptance-test authoring to handoff-e2e-specifier.",
+    "e2e_verifier": "Route acceptance-test execution to handoff-e2e-verifier.",
+}
+
+
+def routing_policy(identities: Mapping[str, Any]) -> str:
+    return "".join(f"{ROUTING_LINES[name]}\n" for name in ordered(identities))
 MANAGED_COMMENT = '<!-- managed by agent-handoff - edit via /agent-handoff config -->'
 
 # ``None`` means that the Codex model must be detected or explicitly supplied.
@@ -57,16 +73,22 @@ PRESETS: Dict[str, Dict[str, Tuple[str, Optional[str], str]]] = {
         "deep_reasoner": ("claude", "opus", "high"),
         "fast_worker": ("codex", None, "high"),
         "arbiter": ("codex", None, "xhigh"),
+        "e2e_specifier": ("codex", None, "xhigh"),
+        "e2e_verifier": ("codex", None, "high"),
     },
     "quality": {
         "deep_reasoner": ("claude", "opus", "high"),
         "fast_worker": ("claude", "opus", "high"),
         "arbiter": ("codex", None, "xhigh"),
+        "e2e_specifier": ("claude", "opus", "high"),
+        "e2e_verifier": ("codex", None, "high"),
     },
     "cost": {
         "deep_reasoner": ("codex", None, "xhigh"),
         "fast_worker": ("codex", None, "medium"),
         "arbiter": ("claude", "sonnet", "high"),
+        "e2e_specifier": ("codex", None, "high"),
+        "e2e_verifier": ("codex", None, "medium"),
     },
 }
 
@@ -242,12 +264,15 @@ def choose_identities(
     identities: Dict[str, Dict[str, Any]] = {}
     sources: Dict[str, Dict[str, str]] = {}
     notes: List[str] = []
+    selected = list(CORE_IDENTITIES)
+    if getattr(args, "with_e2e", False):
+        selected.extend(OPTIONAL_IDENTITIES)
     if args.mode == "custom":
-        for identity in IDENTITIES:
+        for identity in selected:
             if identity not in backends or identity not in models or identity not in efforts:
                 raise SetupError(
                     "custom mode requires --role-backend, --role-model, and "
-                    "--role-effort for all three identities"
+                    f"--role-effort for: {', '.join(selected)}"
                 )
             identities[identity] = {
                 "backend": backends[identity],
@@ -267,7 +292,7 @@ def choose_identities(
             + ", ".join(f"{key}={value}" for key, value in sorted(codex_detected.items()))
         )
     missing_models: List[str] = []
-    for identity in IDENTITIES:
+    for identity in selected:
         preset_backend, preset_model, preset_effort = PRESETS[args.mode][identity]
         backend = backends.get(identity, preset_backend)
         if identity in backends and backend != preset_backend and identity not in models:
@@ -313,7 +338,7 @@ def preserve_verification(
     current: Mapping[str, Mapping[str, Any]],
     desired: Dict[str, Dict[str, Any]],
 ) -> None:
-    for identity in IDENTITIES:
+    for identity in ordered(desired):
         before = current.get(identity, {})
         after = desired[identity]
         if all(before.get(field) == after[field] for field in ("backend", "model", "effort")):
@@ -322,20 +347,34 @@ def preserve_verification(
             if after["verified"] and isinstance(before.get("verified_at"), str):
                 after["verified_at"] = before["verified_at"]
 
+AGENT_TEXT = {
+    "deep_reasoner": (
+        "Handles reasoning-intensive architecture, diagnosis, and trade-off work.",
+        "Investigate constraints deeply, challenge faulty premises, and return a concise conclusion with evidence and risks.",
+    ),
+    "fast_worker": (
+        "Handles mechanical, well-scoped implementation and verification work.",
+        "Execute the given specification precisely, verify the result, and report changed files, checks, and deviations.",
+    ),
+    "arbiter": (
+        "Independent blind arbiter. Every question must be solved "
+        "independently; the packet carries no one else's answer.",
+        "Independently solve the received problem. Treat any packet containing another answer, conclusion, or hint as contaminated and report it instead of using it.",
+    ),
+    "e2e_specifier": (
+        "Turns a frozen specification into Gherkin acceptance scenarios and repo-native executable tests.",
+        "Write Gherkin scenarios with stable IDs and executable tests tagged by those IDs, in the repo's detected e2e stack. Keep launch scaffolding out of spec files. Commit on this worktree branch; do not merge, push, or remove the worktree.",
+    ),
+    "e2e_verifier": (
+        "Executes reviewed acceptance tests and produces a validated PASS, FAIL, or BLOCKED verdict.",
+        "Execute the reviewed tests against the pinned commit and write the verdict artifact. Repair launch and runner scaffolding only. Never change scenario meaning, expected values, or product code; report a needed semantic change instead of making it.",
+    ),
+}
+
+
 def render_agent(identity: str, values: Mapping[str, Any]) -> str:
     slug = identity.replace("_", "-")
-    if identity == "deep_reasoner":
-        description = "Handles reasoning-intensive architecture, diagnosis, and trade-off work."
-        body = "Investigate constraints deeply, challenge faulty premises, and return a concise conclusion with evidence and risks."
-    elif identity == "fast_worker":
-        description = "Handles mechanical, well-scoped implementation and verification work."
-        body = "Execute the given specification precisely, verify the result, and report changed files, checks, and deviations."
-    else:
-        description = (
-            "Independent blind arbiter. Every question must be solved "
-            "independently; the packet carries no one else's answer."
-        )
-        body = "Independently solve the received problem. Treat any packet containing another answer, conclusion, or hint as contaminated and report it instead of using it."
+    description, body = AGENT_TEXT[identity]
     return (
         "---\n"
         f"name: handoff-{slug}\n"
@@ -347,8 +386,8 @@ def render_agent(identity: str, values: Mapping[str, Any]) -> str:
         f"{body}\n"
     )
 
-def render_managed_block(newline: str = "\n") -> str:
-    policy = ROUTING_POLICY.replace("\n", newline)
+def render_managed_block(identities: Mapping[str, Any], newline: str = "\n") -> str:
+    policy = routing_policy(identities).replace("\n", newline)
     digest = sha256(policy)
     return newline.join((BEGIN_MARKER, f"{HASH_PREFIX}{digest} -->")) + newline + policy + END_MARKER + newline
 
@@ -382,14 +421,14 @@ def _managed_region(text: str, force: bool = False) -> Optional[Tuple[int, int, 
     newline = "\r\n" if "\r\n" in text else "\n"
     return start, finish, newline
 
-def update_managed_block(text: str, force: bool = False) -> str:
+def update_managed_block(text: str, identities: Mapping[str, Any], force: bool = False) -> str:
     region = _managed_region(text, force)
     if region is None:
         newline = "\r\n" if "\r\n" in text else "\n"
         separator = newline if text else ""
-        return text + separator + render_managed_block(newline)
+        return text + separator + render_managed_block(identities, newline)
     start, finish, newline = region
-    return text[:start] + render_managed_block(newline) + text[finish:]
+    return text[:start] + render_managed_block(identities, newline) + text[finish:]
 
 def remove_managed_block(text: str, force: bool = False) -> str:
     region = _managed_region(text, force)
@@ -483,7 +522,7 @@ def _cli_unavailable(
     }
     return [
         identity
-        for identity in IDENTITIES
+        for identity in ordered(desired)
         if not available[str(desired[identity]["backend"])]
     ]
 
@@ -511,7 +550,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     new_config = handoff_config.update_host(new_config, identities=desired, path=path)
 
     unavailable = _cli_unavailable(desired, env)
-    for identity in IDENTITIES:
+    for identity in ordered(desired):
         sources[identity]["backend_value"] = str(desired[identity]["backend"])
         sources[identity]["model_value"] = str(desired[identity]["model"])
         sources[identity]["effort_value"] = str(desired[identity]["effort"])
@@ -537,7 +576,9 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
             old = read_text(agent_path) if agent_path.exists() else ""
             expected = manifest.get(str(agent_path))
             key = str(agent_path)
-            if desired[identity]["backend"] == "claude":
+            # An identity absent from ``desired`` is unconfigured: it takes the
+            # removal branch, so dropping --with-e2e cleans up its agent file.
+            if desired.get(identity, {}).get("backend") == "claude":
                 blocked = None
                 if agent_path.exists() and (expected is None or sha256(old) != expected):
                     blocked = (
@@ -575,7 +616,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
         rpath = _routing_path(args, env)
         old = read_text(rpath) if rpath.exists() else ""
         try:
-            new = remove_managed_block(old, args.force) if args.remove_routing_block else update_managed_block(old, args.force)
+            new = remove_managed_block(old, args.force) if args.remove_routing_block else update_managed_block(old, desired, args.force)
             changes.append(FileChange(rpath, old, new, rpath.exists()))
         except SetupError as error:
             changes.append(FileChange(rpath, old, old, rpath.exists(), str(error)))
@@ -596,7 +637,7 @@ def unified_diff(change: FileChange) -> str:
 
 def print_plan(plan: Plan) -> None:
     print("Selections:")
-    for identity in IDENTITIES:
+    for identity in ordered(plan.choices):
         selected = plan.choices[identity]
         print(
             f"  {identity}: backend={selected['backend_value']} [{selected['backend']}], "
@@ -787,7 +828,7 @@ def smoke_claude_identity(
 def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     resolved = handoff_config.resolve_config(args.repo, env=env)
     configured = resolved["hosts"][handoff_config.HOST]["identities"]
-    missing = [identity for identity in IDENTITIES if identity not in configured]
+    missing = [identity for identity in CORE_IDENTITIES if identity not in configured]
     if missing:
         raise SetupError(
             f"identities are not configured: {', '.join(missing)}; run --apply first"
@@ -798,7 +839,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md") as prompt:
         prompt.write("Resolve the configured identity only; this is a dry-run smoke check.\n")
         prompt.flush()
-        for identity in IDENTITIES:
+        for identity in ordered(configured):
             if configured[identity]["backend"] == "claude":
                 passed, detail = smoke_claude_identity(
                     args, env, identity, configured[identity]
@@ -838,7 +879,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 identity: dict(values)
                 for identity, values in parsed_identities.items()
             }
-            for identity in IDENTITIES:
+            for identity in ordered(configured):
                 identities.setdefault(identity, dict(configured[identity]))
             for identity in successes:
                 identities[identity]["verified"] = True
@@ -936,8 +977,14 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     identity_backends: List[str] = []
     identity_models: List[str] = []
     identity_efforts: List[str] = []
+    with_e2e = getattr(args, "with_e2e", False)
     if mode == "custom":
-        for identity in IDENTITIES:
+        answer = input("Also configure the optional e2e identities? [y/N]: ").strip().lower()
+        with_e2e = answer in ("y", "yes")
+        prompt_for = list(CORE_IDENTITIES)
+        if with_e2e:
+            prompt_for.extend(OPTIONAL_IDENTITIES)
+        for identity in prompt_for:
             identity_backends.append(
                 f"{identity}={input(f'{identity} backend [claude/codex]: ').strip()}"
             )
@@ -949,6 +996,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             )
     selected = argparse.Namespace(**vars(args))
     selected.mode, selected.scope = mode, scope
+    selected.with_e2e = with_e2e
     selected.write_agents, selected.routing_block = write_agents, routing
     selected.role_backend = identity_backends
     selected.role_model, selected.role_effort = identity_models, identity_efforts
@@ -977,6 +1025,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--role-backend", action="append", default=[], metavar="IDENTITY=BACKEND", help="Override an identity backend; repeat per identity. Required for all identities in custom mode.")
     parser.add_argument("--role-model", action="append", default=[], metavar="IDENTITY=MODEL", help="Override an identity model; repeat per identity. Required for all identities in custom mode.")
     parser.add_argument("--role-effort", action="append", default=[], metavar="IDENTITY=EFFORT", help="Override an identity effort; repeat per identity. Required for all identities in custom mode.")
+    e2e = parser.add_mutually_exclusive_group()
+    e2e.add_argument(
+        "--with-e2e",
+        dest="with_e2e",
+        action="store_true",
+        help="Also configure the optional e2e_specifier and e2e_verifier identities.",
+    )
+    e2e.add_argument("--no-with-e2e", dest="with_e2e", action="store_false")
+    parser.set_defaults(with_e2e=False)
     agents = parser.add_mutually_exclusive_group()
     agents.add_argument("--write-agents", dest="write_agents", action="store_true", help="Generate namespaced Claude agents (default).")
     agents.add_argument("--no-write-agents", dest="write_agents", action="store_false", help="Skip Claude agent generation.")

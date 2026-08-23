@@ -81,6 +81,8 @@ class SetupTests(unittest.TestCase):
     def custom_args(self, choices, action="--apply"):
         arguments = list(self.claude_args(action, "--mode", "custom"))
         for identity in handoff_setup.IDENTITIES:
+            if identity not in choices:
+                continue
             backend, model, effort = choices[identity]
             arguments.extend(("--role-backend", f"{identity}={backend}"))
             arguments.extend(("--role-model", f"{identity}={model}"))
@@ -192,7 +194,8 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(original, target.read_text(encoding="utf-8"))
 
     def test_managed_block_five_fail_closed_cases_and_force_boundary(self):
-        valid = handoff_setup.render_managed_block()
+        core = dict.fromkeys(handoff_setup.CORE_IDENTITIES, {})
+        valid = handoff_setup.render_managed_block(core)
         digest_at = valid.index("sha256:") + len("sha256:")
         wrong_digit = "0" if valid[digest_at] != "0" else "1"
         hash_mismatch = valid[:digest_at] + wrong_digit + valid[digest_at + 1 :]
@@ -218,15 +221,15 @@ class SetupTests(unittest.TestCase):
         for name, text in malformed.items():
             with self.subTest(name=name):
                 with self.assertRaises(handoff_setup.SetupError):
-                    handoff_setup.update_managed_block(text)
+                    handoff_setup.update_managed_block(text, core)
         self.assertIn(
             handoff_setup.HASH_PREFIX,
-            handoff_setup.update_managed_block(malformed["hash_missing"], force=True),
+            handoff_setup.update_managed_block(malformed["hash_missing"], core, force=True),
         )
         with self.assertRaises(handoff_setup.SetupError):
-            handoff_setup.update_managed_block(malformed["missing_half"], force=True)
+            handoff_setup.update_managed_block(malformed["missing_half"], core, force=True)
         empty = handoff_setup.BEGIN_MARKER + "\n" + handoff_setup.END_MARKER + "\n"
-        self.assertIn(handoff_setup.HASH_PREFIX, handoff_setup.update_managed_block(empty))
+        self.assertIn(handoff_setup.HASH_PREFIX, handoff_setup.update_managed_block(empty, core))
 
     def test_rollback_restores_latest_pre_apply_state_and_keeps_three_backups(self):
         modes = ("balanced", "quality", "cost", "balanced")
@@ -413,7 +416,7 @@ always_on_host_rules = false
             handoff_setup.read_text(self.repo / ".handoff" / "config.toml")
         )
         identities = parsed["hosts"]["claude_code"]["identities"]
-        for identity in handoff_setup.IDENTITIES:
+        for identity in handoff_setup.ordered(identities):
             self.assertTrue(identities[identity]["verified"])
             self.assertEqual(timestamp, identities[identity]["verified_at"])
 
@@ -553,7 +556,7 @@ always_on_host_rules = false
             "claude_code",
         )
         identities = parsed["hosts"]["claude_code"]["identities"]
-        for identity in handoff_setup.IDENTITIES:
+        for identity in handoff_setup.ordered(identities):
             self.assertTrue(identities[identity]["verified"])
             self.assertEqual(
                 "2026-07-20T01:02:03Z", identities[identity]["verified_at"]
@@ -633,3 +636,77 @@ always_on_host_rules = false
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WithE2eTests(SetupTests):
+    def configured(self):
+        config = self.repo / ".handoff" / "config.toml"
+        parsed = handoff_setup.handoff_config.validate_config(
+            config.read_text(encoding="utf-8")
+        )
+        return parsed["hosts"]["claude_code"]["identities"]
+
+    def test_default_apply_writes_core_identities_only(self):
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        identities = self.configured()
+        self.assertEqual(
+            ["deep_reasoner", "fast_worker", "arbiter"],
+            [name for name in handoff_setup.IDENTITIES if name in identities],
+        )
+
+    def test_with_e2e_writes_both_optional_identities(self):
+        status, _, error = self.run_cli(
+            *self.claude_args("--apply", "--mode", "balanced", "--with-e2e")
+        )
+        self.assertEqual((0, ""), (status, error))
+        identities = self.configured()
+        self.assertEqual("xhigh", identities["e2e_specifier"]["effort"])
+        self.assertEqual("high", identities["e2e_verifier"]["effort"])
+        self.assertEqual("codex", identities["e2e_specifier"]["backend"])
+
+    def test_apply_succeeds_without_the_optional_identities(self):
+        # The "identities are not configured" gate must be scoped to core:
+        # an absent optional identity is a deliberate state, not a broken setup.
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        status, _, error = self.run_cli(*self.claude_args("--smoke"))
+        self.assertEqual((0, ""), (status, error))
+
+    def test_status_lists_unconfigured_optional_identities_as_unset(self):
+        self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        status, output, _ = self.run_cli(*self.claude_args("--status"))
+        self.assertEqual(0, status)
+        self.assertIn("e2e_specifier: backend=<unset>", output)
+        self.assertIn("e2e_verifier: backend=<unset>", output)
+
+    def test_custom_mode_requires_optional_settings_only_with_the_flag(self):
+        core = {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("codex", "gpt-detected", "medium"),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+        }
+        status, _, error = self.run_cli(*self.custom_args(core))
+        self.assertEqual((0, ""), (status, error))
+        status, _, error = self.run_cli(*self.custom_args(core), "--with-e2e")
+        self.assertNotEqual(0, status)
+        self.assertIn("e2e_specifier", error)
+
+    def test_claude_backend_optional_identity_generates_an_agent(self):
+        choices = {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("codex", "gpt-detected", "medium"),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+            "e2e_specifier": ("claude", "sonnet", "high"),
+            "e2e_verifier": ("codex", "gpt-detected", "high"),
+        }
+        status, _, error = self.run_cli(
+            *self.custom_args(choices), "--with-e2e", "--write-agents"
+        )
+        self.assertEqual((0, ""), (status, error))
+        agents = self.repo / ".claude" / "agents"
+        specifier = agents / "handoff-e2e-specifier.md"
+        self.assertTrue(specifier.exists())
+        self.assertIn("name: handoff-e2e-specifier", specifier.read_text(encoding="utf-8"))
+        # backend=codex identities never get a Claude subagent definition
+        self.assertFalse((agents / "handoff-e2e-verifier.md").exists())
