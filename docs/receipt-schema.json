@@ -1,15 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "handoff.receipt.v3",
+  "$id": "handoff.receipt.v4",
   "title": "Handoff Session Receipt",
-  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 3 records one Claude-driven flow: the fields that only described Codex supervising a Claude Code session are gone. A receipt carrying them is a v2 receipt and fails validation as the upgrade signal.",
+  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 4 adds duration and codex_job_durations, both measured from repo state rather than recalled.",
   "type": "object",
   "required": [
     "phase",
     "claude_session",
+    "duration",
     "checks",
     "anomalies",
     "codex_jobs",
+    "codex_job_durations",
     "scope",
     "config_source",
     "roles_used",
@@ -29,6 +31,11 @@
       "minLength": 1,
       "description": "Claude Code session id, or the literal string 'none'."
     },
+    "duration": {
+      "type": "string",
+      "pattern": "^\\d+min [0-5]\\dsec$",
+      "description": "Wall clock from the .handoff/session-start marker to the receipt, as '74min 05sec'. Wall clock means time blocked on a human approval is counted."
+    },
     "checks": {
       "type": "string",
       "minLength": 1,
@@ -43,6 +50,11 @@
       "type": "integer",
       "minimum": 0,
       "description": "Number of delegate-codex.sh background jobs, including fix rounds. 0 when none were used."
+    },
+    "codex_job_durations": {
+      "type": "string",
+      "pattern": "^(none|[^=;]+=(\\d+min [0-5]\\dsec|running)(; [^=;]+=(\\d+min [0-5]\\dsec|running))*)$",
+      "description": "'none', or per-job wall clock as 'jobId=74min 05sec' entries joined by '; ', oldest first. Measured from each job's meta submitted_at to the mtime of its exit_code; a job still running reads 'running'. Jobs submitted before the session start belong to an earlier run and are left out."
     },
     "scope": {
       "enum": [
@@ -111,8 +123,8 @@
       ]
     },
     "receipt_schema_version": {
-      "const": 3,
-      "description": "Always 3 for this contract; a receipt carrying direction or monitoring_level is a v2 receipt."
+      "const": 4,
+      "description": "Always 4 for this contract; a receipt without duration and codex_job_durations is a v3 receipt."
     }
   },
   "additionalProperties": false

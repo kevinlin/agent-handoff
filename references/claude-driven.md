@@ -6,6 +6,7 @@ All helper scripts live in `$HANDOFF_DIR` (see Tool Location in `SKILL.md`). Job
 
 ## Phase 0 — Preflight
 
+- Stamp the start: `python3 "$HANDOFF_DIR/scripts/make-receipt.py" --start --repo "$REPO"` writes `<repo>/.handoff/session-start`, the clock the Phase 5 receipt measures against. `/agent-handoff resume` re-enters mid-flow and skips this phase, so a resumed run keeps the start it already had.
 - Confirm the Codex CLI: `codex --version`. If missing, stop and tell the user this flow needs the Codex CLI installed and authenticated.
 - Check the target repo's `AGENTS.md` for the line `DO NOT send optional commentary`. If absent, ask the user once whether to append it (it reduces Codex filler output and keeps its replies dense). Never edit the user's repo files silently.
 - Run `git status --short` and note pre-existing dirt so Codex's diff can be isolated later.
@@ -90,5 +91,5 @@ Only runs when the user asked for the full "full protocol / PR delivery / goal m
 ## Phase 5 — Wrap Up
 
 - Mark tasks done in `.handoff/goal.md`; stop any remaining `/loop`.
-- Emit the Handoff Session Receipt with `codex_jobs: <count>` (fix rounds included); `claude_session` is the current session. Set `scope` and `config_source` from `handoff-config.py resolve` (or `handoff-setup.py --status`), and build `roles_used` from the roles this run actually invoked: each `delegate-codex.sh` job's `meta` file has `role`/`model`/`effort`/`model_source`/`effort_source`, and `handoff-config.py resolve` has each role's `verified`/`verified_at`. List a role even when `verified` is `false` — never guess it true.
+- Emit the Handoff Session Receipt with `codex_jobs: <count>` (fix rounds included); `claude_session` is the current session. Pass `--repo "$REPO"` so `duration` and `codex_job_durations` are measured from the start marker and the job directories; neither is ever typed from recall. Set `scope` and `config_source` from `handoff-config.py resolve` (or `handoff-setup.py --status`), and build `roles_used` from the roles this run actually invoked: each `delegate-codex.sh` job's `meta` file has `role`/`model`/`effort`/`model_source`/`effort_source`, and `handoff-config.py resolve` has each role's `verified`/`verified_at`. List a role even when `verified` is `false` — never guess it true.
 - Run the memory protocol in `references/memory-protocol.md`: what got delegated, how Codex performed per task type, rework rounds, and effort fit — so the next split decision starts smarter.

@@ -34,13 +34,20 @@ CONFIG_SOURCES = {"session", "project", "global", "default", "n/a"}
 # The CLI that executed a role, not the runtime that loaded SKILL.md.
 ROLE_HOSTS = {"claude_code", "codex"}
 ROLES = {"deep_reasoner", "fast_worker", "arbiter"}
+# Only make-receipt.py writes these, so the shape is exact: "74min 05sec".
+_DURATION = r"\d+min [0-5]\dsec"
+_JOB_ENTRY = rf"[^=;]+=(?:{_DURATION}|running)"
+DURATION = re.compile(_DURATION)
+JOB_DURATIONS = re.compile(rf"none|{_JOB_ENTRY}(?:; {_JOB_ENTRY})*")
 
 REQUIRED_FIELDS = [
     "phase",
     "claude_session",
+    "duration",
     "checks",
     "anomalies",
     "codex_jobs",
+    "codex_job_durations",
     "scope",
     "config_source",
     "roles_used",
@@ -111,8 +118,17 @@ def validate(fields: dict[str, object]) -> list[str]:
     if as_text("phase") not in PHASES:
         failures.append(f"phase must be one of {sorted(PHASES)}, got {as_text('phase')!r}")
 
+    if not DURATION.fullmatch(as_text("duration")):
+        failures.append(f"duration must look like '74min 05sec', got {as_text('duration')!r}")
+
     if not re.fullmatch(r"\d+", as_text("codex_jobs")):
         failures.append(f"codex_jobs must be an integer, got {as_text('codex_jobs')!r}")
+
+    if not JOB_DURATIONS.fullmatch(as_text("codex_job_durations")):
+        failures.append(
+            "codex_job_durations must be 'none' or 'jobId=74min 05sec' entries joined by '; ', "
+            f"got {as_text('codex_job_durations')!r}"
+        )
 
     if as_text("scope") not in SCOPES:
         failures.append(f"scope must be one of {sorted(SCOPES)}, got {as_text('scope')!r}")
@@ -126,8 +142,8 @@ def validate(fields: dict[str, object]) -> list[str]:
         failures.append(f"roles_used is invalid: {error}")
 
     version_text = as_text("receipt_schema_version")
-    if version_text != "3":
-        failures.append(f"receipt_schema_version must be 3, got {version_text!r}")
+    if version_text != "4":
+        failures.append(f"receipt_schema_version must be 4, got {version_text!r}")
 
     for placeholder_field in ("phase", "claude_session", "checks", "anomalies"):
         value = as_text(placeholder_field)

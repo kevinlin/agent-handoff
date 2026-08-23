@@ -5,7 +5,7 @@
 > Claude Code decides, Codex executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.0.0](https://img.shields.io/badge/version-3.0.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.1.0](https://img.shields.io/badge/version-3.1.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -123,13 +123,15 @@ Receipt example:
 [Handoff session receipt]
 phase: final fix
 claude_session: 9836fe7e-4aca-47a6-83b5-69086b8db275
+duration: 74min 12sec
 codex_jobs: 2
+codex_job_durations: job-t1=18min 12sec; job-t1-r2=6min 05sec
 checks: bash scripts/check-skill-repo.sh .; jq schema check; git diff --check
 anomalies: none
 scope: project
 config_source: project
 roles_used: [{"role":"fast_worker","host":"codex","model":"gpt-fast","effort":"high","verified":true}]
-receipt_schema_version: 3
+receipt_schema_version: 4
 ```
 
 When exact token telemetry is unavailable, Handoff reports verifiable behavior: which work ran on the Codex subscription, how many jobs and fix rounds, that the full diff was read against the acceptance criteria, and that the checks passed.
@@ -180,12 +182,12 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - An adversarial split gate: every row answers three questions before it may go down a tier; a row that fails gets a corrected identity or stays with Claude.
 - Durable background jobs: `scripts/delegate-codex.sh` wraps `codex exec --json` as jobs you can status, resume, and cancel, with state under `<repo>/.handoff/jobs/`.
 - A full-review gate: the complete diff is read against the acceptance criteria in `.handoff/goal.md` — not a sample, and not Codex's own summary. At most two fix rounds per task, then the task comes back to Claude.
-- A Session Receipt: `codex_jobs`, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
+- A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs` and their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
 - A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
 - Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
 - A Darwin-style ratchet: improve one workflow dimension at a time and keep only verified gains.
 - A first-run setup wizard (`/agent-handoff config`): balanced/quality/cost presets remain editable per identity; `.handoff/config.toml` is the single source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list; post-install verification uses a tool-free fresh Claude session plus the Codex delegate dry-run chain.
-- Handoff Session Receipt v3: `scope`/`config_source`/`roles_used` prove which model and effort actually ran a role, not just "it was delegated."
+- Handoff Session Receipt v4: `scope`/`config_source`/`roles_used` prove which model and effort actually ran a role, not just "it was delegated."
 - An opt-in full protocol (`references/goal-to-pr.md`): Plan→Goal→PR→Verification, running unattended up through merge-ready + preview verified; merge, production, tags, force-push, deletion, destructive migration, and external publish each still need their own explicit imperative.
 
 ## File Map
@@ -196,9 +198,9 @@ README.md                               Project entrypoint
 install.sh                              Local installer for ~/.claude/skills/agent-handoff
 test-prompts.json                       Trigger and behavior regression prompts
 docs/showcase-cost-model.md             Showcase cost-pressure model and real token capture fields
-docs/receipt-schema.json                JSON schema for the Handoff Session Receipt (handoff.receipt.v3)
+docs/receipt-schema.json                JSON schema for the Handoff Session Receipt (handoff.receipt.v4)
 docs/config-schema.md                   Handoff config schema v2: identity matrix, precedence, concurrency, TOML subset
-examples/session-receipt.md             Receipt example (schema v2 archive)
+examples/session-receipt.md             Receipt example (schema v4, validated in CI)
 examples/v2.0.0-conversation-cost-receipt.md
                                         Identity, model, effort, and cost receipt for the v2.0.0 failure baseline
 examples/v2.0.1-conversation-cost-receipt.md

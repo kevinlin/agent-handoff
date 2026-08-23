@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.1.0 (2026-08-23)
+
+### Breaking: receipts record how long the run took
+
+- feat: `make-receipt.py --start --repo <repo>` stamps `.handoff/session-start` at Phase 0 preflight, and the receipt measures wall clock against it, so a run that sat waiting on a permission prompt carries that wait in `duration`. With no marker and no explicit `--started-at`, the tool refuses to emit rather than accept a remembered start time
+- feat: `codex_job_durations` breaks the run down per delegated job, read from each job's `meta` `submitted_at` and the mtime of its `exit_code` under `.handoff/jobs/`. Jobs left over from an earlier run are excluded, one still running reads `running`, and `delegate-codex.sh` is unchanged
+- refactor!: receipt schema v3 → v4. `duration` and `codex_job_durations` are required and `$id` is now `handoff.receipt.v4`; a v3 receipt fails `validate-receipt.py`, which is the signal to regenerate it with the current `make-receipt.py`
+- docs: the two timing lines in `examples/session-receipt.md` are backfilled placeholders: that session predates the marker, and the next real run replaces them
+
 ## v3.0.0 (2026-08-22)
 
 ### Breaking: renamed to agent-handoff

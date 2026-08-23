@@ -1,19 +1,21 @@
 [
   {
     "id": "session-receipt-required",
-    "prompt": "Hand this task off to Codex and see it through, then give me a receipt \u2014 I want to see exactly which work it did.",
+    "prompt": "Hand this task off to Codex and see it through, then give me a receipt — I want to see exactly which work it did.",
     "should_trigger": true,
     "expected_behavior": [
       "End with a Handoff Session Receipt for any non-trivial run.",
       "Generate the receipt with scripts/make-receipt.py rather than hand-typing the fields.",
       "Set codex_jobs from the job directories under .handoff/jobs/, counting fix rounds.",
+      "Take duration and codex_job_durations from make-receipt.py reading .handoff/session-start and the job directories.",
       "List every role actually invoked in roles_used, each with the verified value from config, not a guess.",
       "Report verifiable behavior instead of fabricating token savings."
     ],
     "must_not": [
       "Claim exact token savings without telemetry.",
       "Report a role as verified when the config says otherwise, or omit an unverified role to make the receipt look cleaner.",
-      "Omit checks or monitoring anomalies from the final receipt."
+      "Omit checks or monitoring anomalies from the final receipt.",
+      "Estimate, round, or recall the session duration instead of measuring it."
     ]
   },
   {

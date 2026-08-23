@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-version: 3.0.0
+version: 3.1.0
 description: |
   Agent Handoff — cost-split workflow where Claude Code drives and Codex executes. Claude plans and splits the work, attacks its own split before acting on it, delegates quota-pressure tasks to Codex background jobs, monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
@@ -63,17 +63,21 @@ When reporting back to the user, include:
 [Handoff session receipt]
 phase: <planning | codex implementation | review | final fix>
 claude_session: <sessionId or none>
+duration: <99min 12sec>
 codex_jobs: <0 | count>
+codex_job_durations: <none | jobId=12min 04sec; jobId=3min 41sec>
 checks: <commands run or not run>
 anomalies: <none | job stalled | job failed | takeback | failed check | other>
 scope: <project | global | n/a>
 config_source: <session | project | global | default | n/a>
 roles_used: <none | JSON array of {role, host, model, effort, verified}>
-receipt_schema_version: 3
+receipt_schema_version: 4
 ```
 
-Generate the receipt with `python3 "$HANDOFF_DIR/scripts/make-receipt.py"` — it refuses to emit an invalid receipt. Set `codex_jobs` to the number of `delegate-codex.sh` jobs this run, counting fix rounds; the job directories under `<repo>/.handoff/jobs/` are the evidence, not recall. A written receipt can be re-checked any time with `validate-receipt.py` against `docs/receipt-schema.json`.
+Generate the receipt with `python3 "$HANDOFF_DIR/scripts/make-receipt.py"` — it refuses to emit an invalid receipt, including one with no recorded start. Set `codex_jobs` to the number of `delegate-codex.sh` jobs this run, counting fix rounds; the job directories under `<repo>/.handoff/jobs/` are the evidence, not recall. A written receipt can be re-checked any time with `validate-receipt.py` against `docs/receipt-schema.json`.
 
-`claude_session` is the current session. `scope` and `config_source` come straight from `handoff-setup.py --status` or a `handoff-config.py resolve` call (`n/a` when the run touched no configured role). `roles_used` lists every role actually invoked this run, each entry's `verified` taken from the config's `verified` field, not guessed — an unconfigured or unverified role still gets an entry with `verified: false`, it is never omitted to make the receipt look cleaner. In `roles_used`, an entry's `host` is the CLI that executed that role, not the runtime that loaded this file. `receipt_schema_version` is always `3`; a receipt carrying `direction` or `monitoring_level` is a v2 receipt from before this contract and will fail `validate-receipt.py`, which is the intended signal to regenerate it with the current `make-receipt.py`.
+`duration` is wall clock from `<repo>/.handoff/session-start` to the receipt, so a run that sat waiting on a permission prompt carries that wait in the number. Stamp the marker once at preflight with `make-receipt.py --start --repo <repo>`; without it the tool refuses rather than accepting a remembered start time. `codex_job_durations` is measured the same way, from each job's `submitted_at` and `exit_code` under `<repo>/.handoff/jobs/`. Jobs left over from an earlier run are excluded; one still running reads `running`.
+
+`claude_session` is the current session. `scope` and `config_source` come straight from `handoff-setup.py --status` or a `handoff-config.py resolve` call (`n/a` when the run touched no configured role). `roles_used` lists every role actually invoked this run, each entry's `verified` taken from the config's `verified` field, not guessed — an unconfigured or unverified role still gets an entry with `verified: false`, it is never omitted to make the receipt look cleaner. In `roles_used`, an entry's `host` is the CLI that executed that role, not the runtime that loaded this file. `receipt_schema_version` is always `4`; a receipt with no `duration` and `codex_job_durations`, or one carrying `direction` or `monitoring_level`, predates this contract and will fail `validate-receipt.py`, which is the intended signal to regenerate it with the current `make-receipt.py`.
 
 Do not fabricate token savings. When exact token telemetry is unavailable, report verifiable behavior instead: which tasks ran on the Codex subscription, how many jobs and fix rounds, that the full diff was reviewed against the acceptance criteria, and that the checks passed.

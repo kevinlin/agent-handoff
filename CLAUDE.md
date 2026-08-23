@@ -31,7 +31,8 @@ git diff --exit-code -- examples/showcase-cost-ledger.json
 Receipt roundtrip:
 
 ```bash
-python3 scripts/make-receipt.py --phase review --claude-session x \
+python3 scripts/make-receipt.py --start --repo .          # stamps .handoff/session-start
+python3 scripts/make-receipt.py --repo . --phase review --claude-session x \
   --checks "ci" --codex-jobs 1 \
   --scope project --config-source project --roles-used '[]' \
   | python3 scripts/validate-receipt.py -
@@ -43,7 +44,7 @@ python3 scripts/make-receipt.py --phase review --claude-session x \
 
 **One flow.** `SKILL.md` is the core contract; `references/claude-driven.md` is the flow it loads — five phases (preflight, plan and split, delegate, monitor, full review, wrap up) plus an arbiter protocol. Claude Code drives; Codex executes delegated work on its own subscription.
 
-The run terminates in a **Handoff Session Receipt** (schema v3, `docs/receipt-schema.json`). Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
+The run terminates in a **Handoff Session Receipt** (schema v4, `docs/receipt-schema.json`). Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
 
 **Identity layer.** Three identities — `deep_reasoner`, `fast_worker`, `arbiter` — each a `backend + model + effort` triple, freely mixed across vendors. Values live *only* in `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global), never in prompts or docs. Resolution order: session override → project → global → built-in defaults, merged per field. Schema in `docs/config-schema.md`.
 

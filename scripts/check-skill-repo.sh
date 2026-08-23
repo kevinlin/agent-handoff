@@ -170,6 +170,7 @@ fi
 
 if grep -qF 'Handoff Session Receipt' SKILL.md && \
   grep -qF 'codex_jobs' SKILL.md && \
+  grep -qF 'duration: <' SKILL.md && \
   grep -qF 'roles_used' SKILL.md && \
   grep -qF 'Handoff Session Receipt' README.md && \
   grep -qF 'session-receipt-required' test-prompts.json; then
@@ -180,7 +181,7 @@ else
 fi
 
 if python3 scripts/validate-receipt.py examples/session-receipt.md >/dev/null; then
-  echo "PASS examples/session-receipt.md validates against the v3 schema"
+  echo "PASS examples/session-receipt.md validates against the v4 schema"
 else
   echo "FAIL examples/session-receipt.md must be a valid receipt"
   fail=$((fail + 1))

@@ -26,7 +26,8 @@ jobs:
       - name: Receipt contract
         run: |
           python3 scripts/run-test-prompts.py
-          python3 scripts/make-receipt.py --phase review --claude-session ci-test \
+          python3 scripts/make-receipt.py --start --repo .
+          python3 scripts/make-receipt.py --repo . --phase review --claude-session ci-test \
             --checks "ci roundtrip" --codex-jobs 1 \
             --scope project --config-source project --roles-used '[]' \
             | python3 scripts/validate-receipt.py -

@@ -7,19 +7,27 @@ scripts/validate-receipt.py logic before printing, and can persist it under
 the target repo's .handoff/receipts/.
 
 Usage:
+    python3 make-receipt.py --start --repo PATH        # Phase 0: stamp the start
     python3 make-receipt.py --phase "final fix" --claude-session abc123 \
         --checks "npm test; bash lint.sh" --codex-jobs 2 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
-        [--anomalies none] [--save] [--repo PATH]
+        [--anomalies none] [--started-at ISO8601] [--save] [--repo PATH]
 
 Tip: get --codex-jobs from the job directories under <repo>/.handoff/jobs/
 instead of recalling how many were submitted.
+
+Duration is wall clock: --start writes <repo>/.handoff/session-start, and the
+receipt run measures against it, so time blocked on a human approval counts.
+Per-job durations come from each job's meta submitted_at and the mtime of its
+exit_code; jobs submitted before the session start belong to an earlier run
+and are left out.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,30 +42,102 @@ def load_validator():
     return module
 
 
+def marker_path(repo: str) -> Path:
+    return Path(repo).resolve() / ".handoff" / "session-start"
+
+
+def parse_iso(text: str) -> datetime:
+    """Parse an ISO 8601 UTC stamp; 3.9's fromisoformat rejects a literal Z."""
+
+    parsed = datetime.fromisoformat(text.strip().replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def format_duration(seconds: float) -> str:
+    whole = int(max(0.0, seconds))
+    return f"{whole // 60}min {whole % 60:02d}sec"
+
+
+def job_durations(repo: str, started: datetime) -> str:
+    """Per-job wall clock from delegate-codex.sh job state, oldest first."""
+
+    measured: list[tuple[datetime, str]] = []
+    for meta in Path(repo).resolve().glob(".handoff/jobs/job-*/meta"):
+        found = re.search(r"^submitted_at=(.+)$", meta.read_text(encoding="utf-8"), re.M)
+        if not found:
+            continue
+        submitted = parse_iso(found.group(1))
+        if submitted < started:
+            continue
+        exit_code = meta.with_name("exit_code")
+        value = (
+            format_duration(exit_code.stat().st_mtime - submitted.timestamp())
+            if exit_code.is_file()
+            else "running"
+        )
+        measured.append((submitted, f"{meta.parent.name}={value}"))
+
+    return "; ".join(entry for _, entry in sorted(measured)) or "none"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a valid Handoff Session Receipt.")
-    parser.add_argument("--phase", required=True)
-    parser.add_argument("--claude-session", required=True, help="Session id, or 'none'.")
-    parser.add_argument("--checks", required=True)
+    parser.add_argument("--start", action="store_true", help="Stamp <repo>/.handoff/session-start and exit.")
+    parser.add_argument("--phase")
+    parser.add_argument("--claude-session", help="Session id, or 'none'.")
+    parser.add_argument("--checks")
     parser.add_argument("--anomalies", default="none")
     parser.add_argument("--codex-jobs", default="0", help="Number of delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--scope", default="n/a", help="project | global | n/a (default: n/a, when no configured role was touched).")
     parser.add_argument("--config-source", default="n/a", help="session | project | global | default | n/a.")
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
+    parser.add_argument("--started-at", help="ISO 8601 session start, overriding the .handoff/session-start marker.")
     parser.add_argument("--save", action="store_true", help="Also write to <repo>/.handoff/receipts/.")
-    parser.add_argument("--repo", default=".", help="Target repo for --save (default: current directory).")
+    parser.add_argument("--repo", default=".", help="Target repo holding .handoff/ (default: current directory).")
     args = parser.parse_args()
+
+    now = datetime.now(timezone.utc)
+
+    if args.start:
+        marker = marker_path(args.repo)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        marker.write_text(stamp + "\n", encoding="utf-8")
+        print(f"{stamp} {marker}")
+        return 0
+
+    if not (args.phase and args.claude_session and args.checks):
+        parser.error("--phase, --claude-session and --checks are required unless --start")
+
+    if args.started_at:
+        started = parse_iso(args.started_at)
+    else:
+        marker = marker_path(args.repo)
+        if not marker.is_file():
+            print(
+                f"FAIL no session start recorded at {marker}; run "
+                "'make-receipt.py --start --repo <repo>' at Phase 0, or pass --started-at <ISO8601>",
+                file=sys.stderr,
+            )
+            return 1
+        started = parse_iso(marker.read_text(encoding="utf-8"))
+    elapsed = (now - started).total_seconds()
+    if elapsed < 0:
+        print(f"FAIL session start {started.isoformat()} is in the future; check the clock", file=sys.stderr)
+        return 1
 
     fields = {
         "phase": args.phase,
         "claude_session": args.claude_session,
+        "duration": format_duration(elapsed),
         "checks": args.checks,
         "anomalies": args.anomalies,
         "codex_jobs": args.codex_jobs,
+        "codex_job_durations": job_durations(args.repo, started),
         "scope": args.scope,
         "config_source": args.config_source,
         "roles_used": args.roles_used,
-        "receipt_schema_version": "3",
+        "receipt_schema_version": "4",
     }
 
     validator = load_validator()
@@ -75,7 +155,7 @@ def main() -> int:
     if args.save:
         save_dir = Path(args.repo).resolve() / ".handoff" / "receipts"
         save_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = now.strftime("%Y%m%dT%H%M%SZ")
         save_path = save_dir / f"receipt-{stamp}.md"
         save_path.write_text(receipt + "\n", encoding="utf-8")
         print(f"saved: {save_path}", file=sys.stderr)
