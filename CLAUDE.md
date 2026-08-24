@@ -38,6 +38,12 @@ python3 scripts/make-receipt.py --repo . --phase review --claude-session x \
   | python3 scripts/validate-receipt.py -
 ```
 
+E2E verdict check:
+
+```bash
+python3 scripts/validate-verdict.py .handoff/e2e/<jobId>/verdict.json
+```
+
 `.github/workflows/checks.yml` runs all of the above; run it locally before pushing.
 
 ## Architecture
@@ -46,7 +52,7 @@ python3 scripts/make-receipt.py --repo . --phase review --claude-session x \
 
 The run terminates in a **Handoff Session Receipt** (schema v4, `docs/receipt-schema.json`). Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
 
-**Identity layer.** Three identities — `deep_reasoner`, `fast_worker`, `arbiter` — each a `backend + model + effort` triple, freely mixed across vendors. Values live *only* in `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global), never in prompts or docs. Resolution order: session override → project → global → built-in defaults, merged per field. Schema in `docs/config-schema.md`.
+**Identity layer.** Five identities, each a `backend + model + effort` triple, freely mixed across vendors. Three core — `deep_reasoner`, `fast_worker`, `arbiter` — plus two optional, `e2e_specifier` and `e2e_verifier`, written only when setup runs `--with-e2e`. A config carrying just the core three is complete. Values live *only* in `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global), never in prompts or docs. Resolution order: session override → project → global → built-in defaults, merged per field. Schema in `docs/config-schema.md`.
 
 - `scripts/handoff-config.py` — pure read/write/resolve engine. It owns only `hosts.claude_code.identities.*` and must preserve `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from dual-host-era configs) byte-for-byte. The `hosts.*` nesting is kept so existing configs keep loading.
 - `scripts/handoff-setup.py` — the plan/preview/apply/smoke/rollback/uninstall engine. All writes are atomic with backups.
@@ -54,7 +60,7 @@ The run terminates in a **Handoff Session Receipt** (schema v4, `docs/receipt-sc
 
 **Runtime primitives.**
 
-- `scripts/delegate-codex.sh` — wraps `codex exec --json` as durable background jobs under `<repo>/.handoff/jobs/<jobId>/`. Subcommands: `submit|status|result|resume|cancel|list`. `--role` resolves backend/model/effort from config and fail-closes when the identity's backend is `claude`.
+- `scripts/delegate-codex.sh` — wraps `codex exec --json` as durable background jobs under `<repo>/.handoff/jobs/<jobId>/`. Subcommands: `submit|status|result|resume|cancel|cleanup|list`. `--role` resolves backend/model/effort from config and fail-closes when the identity's backend is `claude`. `submit --worktree` runs the job in a worktree pinned to an immutable base SHA; `--repo` is always the main repo, never a worktree.
 - `scripts/goal-sync.py` — hash-checked read/write for `.handoff/goal.md`, so the Phase 3 monitor loop and the driver cannot silently clobber each other.
 - `scripts/handoff_runtime.py` — `clean_claude_env()`, stripping `ANTHROPIC_*`/`CLAUDE_CODE_*` before spawning a child CLI so it authenticates like a fresh terminal. Any new script that spawns a CLI should use it.
 

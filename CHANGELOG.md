@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.2.0 (2026-08-24)
+
+### Optional e2e acceptance roles
+
+- feat: two optional identities, `e2e_specifier` and `e2e_verifier`, behind `handoff-setup.py --with-e2e` (default off). The specifier writes Gherkin scenarios with stable IDs plus repo-native executable tests; the verifier runs them and reports a verdict. A three-identity config stays complete: the smoke gate and the "identities are not configured" error compute over the core three, and `--status` lists all five with `<unset>` for the unconfigured ones
+- feat: `delegate-codex.sh submit --worktree <branch> [--base <commit-ish>]` runs a job in its own Git worktree under `.handoff/worktrees/<jobId>`, pinned to a base resolved to an immutable SHA before the job directory exists. `resume` inherits the parent's worktree, and the new idempotent `cleanup <jobId>` removes it, refusing one that holds uncommitted changes
+- feat: `scripts/validate-verdict.py` and `docs/verdict-schema.json`. A verdict is the input to a merge decision, so PASS is checked against the exit code, the scenario counts, an empty findings list, and the hash of the scenarios the driver reviewed, rather than trusted as written
+- feat: the goal file's task table gains a `depends` column, so the `/loop` monitor can hold a verifier row until both the specifier and the implementation are done
+- feat: `roles_used` accepts the two e2e roles. `receipt_schema_version` stays `4` and `$id` stays `handoff.receipt.v4` — widening the enum is additive, so every existing v4 receipt still validates
+- docs: `references/e2e-gauntlet.md` carries the worktree protocol, both delegation packets, the frozen/repairable/forbidden split, the verdict contract, and the review-the-tests-first gate. It states two limits rather than implying otherwise: the Codex and Claude worktree paths are not equally hardened, and the hash lock covers `.feature` files only
+
 ## v3.1.0 (2026-08-23)
 
 ### Breaking: receipts record how long the run took
