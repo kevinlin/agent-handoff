@@ -1,6 +1,6 @@
 # E2E Gauntlet Roles Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add `e2e_specifier` and `e2e_verifier` as optional Handoff identities, with a worktree lifecycle and a validated pass/fail verdict artifact, so a user-observable change can be acceptance-tested end to end before it merges.
 
@@ -9,6 +9,19 @@
 **Tech Stack:** Python 3 standard library only (no third-party imports anywhere in this repo), Bash, `unittest`. No new dependencies.
 
 **Spec:** [docs/specs/design_e2e-gauntlet-roles.md](docs/specs/design_e2e-gauntlet-roles.md) — read it alongside this plan. Its "Rejected review findings" section records what an independent review asked for and what was deliberately not done.
+
+## Implementation record
+
+Shipped 2026-08-24 as v3.2.0. All nine tasks complete; full CI gate green. Four deviations from the plan as written:
+
+- **Tasks 1 and 2 landed as one commit.** Widening `IDENTITIES` alone leaves `handoff-setup.py` indexing `PRESETS` rows that do not exist until Task 2, so Task 1 could not be committed green on its own.
+- **Task 1's `test_three_identity_document_round_trips_byte_for_byte` was wrong** and was replaced. `update_host` canonicalises identity sections (LF line endings, drops inline field comments) by design, so that test fails on unmodified `main`, independent of the widening. The replacement asserts the invariant the plan's own comment describes: a three-identity mapping emits exactly the three core sections in order, with nothing added for the absent optional ones.
+- **Two engine sites the plan's loop audit missed.** The agent-path loop in `build_plan` indexed `desired[identity]` while iterating all five paths, so an unconfigured optional identity raised `KeyError` instead of taking the removal branch; it now reads `desired.get(identity, {})`. `render_managed_block` / `update_managed_block` needed the identity set threaded through them, since the routing block is now built from what is configured rather than from a constant.
+- **`--apply` and `--smoke` are mutually exclusive**, so the optional-identity smoke test runs them as two calls rather than one.
+
+Orphan repairs beyond the plan's Step 4: three assertions in `test_handoff_setup.py` iterated `IDENTITIES` over a configured-identities mapping, and `setup.md` / `tryout.md` carried "all three identities" sentences the widening made wrong.
+
+Pre-existing and untouched: `test_receipt.MakeReceiptTests.test_start_marker_is_what_the_receipt_measures` flakes on a second boundary (`0min 00sec` vs `0min 01sec`), unrelated to this feature.
 
 ## Global Constraints
 
@@ -35,7 +48,7 @@
 - Consumes: nothing.
 - Produces: `handoff_config.CORE_IDENTITIES: tuple[str, ...]`, `handoff_config.OPTIONAL_IDENTITIES: tuple[str, ...]`, `handoff_config.IDENTITIES: tuple[str, ...]`. Every later task imports these rather than re-listing names.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_handoff_config.py`:
 
@@ -101,12 +114,12 @@ class OptionalIdentityTests(unittest.TestCase):
         self.assertEqual("low", identities["e2e_verifier"]["effort"])
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `python3 -m unittest tests.test_handoff_config.OptionalIdentityTests -v`
 Expected: FAIL with `AttributeError: module 'handoff_config' has no attribute 'CORE_IDENTITIES'`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Replace line 26 of `scripts/handoff-config.py`:
 
@@ -121,7 +134,7 @@ IDENTITIES = CORE_IDENTITIES + OPTIONAL_IDENTITIES
 
 Nothing else in this file changes. `set --role`, `_parse_override`, `validate_config`, and `emit_host_sections` all read `IDENTITIES` and pick the new names up automatically.
 
-- [ ] **Step 4: Repair the setup test harness this change breaks**
+- [x] **Step 4: Repair the setup test harness this change breaks**
 
 `tests/test_handoff_setup.py:custom_args` builds its CLI arguments by iterating
 `handoff_setup.IDENTITIES` and indexing `choices[identity]`. Widening the tuple
@@ -138,13 +151,13 @@ names a caller did not supply:
 This is orphan repair caused by Step 3, not an unrelated test change — without
 it Task 1 lands the suite red.
 
-- [ ] **Step 5: Run the whole suite**
+- [x] **Step 5: Run the whole suite**
 
 Run: `python3 -m unittest discover -s tests`
 Expected: PASS. Not just the config module — Step 3 changes a constant three
 other modules read.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/handoff-config.py tests/test_handoff_config.py tests/test_handoff_setup.py
@@ -166,7 +179,7 @@ git commit -m "feat(config): add optional e2e identities to the identity tuple"
 
 The engine currently assumes `desired[identity]` exists for every name in `IDENTITIES`. Thirteen loops need auditing. The rule: **a loop over a mapping iterates that mapping's keys in `IDENTITIES` order; a loop that genuinely means "every identity that could exist" keeps `IDENTITIES`.**
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_handoff_setup.py`. The existing `SetupTests` class provides
 `run_cli(*arguments)` (calls `handoff_setup.main` in-process, returns
@@ -245,12 +258,12 @@ class WithE2eTests(SetupTests):
         self.assertFalse((agents / "handoff-e2e-verifier.md").exists())
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `python3 -m unittest tests.test_handoff_setup.WithE2eTests -v`
 Expected: FAIL — `--with-e2e` is an unrecognized argument.
 
-- [ ] **Step 3: Add the presets, the flag, and the ordering helper**
+- [x] **Step 3: Add the presets, the flag, and the ordering helper**
 
 In `scripts/handoff-setup.py`, near the existing `IDENTITIES = handoff_config.IDENTITIES` at line 36:
 
@@ -306,7 +319,7 @@ Add the flag in `build_parser`, on the same parser that already carries `--mode`
     parser.set_defaults(with_e2e=False)
 ```
 
-- [ ] **Step 4: Make the identity set depend on the flag**
+- [x] **Step 4: Make the identity set depend on the flag**
 
 In `choose_identities`, compute the working set once and iterate it everywhere in that function:
 
@@ -323,7 +336,7 @@ Then in the same function replace `for identity in IDENTITIES:` with `for identi
                     f"--role-effort for: {', '.join(selected)}"
 ```
 
-- [ ] **Step 5: Switch the mapping loops to `ordered()`**
+- [x] **Step 5: Switch the mapping loops to `ordered()`**
 
 Each of these iterates a mapping that may now lack the optional keys. Replace `for identity in IDENTITIES:` with the listed expression:
 
@@ -338,7 +351,7 @@ Each of these iterates a mapping that may now lack the optional keys. Replace `f
 
 The agent-path map (~line 421) keeps `IDENTITIES` — it must be able to name the path of an agent it is about to remove. The `~/.claude/agents` detection scan (~line 219) keeps `IDENTITIES`. The `--status` printer (~line 723) keeps `IDENTITIES`: it already uses `identities.get(identity, {})` and prints `<unset>`, which is how a user discovers the add-on exists.
 
-- [ ] **Step 6: Scope the "not configured" gate to core**
+- [x] **Step 6: Scope the "not configured" gate to core**
 
 In `smoke` (~line 790):
 
@@ -348,7 +361,7 @@ In `smoke` (~line 790):
 
 An unconfigured optional identity is a deliberate state, not an incomplete setup.
 
-- [ ] **Step 7: Add the agent bodies and routing lines**
+- [x] **Step 7: Add the agent bodies and routing lines**
 
 Replace the `if/elif/else` chain in `render_agent` with an explicit mapping so five identities do not become a five-branch chain:
 
@@ -402,7 +415,7 @@ def routing_policy(identities: Mapping[str, Any]) -> str:
 
 Replace each use of the `ROUTING_POLICY` constant with a `routing_policy(desired)` call. Delete the now-unused constant.
 
-- [ ] **Step 8: Add the interactive prompt**
+- [x] **Step 8: Add the interactive prompt**
 
 In the interactive custom-mode block (~line 940), prompt for core identities, then ask once:
 
@@ -413,7 +426,7 @@ In the interactive custom-mode block (~line 940), prompt for core identities, th
 
 and extend the identity loop to the optional names only when `with_e2e` is true.
 
-- [ ] **Step 9: Update the config schema document**
+- [x] **Step 9: Update the config schema document**
 
 `docs/config-schema.md` says `<identity>` is `deep_reasoner`, `fast_worker`, or
 `arbiter`. Widen that sentence to all five, mark the last two optional, add both
@@ -424,12 +437,12 @@ that a config carrying optional identities fails closed on a pre-3.2 engine —
 `validate_config` raises on an unrecognized identity, which is the correct
 direction for a version skew.
 
-- [ ] **Step 10: Run the whole suite**
+- [x] **Step 10: Run the whole suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: PASS. Every pre-existing `test_handoff_setup` test must pass unchanged — if one needed editing, the change was not backward compatible and belongs back in Step 5.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add scripts/handoff-setup.py tests/test_handoff_setup.py docs/config-schema.md
@@ -448,7 +461,7 @@ git commit -m "feat(setup): add --with-e2e for the optional e2e identities"
 - Consumes: `engine.IDENTITIES`, `engine.CORE_IDENTITIES`, `engine.OPTIONAL_IDENTITIES`, `engine.PRESETS` (Task 2).
 - Produces: `normalize_payload(...)` returns a `with_e2e: bool` key; `engine_arguments(payload, action)` emits `--with-e2e` or `--no-with-e2e`. The module is imported in tests as `handoff_setup_ui`, and `IDENTITY_META` is module-level.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 class E2eAddOnTests(SetupUITests):
@@ -499,12 +512,12 @@ The existing `SetupUITests.payload(controller, mode)` helper builds its identity
 matrix from `state["presets"][mode]`, which Task 2 gave all five rows, so it
 already supplies the optional entries — the tests above only flip the toggle.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `python3 -m unittest tests.test_handoff_setup_ui.E2eAddOnTests -v`
 Expected: FAIL — `IDENTITY_META` is missing two keys.
 
-- [ ] **Step 3: Add the metadata**
+- [x] **Step 3: Add the metadata**
 
 ```python
     "e2e_specifier": {
@@ -517,7 +530,7 @@ Expected: FAIL — `IDENTITY_META` is missing two keys.
     },
 ```
 
-- [ ] **Step 4: Make the optional identities conditional in the payload**
+- [x] **Step 4: Make the optional identities conditional in the payload**
 
 In `normalize_payload`, read the toggle first and derive the required set from it:
 
@@ -540,7 +553,7 @@ In `engine_arguments`, change the custom-mode loop to `for identity in payload["
 
 In `engine_arguments`, the custom-mode loop at line 501 also iterates `engine.IDENTITIES` — change it to iterate `payload["identities"]` so it cannot index a key the payload omitted.
 
-- [ ] **Step 5: Add the UI block**
+- [x] **Step 5: Add the UI block**
 
 In the page HTML, after the three core identity cards, add a collapsed section:
 
@@ -556,12 +569,12 @@ In the page HTML, after the three core identity cards, add a collapsed section:
 
 Wire `withE2e`'s `change` event to `invalidate()` so toggling it forces a new preview, include `with_e2e: $('withE2e').checked` in the payload the page posts, and render the two identity cards into `e2eCards` only while the box is checked. Extend `syncHeroMap`'s `targets` with `e2e_specifier:'heroE2eSpec'` and `e2e_verifier:'heroE2eVerify'`, adding those two spans to the hero summary; the existing `if (!values) continue;` guard already handles the unconfigured case.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `python3 -m unittest tests.test_handoff_setup_ui -v`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/handoff-setup-ui.py tests/test_handoff_setup_ui.py
@@ -583,7 +596,7 @@ git commit -m "feat(setup-ui): add the optional e2e add-on block"
   - `meta` keys `worktree=<abs path>`, `branch=<name>`, `base_commit=<40-char sha>`, written only when a worktree was created
   - `delegate-codex.sh cleanup <jobId> --repo <path>` — exit 0 when removed or already absent, exit 1 when the worktree has uncommitted changes
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_delegate_role.py`. The existing `run_submit` helper supports `init_git=True` and `--dry-run`; worktree tests need a real submit, so add a `run_submit_live` variant that omits `--dry-run` and uses a fake `codex` that exits immediately.
 
@@ -652,12 +665,12 @@ class WorktreeTests(unittest.TestCase):
 
 `read_meta` parses the `key=value` lines of `<repo>/.handoff/jobs/<jobId>/meta` into a dict. `run_cleanup` invokes `bash scripts/delegate-codex.sh cleanup <jobId> --repo <repo>`. `commit_more` writes a file and commits it on `main`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `python3 -m unittest tests.test_delegate_role.WorktreeTests -v`
 Expected: FAIL — `unknown submit argument: --worktree`.
 
-- [ ] **Step 3: Widen the role list and parse the new flags**
+- [x] **Step 3: Widen the role list and parse the new flags**
 
 In `cmd_submit`, add to the local declarations and the argument loop:
 
@@ -678,7 +691,7 @@ and widen the role guard:
 
 Update the `usage` heredoc to show `--worktree <branch> [--base <commit-ish>]` on `submit`, the widened `--role` list, and the new `cleanup` line.
 
-- [ ] **Step 4: Resolve the base before creating anything**
+- [x] **Step 4: Resolve the base before creating anything**
 
 In `cmd_submit`, immediately after the role guard and before `resolve_codex_bin`, so an invalid base fails before a job directory exists:
 
@@ -693,7 +706,7 @@ In `cmd_submit`, immediately after the role guard and before `resolve_codex_bin`
   fi
 ```
 
-- [ ] **Step 5: Create the worktree and record it**
+- [x] **Step 5: Create the worktree and record it**
 
 After `mkdir -p "$JOB"` and the `cp "$PROMPT_FILE"` line, before the `meta` block:
 
@@ -722,7 +735,7 @@ and pass the working directory through:
   write_run_script "$JOB" "$EFFORT" "$MODEL" "$READ_ONLY" "" "$WORKDIR"
 ```
 
-- [ ] **Step 6: Teach `write_run_script` about the working directory**
+- [x] **Step 6: Teach `write_run_script` about the working directory**
 
 The generated script currently pins `REPO` and uses it for both `-C` and `cd`. Replace that with `WORKDIR`, which defaults to `$REPO` so every existing call site keeps its behaviour:
 
@@ -739,7 +752,7 @@ write_run_script() {
 
 Then in the resume branch replace `echo 'cd "$REPO"'` with `echo 'cd "$WORKDIR"'`, and in the fresh branch replace `-C \"\$REPO\"` with `-C \"\$WORKDIR\"` and `is_git_repo "$REPO"` with `is_git_repo "$workdir"`. The `REPO=` line is now unused inside the generated script and is removed by this edit — that is the intended orphan cleanup, not an unrelated change.
 
-- [ ] **Step 7: Make `resume` land in the same tree**
+- [x] **Step 7: Make `resume` land in the same tree**
 
 `codex exec resume` takes its cwd from the shell, so a fix round would otherwise land in the main repo. In `cmd_resume`, after `local PARENT_JOB="$JOB"`:
 
@@ -759,7 +772,7 @@ Carry it into the child's `meta` (append after the existing `printf`, when non-e
   write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID" "$PARENT_WORKDIR"
 ```
 
-- [ ] **Step 8: Add `cleanup` and wire `cancel` to it**
+- [x] **Step 8: Add `cleanup` and wire `cancel` to it**
 
 `cleanup` must `return`, never `die`, on the dirty path — `die` calls `exit`, which would abort `cancel` mid-way:
 
@@ -801,12 +814,12 @@ Add `cleanup` to the dispatcher's jobId-taking group:
   status|result|resume|cancel|cleanup)
 ```
 
-- [ ] **Step 9: Run the tests**
+- [x] **Step 9: Run the tests**
 
 Run: `python3 -m unittest tests.test_delegate_role -v`
 Expected: PASS, including every pre-existing test in the module.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add scripts/delegate-codex.sh tests/test_delegate_role.py
@@ -826,7 +839,7 @@ git commit -m "feat(delegate): add e2e roles and a pinned worktree lifecycle"
 - Consumes: nothing.
 - Produces: `python3 scripts/validate-verdict.py <path|-> [--expect-scenarios-sha256 <sha>]` — exit 0 when valid, exit 1 with one `FAIL: ` line per problem on stderr. Importable as a module: `validate(verdict: dict, expected_sha: str | None) -> list[str]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_validate_verdict.py`:
 
@@ -947,12 +960,12 @@ class VerdictValidatorTests(unittest.TestCase):
         self.assertIn("FAIL:", result.stderr)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `python3 -m unittest tests.test_validate_verdict -v`
 Expected: FAIL with `FileNotFoundError` for `scripts/validate-verdict.py`.
 
-- [ ] **Step 3: Write the validator**
+- [x] **Step 3: Write the validator**
 
 Create `scripts/validate-verdict.py`:
 
@@ -1110,16 +1123,16 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 4: Write the schema document**
+- [x] **Step 4: Write the schema document**
 
 Create `docs/verdict-schema.json` as a JSON Schema draft 2020-12 document with `$id: "handoff.verdict.v1"`, the eleven required properties typed as the validator checks them, and a top-level `description` stating that structural validity is necessary but not sufficient — the cross-field rules in `scripts/validate-verdict.py` are the contract, and a verdict must be checked with that script rather than by shape alone.
 
-- [ ] **Step 5: Run the tests**
+- [x] **Step 5: Run the tests**
 
 Run: `python3 -m unittest tests.test_validate_verdict -v`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 chmod +x scripts/validate-verdict.py
@@ -1140,7 +1153,7 @@ git commit -m "feat(verdict): add the e2e verdict artifact and its validator"
 - Consumes: nothing.
 - Produces: receipts whose `roles_used` entries may carry `role: "e2e_specifier"` or `"e2e_verifier"`. `receipt_schema_version` stays `4`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `ValidateReceiptTests` in `tests/test_receipt.py`. That class already
 provides `assert_one_failure(needle, **overrides)` and a module-level
@@ -1166,12 +1179,12 @@ provides `assert_one_failure(needle, **overrides)` and a module-level
         )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `python3 -m unittest tests.test_receipt -v`
 Expected: FAIL — `e2e_verifier` is not in `ROLES`.
 
-- [ ] **Step 3: Widen both definitions**
+- [x] **Step 3: Widen both definitions**
 
 In `scripts/validate-receipt.py` line 36:
 
@@ -1185,7 +1198,7 @@ In `docs/receipt-schema.json`, extend `properties.roles_used.oneOf[1].items.prop
 
 Do not change `$id` or the `receipt_schema_version` const.
 
-- [ ] **Step 4: Run the tests and the roundtrip**
+- [x] **Step 4: Run the tests and the roundtrip**
 
 ```bash
 python3 -m unittest tests.test_receipt -v
@@ -1198,7 +1211,7 @@ python3 scripts/make-receipt.py --repo . --phase review --claude-session x \
 
 Expected: tests PASS; the roundtrip exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/validate-receipt.py docs/receipt-schema.json tests/test_receipt.py
@@ -1216,7 +1229,7 @@ git commit -m "feat(receipt): allow e2e roles in roles_used"
 - Consumes: the CLI surface from Tasks 4 and 5 — `submit --worktree <branch> --base <sha>`, `cleanup <jobId>`, `validate-verdict.py --expect-scenarios-sha256`.
 - Produces: the document `references/claude-driven.md` will point at in Task 8, and the required file `check-skill-repo.sh` will check for in Task 9.
 
-- [ ] **Step 1: Write the document**
+- [x] **Step 1: Write the document**
 
 Create `references/e2e-gauntlet.md` covering these sections, in this order. Every command shown must be one that exists after Tasks 4 and 5 — no invented flags.
 
@@ -1242,7 +1255,7 @@ REVIEWED_SHA=$(find features -name '*.feature' | sort | xargs cat | shasum -a 25
 7. **Review-the-tests-first gate** — the driver reads the specifier's scenarios against `.handoff/goal.md`'s acceptance column *before* the verdict counts for anything, and records `REVIEWED_SHA` at that moment. State the limit honestly: the hash locks the `.feature` files only; behavioural meaning inside executable spec files is guarded by diffing the files named in `harness_edits`, not by the hash.
 8. **Ordering and integration** — the sequence diagram from the design spec: both jobs cut from `<sha0>`, integration onto the feature branch at `<sha1>`, `T_verify` depending on both rows and pinned to `<sha1>`, and `main` reached only after PASS plus final driver review. PASS goes to the merge decision; FAIL goes to the original implementer, never to the verifier; BLOCKED is resolved by the driver and never read as PASS.
 
-- [ ] **Step 2: Verify the gates accept it**
+- [x] **Step 2: Verify the gates accept it**
 
 ```bash
 python3 scripts/english-only-scan.py
@@ -1251,7 +1264,7 @@ bash scripts/check-skill-repo.sh .
 
 Expected: English-only PASS. `check-skill-repo.sh` still reports `fail=0` (it does not yet require this file — Task 9 adds that) with only the pre-existing `--force` warning from `handoff-setup.py`. If a new high-risk-command warning appears, it came from text you just wrote; reword it.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add references/e2e-gauntlet.md
@@ -1271,7 +1284,7 @@ git commit -m "docs(references): add the e2e gauntlet flow document"
 - Consumes: `references/e2e-gauntlet.md` (Task 7).
 - Produces: the `depends` column in the goal-file task table, which the `/loop` monitor reads to sequence submissions.
 
-- [ ] **Step 1: Add the `depends` column to the goal template**
+- [x] **Step 1: Add the `depends` column to the goal template**
 
 In `references/goal-template.md`, change the task table to:
 
@@ -1294,13 +1307,13 @@ Add the two identity definitions after `arbiter`:
 
 Note in one line that e2e rows are optional and appear only when the Phase 1 criterion fires and the identities are configured — see `references/e2e-gauntlet.md`.
 
-- [ ] **Step 2: Note the packet override in the shared template**
+- [x] **Step 2: Note the packet override in the shared template**
 
 In `references/handoff-template.md`, after the "Delegation packet rules" list, add:
 
 - The e2e packets in `references/e2e-gauntlet.md` **replace** the "Do not commit" constraint line with a commit-on-this-worktree-branch rule. They are the only packets that do; do not append a commit permission to this template.
 
-- [ ] **Step 3: Wire the five phases**
+- [x] **Step 3: Wire the five phases**
 
 In `references/claude-driven.md`:
 
@@ -1318,7 +1331,7 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 - **Phase 4** — insert the e2e sequence before the fix-round paragraph: review the specifier's scenarios against the goal's acceptance column, record `REVIEWED_SHA`, integrate onto the feature branch, submit the verifier pinned to the combined SHA, validate the verdict with `validate-verdict.py`, route FAIL to the original implementer, resolve BLOCKED without treating it as PASS, and run `delegate-codex.sh cleanup <jobId>` once a worktree is merged. State that `main` is reached only after PASS plus final review, which keeps merge inside the existing hard-stop rule.
 - **Phase 5** — one line: e2e roles appear in `roles_used` like any other role when the run used them.
 
-- [ ] **Step 4: Verify the gates**
+- [x] **Step 4: Verify the gates**
 
 ```bash
 python3 scripts/english-only-scan.py
@@ -1328,7 +1341,7 @@ python3 scripts/run-test-prompts.py
 
 Expected: all three pass with only the pre-existing warning.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add references/claude-driven.md references/goal-template.md references/handoff-template.md
@@ -1351,7 +1364,7 @@ git commit -m "docs(flow): wire the e2e phases, depends column, and packet overr
 - Consumes: every file created in Tasks 1-8.
 - Produces: a repo that passes `.github/workflows/checks.yml` end to end at version `3.2.0`.
 
-- [ ] **Step 1: Add the required-file checks**
+- [x] **Step 1: Add the required-file checks**
 
 In `scripts/check-skill-repo.sh`, beside the existing `check_file` calls:
 
@@ -1360,12 +1373,12 @@ check_file "references/e2e-gauntlet.md"
 check_file "docs/verdict-schema.json"
 ```
 
-- [ ] **Step 2: Run the gate and record the baseline**
+- [x] **Step 2: Run the gate and record the baseline**
 
 Run: `bash scripts/check-skill-repo.sh .`
 Expected: the two files pass (they exist from Tasks 5 and 7). Note the current `fail=0 warn=1` baseline so you can tell a new warning from the pre-existing `--force` one.
 
-- [ ] **Step 3: Update `SKILL.md`**
+- [x] **Step 3: Update `SKILL.md`**
 
 - Frontmatter: `version: 3.1.0` → `3.2.0`.
 - Configuration section: five identities, two optional. State that `deep_reasoner`, `fast_worker`, and `arbiter` are always configured, and that `e2e_specifier` and `e2e_verifier` are an opt-in add-on written only when setup runs `--with-e2e`. Point at `references/e2e-gauntlet.md` for when to use them.
@@ -1373,13 +1386,13 @@ Expected: the two files pass (they exist from Tasks 5 and 7). Note the current `
 
 Do not put model or effort values in this file — identity values live only in config.
 
-- [ ] **Step 4: Update `README.md`**
+- [x] **Step 4: Update `README.md`**
 
 - Version badge to `3.2.0`.
 - Identity table: two rows, marked optional.
 - File Map: `references/e2e-gauntlet.md` and `docs/verdict-schema.json`.
 
-- [ ] **Step 5: Update `CHANGELOG.md` and `CLAUDE.md`**
+- [x] **Step 5: Update `CHANGELOG.md` and `CLAUDE.md`**
 
 Add a `## v3.2.0` entry covering: two optional identities behind `--with-e2e`; the pinned worktree lifecycle and `cleanup` in `delegate-codex.sh`; the validated verdict artifact; the widened receipt role enum with no schema bump; the new `depends` column.
 
@@ -1391,7 +1404,7 @@ python3 scripts/validate-verdict.py .handoff/e2e/<jobId>/verdict.json
 
 and update the Architecture section: three identities becomes five, two optional.
 
-- [ ] **Step 6: Add the test prompts**
+- [x] **Step 6: Add the test prompts**
 
 Append six cases to `test-prompts.json`, matching the existing `id` / `prompt` / `expected_behavior` / `must_not` shape:
 
@@ -1406,7 +1419,7 @@ Append six cases to `test-prompts.json`, matching the existing `id` / `prompt` /
 
 Put any risky command text these cases need in a `must_not` list, per the repo's scanning rule.
 
-- [ ] **Step 7: Run the full CI gate locally**
+- [x] **Step 7: Run the full CI gate locally**
 
 ```bash
 python3 -m unittest discover -s tests
@@ -1420,7 +1433,7 @@ git diff --exit-code -- examples/showcase-cost-ledger.json
 
 Expected: every command exits 0. `check-skill-repo.sh` reports `fail=0` with only the pre-existing `--force` warning.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add SKILL.md README.md CHANGELOG.md CLAUDE.md scripts/check-skill-repo.sh test-prompts.json
