@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1348">
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
+    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 10.5px; fill: #64748b; }
+    .phase { font-size: 11px; font-weight: 700; fill: #059669; letter-spacing: 0.08em; }
+    .pill { font-size: 10px; font-weight: 700; }
+    .ntitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
+    .note { font-size: 10px; fill: #475569; }
+    .warn { font-size: 10px; fill: #be123c; }
+    .ev { font-size: 10px; font-weight: 700; fill: #334155; }
+    .back { font-size: 10px; font-weight: 700; fill: #64748b; }
+    .leg { font-size: 10px; fill: #475569; }
+    .fhead { font-size: 11px; font-weight: 700; fill: #0f172a; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#059669"/>
+    </marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#e11d48"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="1348" fill="#f8fafc"/>
+  <rect width="1200" height="1348" fill="url(#grid)"/>
+  <text x="92" y="40" class="title">Phase 4 — the gate that makes the cost claim honest</text>
+  <text x="92" y="62" class="subtitle">The whole diff is read and judged against the written brief; rework is a resume, and it is bounded.</text>
+  <text x="92" y="86" class="phase">PHASE 4 · REVIEW GATE</text>
+  <rect x="92" y="104" width="11" height="11" rx="3" fill="#7c3aed" opacity="0.85"/>
+  <text x="109" y="114" class="leg">Claude driver</text>
+  <rect x="213.0" y="104" width="11" height="11" rx="3" fill="#d97706" opacity="0.85"/>
+  <text x="230.0" y="114" class="leg">delegate-codex.sh</text>
+  <line x1="346" y1="261" x2="346" y2="300" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="288" class="ev">job output</text>
+  <line x1="346" y1="403" x2="346" y2="442" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="430" class="ev">criteria in hand</text>
+  <line x1="346" y1="560" x2="346" y2="599" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
+  <path d="M 596 646 H 622 V 669 H 641" fill="none" stroke="#059669" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
+  <path d="M 596 646 H 622 V 841 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+  <rect x="593" y="626" width="58" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <text x="622" y="638" class="ev" text-anchor="middle">findings</text>
+  <path d="M 898 904 V 927 H 52 V 355 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
+  <text x="46" y="598" class="back" text-anchor="middle" transform="rotate(-90 46 598)">re-review from the brief</text>
+  <line x1="898" y1="904" x2="898" y2="943" stroke="#e11d48" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="910" y="931" class="ev">still failing</text>
+  <line x1="346" y1="687" x2="346" y2="1100" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="901" class="ev">satisfies the brief</text>
+  <path d="M 898 1061 V 1084 H 52 V 1162 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
+  <text x="46" y="1084" class="back" text-anchor="middle" transform="rotate(-90 46 1084)">finished inline</text>
+  <path d="M 596 355 H 622 V 300 H 641" fill="none" stroke="#059669" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
+  <rect x="648" y="150" width="500" height="210" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+  <rect x="662" y="161" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="670" y="174" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="662" y="200" class="ntitle">When the run carries e2e rows, before any fix round</text>
+  <text x="662" y="218" class="note">1 · review the specifier&#39;s scenarios against goal.md acceptance</text>
+  <text x="662" y="233" class="warn">a gate weaker than the criteria green-lights a broken feature</text>
+  <text x="662" y="248" class="note">2 · record the hash of the reviewed .feature files, path-ordered</text>
+  <text x="662" y="263" class="note">3 · integrate specifier + implementation → one combined commit</text>
+  <text x="662" y="278" class="note">4 · submit e2e_verifier pinned to that commit</text>
+  <text x="662" y="293" class="note">5 · validate-verdict.py --expect-scenarios-sha256 before acting</text>
+  <text x="662" y="308" class="note">PASS → merge decision · FAIL → the implementer, not the verifier</text>
+  <text x="662" y="323" class="warn">BLOCKED proved nothing: resolve it, never read it as PASS</text>
+  <text x="662" y="338" class="note">6 · cleanup &lt;jobId&gt; once the worktree is merged or abandoned</text>
+  <rect x="96" y="150" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <rect x="110" y="161" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <text x="118" y="174" class="pill" fill="#d97706">delegate-codex.sh</text>
+  <text x="110" y="200" class="ntitle">result &lt;jobId&gt;</text>
+  <text x="110" y="218" class="note">reduces log.jsonl to session_id · last agent message ·</text>
+  <text x="110" y="233" class="note">commands run · token usage</text>
+  <text x="110" y="248" class="note">the full event stream stays on disk for when it is needed</text>
+  <rect x="96" y="307" width="500" height="96" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <rect x="110" y="318" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="331" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="357" class="ntitle">Re-read the brief before the diff</text>
+  <text x="110" y="375" class="note">the acceptance column and each task brief from goal.md</text>
+  <text x="110" y="390" class="note">not the stage before it, and not the maker's self-report</text>
+  <rect x="96" y="449" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <rect x="110" y="460" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="473" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="499" class="ntitle">Read the complete diff</text>
+  <text x="110" y="517" class="note">git diff, scoped to the files the job touched</text>
+  <text x="110" y="532" class="note">the whole thing, never a sample — do not accept unread work</text>
+  <text x="110" y="547" class="note">plus the fastest relevant check</text>
+  <rect x="96" y="606" width="500" height="81" rx="9" fill="#ffffff" stroke="#059669" stroke-width="2.2"/>
+  <rect x="110" y="617" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="630" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="656" class="ntitle">Does this diff satisfy that brief?</text>
+  <text x="110" y="674" class="note">the question is never “is this diff self-consistent”</text>
+  <rect x="648" y="606" width="500" height="126" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+  <rect x="662" y="617" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="670" y="630" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="662" y="656" class="ntitle">Why the brief and not the diff</text>
+  <text x="662" y="674" class="warn">in Superpowers 6, diff-only reviewers caught 0 of 5</text>
+  <text x="662" y="689" class="warn">missing task briefs</text>
+  <text x="662" y="704" class="note">a reviewer holding only a diff redefines the spec as</text>
+  <text x="662" y="719" class="note">“consistent with whatever changed”</text>
+  <rect x="648" y="778" width="500" height="126" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
+  <rect x="662" y="789" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <text x="670" y="802" class="pill" fill="#d97706">delegate-codex.sh</text>
+  <text x="662" y="828" class="ntitle">resume &lt;jobId&gt; --prompt-file &lt;fix-notes&gt;</text>
+  <text x="662" y="846" class="note">a new directory &lt;parent&gt;-r2 with its own prompt.md</text>
+  <text x="662" y="861" class="note">prioritized findings + the failed criteria, nothing else:</text>
+  <text x="662" y="876" class="note">the resumed session still holds the original packet</text>
+  <text x="662" y="891" class="warn">two rounds maximum per task</text>
+  <rect x="648" y="950" width="500" height="111" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
+  <rect x="662" y="961" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="670" y="974" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="662" y="1000" class="ntitle">Two rounds failed → take the task back</text>
+  <text x="662" y="1018" class="note">finish it in the driver; write the takeback into goal.md's</text>
+  <text x="662" y="1033" class="note">status, the notes, and the receipt — so the memory protocol</text>
+  <text x="662" y="1048" class="note">learns that this task type does not delegate well</text>
+  <rect x="96" y="1107" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <rect x="110" y="1118" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="1131" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="1157" class="ntitle">Accept</text>
+  <text x="110" y="1175" class="note">optionally /codex review the combined diff as a third gate</text>
+  <text x="110" y="1190" class="note">Phase 4.5 delivery runs only on explicit authorization</text>
+  <text x="110" y="1205" class="note">merge, production, tags, force-push stay the user's alone</text>
+  <rect x="92" y="1224" width="1056" height="84" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <text x="110" y="1250" class="fhead">The weakest-enforced guard in the system</text>
+  <text x="110" y="1270" class="note">Config resolution, packet validation, and receipt validation all fail closed. This check — the diff against</text>
+  <text x="110" y="1290" class="note">written acceptance — is a rule in a prompt, because no script can judge whether a diff satisfies a brief.</text>
+</svg>

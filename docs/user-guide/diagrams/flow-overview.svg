@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1090">
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
+    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 10.5px; fill: #64748b; }
+    .bandnum { font-size: 22px; font-weight: 700; }
+    .bandname { font-size: 12px; font-weight: 700; fill: #0f172a; }
+    .bandsub { font-size: 10px; fill: #64748b; }
+    .cardtitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
+    .line { font-size: 10px; fill: #475569; }
+    .warn { font-size: 10px; fill: #be123c; }
+    .cardhead { font-size: 12px; font-weight: 700; fill: #0f172a; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="1090" fill="#f8fafc"/>
+  <rect width="1200" height="1090" fill="url(#grid)"/>
+
+  <text x="40" y="42" class="title">The Handoff flow, phase by phase</text>
+  <text x="40" y="64" class="subtitle">One flow: Claude Code plans and splits the work, attacks its own split, runs Codex as background jobs, and full-reviews before accepting</text>
+
+  <!-- BAND 1 -->
+  <rect x="50" y="100" width="1100" height="140" rx="10" fill="rgba(139,92,246,0.06)" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="70" y="146" class="bandnum" fill="#7c3aed">1</text>
+  <text x="70" y="170" class="bandname">PLAN &amp; SPLIT</text>
+  <text x="70" y="190" class="bandsub">driver only —</text>
+  <text x="70" y="206" class="bandsub">nothing delegated</text>
+  <text x="70" y="222" class="bandsub">yet</text>
+
+  <rect x="215" y="116" width="295" height="108" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
+  <text x="232" y="142" class="cardtitle">Write .handoff/goal.md</text>
+  <text x="232" y="164" class="line">one why-forward goal + checkpoint rule</text>
+  <text x="232" y="181" class="line">task table: identity · acceptance · depends</text>
+  <text x="232" y="198" class="line">goal-sync.py write --expect-sha256</text>
+  <text x="232" y="215" class="line">so a concurrent write is never lost</text>
+
+  <rect x="525" y="116" width="295" height="108" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
+  <text x="542" y="142" class="cardtitle">Split by capability, one call per row</text>
+  <text x="542" y="164" class="line">fast_worker — mechanical, spec-complete</text>
+  <text x="542" y="181" class="line">deep_reasoner — ambiguous, costly if wrong</text>
+  <text x="542" y="198" class="line">identity "-" — the driver keeps it inline</text>
+  <text x="542" y="215" class="line">the identity picks the meter, not you</text>
+
+  <rect x="835" y="116" width="295" height="108" rx="8" fill="#ffffff" stroke="#e11d48" stroke-width="1.4"/>
+  <text x="852" y="142" class="cardtitle">Adversarial gate on your own split</text>
+  <text x="852" y="164" class="line">is the cheap tier really enough here?</text>
+  <text x="852" y="181" class="line">does the split boundary eat the saving?</text>
+  <text x="852" y="198" class="line">does each identity match the stakes?</text>
+  <text x="852" y="215" class="warn">fix the split before delegating</text>
+
+  <polygon points="120,244 132,244 126,254" fill="#94a3b8"/>
+
+  <!-- BAND 2 -->
+  <rect x="50" y="258" width="1100" height="140" rx="10" fill="rgba(245,158,11,0.07)" stroke="#fcd34d" stroke-width="1"/>
+  <text x="70" y="304" class="bandnum" fill="#d97706">2</text>
+  <text x="70" y="328" class="bandname">DELEGATE</text>
+  <text x="70" y="348" class="bandsub">work leaves the</text>
+  <text x="70" y="364" class="bandsub">driver's context</text>
+  <text x="70" y="380" class="bandsub">here</text>
+
+  <rect x="215" y="274" width="295" height="108" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <text x="232" y="300" class="cardtitle">Build the delegation packet</text>
+  <text x="232" y="322" class="line">why-forward context · one-sentence task</text>
+  <text x="232" y="339" class="line">acceptance written as commands</text>
+  <text x="232" y="356" class="line">only genuine scope constraints</text>
+  <text x="232" y="373" class="line">no commentary · ≤ 3 lines of lessons</text>
+
+  <rect x="525" y="274" width="295" height="108" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <text x="542" y="300" class="cardtitle">Resolve the identity</text>
+  <text x="542" y="322" class="line">handoff-config.py resolve →</text>
+  <text x="542" y="339" class="line">backend · model · effort, from config only</text>
+  <text x="542" y="356" class="warn">no config → hard error, no default model</text>
+  <text x="542" y="373" class="warn">backend=claude → spawn the subagent</text>
+
+  <rect x="835" y="274" width="295" height="108" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <text x="852" y="300" class="cardtitle">Submit a background job</text>
+  <text x="852" y="322" class="line">delegate-codex.sh submit --role ...</text>
+  <text x="852" y="339" class="line">nohup codex exec --json, stdin closed</text>
+  <text x="852" y="356" class="line">--read-only for scans, --worktree for e2e</text>
+  <text x="852" y="373" class="line">jobId goes back into the goal.md row</text>
+
+  <polygon points="120,402 132,402 126,412" fill="#94a3b8"/>
+
+  <!-- BAND 3 -->
+  <rect x="50" y="416" width="1100" height="140" rx="10" fill="rgba(37,99,235,0.06)" stroke="#93c5fd" stroke-width="1"/>
+  <text x="70" y="462" class="bandnum" fill="#2563eb">3</text>
+  <text x="70" y="486" class="bandname">MONITOR</text>
+  <text x="70" y="506" class="bandsub">state is read from</text>
+  <text x="70" y="522" class="bandsub">disk, not held in</text>
+  <text x="70" y="538" class="bandsub">context</text>
+
+  <rect x="215" y="432" width="295" height="108" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="232" y="458" class="cardtitle">Short single job</text>
+  <text x="232" y="480" class="line">status &lt;jobId&gt; --wait --timeout 300</text>
+  <text x="232" y="497" class="line">blocks until DONE or the timeout</text>
+  <text x="232" y="514" class="line">non-zero exit only on timeout/failure</text>
+  <text x="232" y="531" class="line">the printed state: line is the real signal</text>
+
+  <rect x="525" y="432" width="295" height="108" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="542" y="458" class="cardtitle">Long or parallel jobs</text>
+  <text x="542" y="480" class="line">/loop tick every 5 minutes</text>
+  <text x="542" y="497" class="line">read goal.md, status each running job</text>
+  <text x="542" y="514" class="line">tail log.jsonl for the last event</text>
+  <text x="542" y="531" class="line">stop the loop when none is RUNNING</text>
+
+  <rect x="835" y="432" width="295" height="108" rx="8" fill="#ffffff" stroke="#e11d48" stroke-width="1.4"/>
+  <text x="852" y="458" class="cardtitle">Anomaly rule</text>
+  <text x="852" y="480" class="line">two ticks with no new event, or FAILED</text>
+  <text x="852" y="497" class="line">cancel the job, read stderr.log</text>
+  <text x="852" y="514" class="line">resubmit corrected, or take it back</text>
+  <text x="852" y="531" class="warn">record the anomaly in the receipt</text>
+
+  <polygon points="120,560 132,560 126,570" fill="#94a3b8"/>
+
+  <!-- BAND 4 -->
+  <rect x="50" y="574" width="1100" height="140" rx="10" fill="rgba(16,185,129,0.06)" stroke="#6ee7b7" stroke-width="1"/>
+  <text x="70" y="620" class="bandnum" fill="#059669">4</text>
+  <text x="70" y="644" class="bandname">REVIEW GATE</text>
+  <text x="70" y="664" class="bandsub">the phase that</text>
+  <text x="70" y="680" class="bandsub">makes the cost</text>
+  <text x="70" y="696" class="bandsub">claim honest</text>
+
+  <rect x="215" y="590" width="295" height="108" rx="8" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <text x="232" y="616" class="cardtitle">Collect the result</text>
+  <text x="232" y="638" class="line">result &lt;jobId&gt; reduces log.jsonl to</text>
+  <text x="232" y="655" class="line">session_id · last agent message</text>
+  <text x="232" y="672" class="line">commands run · token usage</text>
+  <text x="232" y="689" class="line">the full stream stays on disk</text>
+
+  <rect x="525" y="590" width="295" height="108" rx="8" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <text x="542" y="616" class="cardtitle">Review against the brief</text>
+  <text x="542" y="638" class="line">read the whole diff, never a sample</text>
+  <text x="542" y="655" class="line">judge it against goal.md acceptance</text>
+  <text x="542" y="672" class="line">plus the fastest relevant check</text>
+  <text x="542" y="689" class="warn">diff-only review redefines the spec</text>
+
+  <rect x="835" y="590" width="295" height="108" rx="8" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <text x="852" y="616" class="cardtitle">Fix rounds</text>
+  <text x="852" y="638" class="line">resume &lt;jobId&gt; on the same session</text>
+  <text x="852" y="655" class="line">send findings + failed criteria only</text>
+  <text x="852" y="672" class="line">max 2 rounds, then take the task back</text>
+  <text x="852" y="689" class="line">takeback noted in goal.md and receipt</text>
+
+  <polygon points="120,718 132,718 126,728" fill="#94a3b8"/>
+
+  <!-- BAND 5 -->
+  <rect x="50" y="732" width="1100" height="140" rx="10" fill="rgba(100,116,139,0.07)" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="70" y="778" class="bandnum" fill="#475569">5</text>
+  <text x="70" y="802" class="bandname">WRAP UP</text>
+  <text x="70" y="822" class="bandsub">what the next</text>
+  <text x="70" y="838" class="bandsub">session inherits</text>
+
+  <rect x="215" y="748" width="295" height="108" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="232" y="774" class="cardtitle">Handoff session receipt</text>
+  <text x="232" y="796" class="line">make-receipt.py refuses invalid output</text>
+  <text x="232" y="813" class="line">duration · codex_jobs · codex_job_durations</text>
+  <text x="232" y="830" class="line">roles_used carries verified as it is,</text>
+  <text x="232" y="847" class="line">never guessed true to look cleaner</text>
+
+  <rect x="525" y="748" width="295" height="108" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="542" y="774" class="cardtitle">Memory protocol</text>
+  <text x="542" y="796" class="line">what was delegated versus kept, and why</text>
+  <text x="542" y="813" class="line">rework rounds per task type</text>
+  <text x="542" y="830" class="line">whether the effort level fitted</text>
+  <text x="542" y="847" class="line">so the next split starts smarter</text>
+
+  <rect x="835" y="748" width="295" height="108" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="852" y="774" class="cardtitle">State left on disk</text>
+  <text x="852" y="796" class="line">.handoff/goal.md — final task statuses</text>
+  <text x="852" y="813" class="line">.handoff/jobs/ — prompts, logs, sessions</text>
+  <text x="852" y="830" class="line">.handoff/receipts/ · .handoff/e2e/ — evidence</text>
+  <text x="852" y="847" class="line">a resumed session reads these, not the repo</text>
+
+  <!-- bottom cards -->
+  <rect x="50" y="900" width="540" height="160" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <text x="70" y="928" class="cardhead">.handoff/jobs/&lt;jobId&gt;/ — the durable handoff surface</text>
+  <text x="70" y="952" class="line">prompt.md — exactly what was asked, kept as the audit record</text>
+  <text x="70" y="972" class="line">run.sh — the command actually executed, sandbox and effort included</text>
+  <text x="70" y="992" class="line">log.jsonl · stderr.log — the event stream and the first place to look</text>
+  <text x="70" y="1012" class="line">pid · exit_code · cancelled — the three inputs to the job state</text>
+  <text x="70" y="1032" class="line">session_id — the handle that makes a fix round a resume, not a restart</text>
+  <text x="70" y="1052" class="line">meta — role, backend, model, effort, and where each value came from</text>
+
+  <rect x="610" y="900" width="540" height="160" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
+  <text x="630" y="928" class="cardhead">Arbiter protocol — the blind second solve</text>
+  <text x="630" y="952" class="line">For contentious calls the same problem goes, verbatim, to both</text>
+  <text x="630" y="972" class="line">deep_reasoner and arbiter, each on its own configured backend.</text>
+  <text x="630" y="992" class="line">Neither packet may carry the other's answer or a leaning hint;</text>
+  <text x="630" y="1012" class="line">a contaminated run is rerun, not patched.</text>
+  <text x="630" y="1032" class="line">Agreement is adopted as dual-verified. Disagreement is ruled on by</text>
+  <text x="630" y="1052" class="line">the driver, with the point of divergence written into the report.</text>
+</svg>

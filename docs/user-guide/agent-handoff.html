@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Handoff: how the agent handoff works</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --ink: #0f172a;
+    --ink-soft: #475569;
+    --ink-faint: #64748b;
+    --line: #e2e8f0;
+    --codex: #059669;
+    --claude: #7c3aed;
+    --packet: #d97706;
+    --alert: #e11d48;
+  }
+  * { box-sizing: border-box; }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  .wrap { width: 100%; padding: 44px 40px 96px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 40px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .lede { color: var(--ink-soft); margin: 0; font-size: 16px; }
+  .meta { margin-top: 16px; font-size: 12.5px; color: var(--ink-faint); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  h2 { font-size: 20px; margin: 48px 0 12px; letter-spacing: -0.01em; }
+  h3 { font-size: 15px; margin: 28px 0 8px; }
+  p { max-width: none; }
+  ul, ol { max-width: none; padding-left: 22px; }
+  li { margin: 5px 0; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+  code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  figure { margin: 26px 0 34px; }
+  figure img { width: 100%; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  figcaption { margin-top: 10px; font-size: 12.5px; color: var(--ink-faint); }
+  table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-faint); font-weight: 600; }
+  td code { font-size: 12.5px; }
+  .callout { border-left: 3px solid var(--packet); background: #fffbeb; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 20px 0; }
+  .callout.codex { border-color: var(--codex); background: #ecfdf5; }
+  .callout.claude { border-color: var(--claude); background: #f5f3ff; }
+  .callout.alert { border-color: var(--alert); background: #fff1f3; }
+  .callout p { margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 20px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card h4 { margin: 0 0 6px; font-size: 13.5px; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .src { font-size: 12.5px; color: var(--ink-faint); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-faint); }
+
+  /* Floating table of contents */
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(248, 250, 252, 0.86);
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .toc-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 40px;
+    height: 52px;
+  }
+  .toc-label {
+    flex: none;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+  }
+  .toc-links {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 8px 0;
+    margin: -8px 0;
+    scroll-padding-inline: 24px;
+  }
+  .toc-links::-webkit-scrollbar { display: none; }
+  .toc a {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--ink-soft);
+    text-decoration: none;
+    transition: background-color 120ms cubic-bezier(0.23, 1, 0.32, 1), color 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .toc a:hover { background: #eef2f7; color: var(--ink); }
+  }
+  .toc a[aria-current="true"] { background: var(--ink); color: #fff; }
+  .toc a:focus-visible { outline: 2px solid var(--claude); outline-offset: 2px; }
+  .toc-progress {
+    height: 2px;
+    background: var(--claude);
+    width: 0;
+    transform-origin: 0 50%;
+    transition: width 80ms linear;
+  }
+  .skip {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    background: var(--ink);
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 0 0 8px 0;
+    font-size: 13px;
+    z-index: 40;
+  }
+  .skip:focus { left: 0; }
+  h2[id], h1[id] { scroll-margin-top: 72px; }
+  @media (max-width: 720px) {
+    .toc-inner { padding: 0 20px; }
+    .toc-label { display: none; }
+    .wrap { padding: 32px 20px 80px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toc a, .toc-progress { transition-duration: 0.01ms; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<nav class="toc" aria-label="On this page">
+  <div class="toc-inner">
+    <span class="toc-label">On this page</span>
+    <div class="toc-links">
+      <a href="#shape">Shape</a>
+      <a href="#stage1">1 · Plan &amp; split</a>
+      <a href="#stage2">2 · Delegate</a>
+      <a href="#stage3">3 · Monitor</a>
+      <a href="#stage4">4 · Review gate</a>
+      <a href="#stage5">5 · Wrap up</a>
+      <a href="#drift">Drift control</a>
+      <a href="#observations">Observations</a>
+    </div>
+  </div>
+  <div class="toc-progress" role="presentation"></div>
+</nav>
+
+<div class="wrap" id="main">
+
+<header>
+  <h1>Agent Handoff: how the agent handoff works</h1>
+  <p class="lede">Agent Handoff splits coding work between Claude Code and Codex to move execution onto the cheaper meter without lowering the quality bar. Everything interesting in it is in the handoff: what crosses between the two agents, what is enforced at the boundary, and what evidence survives afterwards.</p>
+  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.2.0 · reviewed 2026-08-24</p>
+</header>
+
+<h2 id="shape">The shape of the thing</h2>
+
+<p>Agent Handoff is one flow with one driver. Claude Code plans, splits, gates and reviews; Codex executes the delegable bulk of the implementation as background jobs on its own subscription. The skill went through a two-direction era where Codex could also be the orchestrator, and that half is gone: there is no <code>direction</code> field, no second host adapter, and no second monitoring surface. What is left is a single spine of five stages, and the interesting design lives in what crosses between them.</p>
+
+<figure>
+  <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol.">
+  <figcaption>The flow, phase by phase. The job primitive turns each delegated task into filesystem state that a later tick or a resumed session can read.</figcaption>
+</figure>
+
+<p>The driver plans, writes the split into <code>.handoff/goal.md</code>, and delegates. Each task row carries one judgment: which capability the work needs. That single choice determines everything downstream, because the identity's configured <code>backend</code> decides which CLI executes and which meter bills.</p>
+
+<div class="grid">
+  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find late: architecture, root-cause diagnosis, config changes that fail silently.</p></div>
+  <div class="card"><h4>fast_worker</h4><p>Mechanical, specification-complete work whose acceptance criteria are enough to verify it. The bulk of what gets delegated.</p></div>
+  <div class="card"><h4>arbiter</h4><p>The blind second solver, invoked for contentious calls rather than assigned routine rows.</p></div>
+  <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Turns a frozen specification into Gherkin scenarios with stable IDs plus repo-native executable tests. Depends only on the spec, so it runs beside the implementation.</p></div>
+  <div class="card"><h4>e2e_verifier <span class="src">opt-in</span></h4><p>Runs the reviewed tests against a pinned commit and writes a validated verdict. Depends on both the specifier and the implementation.</p></div>
+  <div class="card"><h4>identity <code>-</code></h4><p>Kept inline by the driver: the split decision itself, cross-task integration, security-critical paths, final acceptance.</p></div>
+</div>
+
+<p>Three of the five are always configured; the two e2e identities are written only when setup runs <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five are a <code>backend + model + effort</code> triple that can be mixed across vendors, and the values live only in <code>.handoff/config.toml</code> or <code>~/.config/handoff/config.toml</code> — never in a prompt, never in a doc.</p>
+
+<h3>The job primitive</h3>
+
+<p><code>delegate-codex.sh</code> wraps <code>codex exec --json</code> as a detached background job with durable state under <code>&lt;repo&gt;/.handoff/jobs/&lt;jobId&gt;/</code>. State lives on disk, so a <code>/loop</code> tick or a resumed session reconstructs progress without carrying it in context.</p>
+
+<table>
+  <tr><th>File</th><th>What it carries</th></tr>
+  <tr><td><code>prompt.md</code></td><td>The exact prompt sent, kept as the audit record of what was asked</td></tr>
+  <tr><td><code>run.sh</code></td><td>The command actually executed, including sandbox and effort overrides</td></tr>
+  <tr><td><code>log.jsonl</code></td><td>The event stream; <code>result</code> reduces it to session id, last agent message, commands, usage</td></tr>
+  <tr><td><code>stderr.log</code></td><td>Tokens, warnings, auth errors; the first thing to read on a FAILED job</td></tr>
+  <tr><td><code>pid</code> / <code>exit_code</code> / <code>cancelled</code></td><td>The three inputs to <code>job_state</code>: RUNNING, DONE, FAILED, CANCELLED</td></tr>
+  <tr><td><code>session_id</code></td><td>Extracted from the stream; the handle that makes <code>resume</code> possible</td></tr>
+  <tr><td><code>meta</code></td><td>Label, role, backend, model, effort, and the <em>source</em> of model and effort (config vs explicit), plus <code>submitted_at</code> and, for a worktree job, <code>worktree</code> / <code>branch</code> / <code>base_commit</code></td></tr>
+</table>
+
+<p>Three of its behaviours are worth calling out because they encode failures someone clearly hit:</p>
+
+<ul>
+  <li><strong>Fail-closed routing.</strong> With <code>--role</code>, model and effort resolve from <code>handoff-config.py</code>. No config is a hard error, never a silent default. An identity configured as <code>backend = claude</code> is refused with a pointer to spawn the <code>handoff-&lt;identity&gt;</code> subagent instead — the guard against a job landing on the wrong vendor and the wrong meter.</li>
+  <li><strong>Stdin is closed (<code>&lt;/dev/null</code>).</strong> A long prompt can otherwise make <code>codex exec</code> wait for more input, and a detached job's stdin never closes on its own, so the job would hang forever with no further events.</li>
+  <li><strong>Non-git targets get <code>--skip-git-repo-check</code></strong>, detected via <code>git rev-parse</code> rather than a <code>.git</code> directory test, so worktrees and submodules still count as repos.</li>
+</ul>
+
+<p>The five stages below each get one flow diagram: events down the spine, guards and consequences to the right, dashed edges for the paths that go backwards. The actor tag on each box is who acts; the label on each edge is what crosses.</p>
+
+<h2 id="stage1">Stage 1 — Plan and split</h2>
+
+<figure>
+  <img src="diagrams/phase1-plan-split.svg" alt="Event flowchart: the user's request enters the Claude driver, which preflights, drafts the split, reads and compare-and-set writes the goal file through goal-sync.py, then attacks its own split at the adversarial gate; a refusal box and a failed-question box branch right, with a dashed loop back to the compose step.">
+  <figcaption><strong>Stage 1.</strong> The two branches are the ones that stop the run: a compare-and-set refusal, and a gate answer that sends the split back to be rewritten.</figcaption>
+</figure>
+
+<p>Preflight does four cheap things, and one of them is a clock. <code>make-receipt.py --start</code> stamps <code>.handoff/session-start</code>, which is what the Stage 5 receipt measures <code>duration</code> against; without the marker the tool later refuses to emit rather than accept a remembered start time. The other three are the Codex CLI version check (a missing CLI stops the flow instead of pretending the job primitives exist), a one-time offer to add the <code>DO NOT send optional commentary</code> line to the repo's <code>AGENTS.md</code>, and a <code>git status --short</code> so pre-existing dirt can be told apart from Codex's diff later.</p>
+
+<h3>The goal file is the one written reference</h3>
+
+<p><code>.handoff/goal.md</code> is written before any job exists, which is what makes the acceptance criteria authorable at all — a criterion written after seeing the diff is a description, not a test. Its goal line is a single why-forward sentence ending in a <code>done_when</code> condition, and the template attaches an anti-Goodhart clause to that condition: a check that can be satisfied by deleting tests, skipping steps, or lowering the bar is not a valid check, and the fix is the check rather than the standard. Below it sit the checkpoint rule, an optional <code>Delivery</code> block used only under the full PR protocol, and the task table (<code>id</code>, <code>identity</code>, <code>task</code>, <code>acceptance</code>, <code>depends</code>, <code>effort</code>, <code>status</code>, <code>jobId</code>), plus sections for anomalies and notes.</p>
+
+<p>Three constraints on that table matter more than they look. <code>acceptance</code> has to be a command or an observable behavior rather than a vibe, because Stage 4 reviews against it. <code>depends</code> is what the monitor loop reads before submitting a row, so a verifier cannot start before the tests it is meant to run exist. And the <code>status</code> enum is frozen, because <code>/loop</code>'s stop rule and older goal files both depend on the existing values. The skill also refuses to demand the file for small work — a dedicated regression case exists to keep a one-line fix off the goal path, on the grounds that ceremony for a five-line change buys no safety.</p>
+
+<p>Two writers touch that file: the driver and the Stage 3 monitor tick. <code>goal-sync.py</code> replaces locking with a hash check — a write must state the sha256 it last read, and a mismatch aborts with "re-read and retry" instead of clobbering the other update. A first write that states no hash refuses to overwrite an existing file at all, and every write goes through an atomic replace. Write frequency is low enough that compare-and-set beats a lock nobody would release correctly.</p>
+
+<h3>Attacking your own split</h3>
+
+<p>Before any job is submitted the split goes through an adversarial gate, which has to answer three questions in writing: does each delegated task genuinely not need the expensive tier, does the integration cost of the split boundary eat the savings, and does each row's identity match the stakes. A row that survives all three gets delegated; anything else has its identity corrected, gets merged into a neighbour, or stays inline with the driver. Earlier versions of the skill shipped this as a separate bundled companion skill; it now lives inline as part of Stage 1, with the same three questions and the same requirement that they be answered on the page rather than felt.</p>
+
+<div class="callout claude">
+  <p><strong>Acceptance coverage is decided here too.</strong> When the change alters user-observable behaviour at a real interface (a UI, an API surface, a mobile screen), the split gains an <code>e2e_specifier</code> row and an <code>e2e_verifier</code> row, with <code>depends</code> wired so the verifier waits on both the specifier and the implementation. Internal refactors, docs, config, and pure library work skip them. When the criterion fires but the identities are unconfigured, the rule is to say so exactly once, name <code>/agent-handoff config --with-e2e</code>, and continue without them: setup state does not get to quietly override the driver's judgment, and it does not block the run either.</p>
+</div>
+
+<h2 id="stage2">Stage 2 — Delegate</h2>
+
+<figure>
+  <img src="diagrams/phase2-delegate.svg" alt="Event flowchart: a task row becomes a delegation packet written to a temp file, then submit resolves the identity through handoff-config.py, creates the job directory, launches detached codex exec, and returns a jobId written back into the row; the fail-closed branch is a red box off the resolve step, and a worktree box branches off the job-directory step.">
+  <figcaption><strong>Stage 2.</strong> Two paths run down this phase and never meet: the prompt carries the work, config carries the routing. The red box is where a wrong meter gets caught.</figcaption>
+</figure>
+
+<p>This is the crossing where money is either saved or spent again. The receiving agent starts cold, and the flow refuses to solve that by letting it read the repository itself: the driver already holds the context, so it pays once to select the evidence, and the delegate spends its tokens on judgment instead of discovery.</p>
+
+<figure>
+  <img src="diagrams/context-ladder.svg" alt="Left: a six-rung evidence ladder from why-forward context and the one-line task, through diff stat, check output tail, requested snippets and small whole files, down to a crossed-out rung for the whole repository. Right: five rule cards covering who gathers evidence, situation-specific shaping, worktree self-containment, dense replies, and state carried forward.">
+  <figcaption>The ladder is ordered by cost. Each handoff climbs only as far as the ask actually needs.</figcaption>
+</figure>
+
+<p>The first three rungs cost almost nothing and answer most questions. Why-forward context plus a one-sentence task plus acceptance-as-a-command tells the delegate what it is for and how it will be judged. The changed-file list plus <code>git diff --stat</code> gives the shape of a change without its content. Check output goes in as a summary or a tail, never as the whole log. The upper rungs are conditional: full diffs are for small files only, a large file contributes the excerpt that carries the decision, and beyond that the packet stops and hands control to the receiver — ask for the smallest file or snippet that unblocks the work. Context is pulled on demand rather than pushed in advance, which is what keeps a handoff from degenerating into a repository dump with extra steps.</p>
+
+<h3>The packet contracts</h3>
+
+<figure>
+  <img src="diagrams/handoff-packet-anatomy.svg" alt="Three side-by-side cards: the Claude-to-Codex Delegation Packet, the E2E specifier and verifier packets that run in a worktree, and the Goal Packet sent to the user for authorization, each with its sections and enforcement rules.">
+  <figcaption>Every crossing has a named shape, a scope boundary, and an acceptance the receiver is asked to judge against.</figcaption>
+</figure>
+
+<ul>
+  <li><strong>The Delegation Packet</strong> (driver → Codex job) is prose, disciplined by convention: why-forward context, one-sentence task, acceptance as commands, constraints limited to genuine blockers, the checkpoint rule, and a fixed output rule — no optional commentary, at most three lines of lessons learned. The terse reviewer contract is presented as measured rather than folklore: 41% less reviewer output with no loss in judgment quality.</li>
+  <li><strong>The E2E packets</strong> are the same shape with the "do not commit" constraint <em>replaced</em> by a commit-on-this-worktree-branch rule — they are the only packets that do. They also carry the specification inline, because a worktree has no <code>.handoff/</code> to read it from, and they name an approved local or ephemeral test target rather than letting the verifier guess one.</li>
+  <li><strong>The Goal Packet</strong> (driver → user) is not a delegation at all but a decision artifact: the ask, the plan with <code>file:line</code> evidence, the gate's verdict, the open decisions only the user can settle, and an explicit statement of what confirming it does and does not authorize. It is sent before any branch, worktree, or goal file exists.</li>
+</ul>
+
+<h3>Where a delegation prompt is actually written</h3>
+
+<p>Nothing generates the driver-to-Codex prompt. The driver composes it in its own context from the delegation packet shape, writes it to a <code>mktemp</code> file, and passes that path to <code>delegate-codex.sh submit --prompt-file</code>; the script's only check is that the file exists.<span class="src"> scripts/delegate-codex.sh:221</span> So the packet contract on this crossing is authorship discipline, not validation — unlike the config resolution happening a few lines later in the same command.</p>
+
+<p>From there the prompt becomes state. <code>submit</code> copies the temp file into the new job directory as <code>prompt.md</code>, and the generated <code>run.sh</code> reads it back with <code>cat</code> and passes it to <code>codex exec</code> as an argument, with stdin closed so a long prompt cannot leave the detached job waiting for more input.<span class="src"> scripts/delegate-codex.sh:276</span> The copy is never rewritten afterwards, which is what makes it usable as the audit record of what was asked rather than of what the driver remembers asking.</p>
+
+<p>A fix round takes the same path at a smaller size. <code>resume</code> creates its own directory, <code>&lt;parent&gt;-r2</code>, and its <code>prompt.md</code> holds only the prioritized findings and the failed criteria, because the resumed Codex session already carries the original packet. What stays out of every one of these files is the routing: backend, model, and effort come from <code>handoff-config.py</code> through <code>--role</code> and land in <code>meta</code> and in the <code>run.sh</code> flags, so no wording in a prompt can move a job onto a different vendor.</p>
+
+<h3>Worktree jobs</h3>
+
+<p><code>submit --worktree &lt;branch&gt; --base &lt;commit-ish&gt;</code> runs a job in its own Git worktree under <code>.handoff/worktrees/&lt;jobId&gt;</code>. Four rules make it usable, and each of them is a bug someone would otherwise hit. <code>--repo</code> is always the main repo, because a worktree passed there would fall through to the global config and run the wrong model. The base is resolved to an immutable SHA before the job directory exists, because a branch can advance between cutting the tree and reading the verdict, and then the verdict names a commit nobody tested. The worker commits on its own branch and does nothing else — no merge, no push, no rebase, no removing the tree. And the driver reviews, integrates, and calls <code>cleanup</code>, which is idempotent and refuses a worktree holding uncommitted changes rather than discarding work.</p>
+
+<p>The self-containment consequence is the one worth remembering: a worktree receives <em>tracked content only</em>, and <code>.handoff/</code> is gitignored. So no e2e job reads the goal file, and no e2e job writes it either — workers return artifact paths, and the driver writes them through <code>goal-sync.py</code>. An uncommitted user-supplied spec is either inlined into the packet or committed before the tree is cut; the driver picks, and it cannot be left implicit.</p>
+
+<h3>What crosses at each boundary</h3>
+
+<table>
+  <tr><th>Boundary</th><th>What is sent</th><th>What is deliberately not sent</th></tr>
+  <tr>
+    <td>Driver → Codex job, delegation</td>
+    <td>Why-forward context, one-sentence task, acceptance as commands, scope paths, checkpoint rule</td>
+    <td>The backend, model, and effort — those resolve from config, not from prose</td>
+  </tr>
+  <tr>
+    <td>Driver → e2e worktree job</td>
+    <td>The frozen goal excerpt and the spec verbatim, the approved test target, the commit-on-this-branch rule</td>
+    <td><code>.handoff/</code> in any form; a worktree carries tracked content only</td>
+  </tr>
+  <tr>
+    <td>Codex job → driver</td>
+    <td><code>result</code> reduces the stream to session id, last agent message, commands, usage</td>
+    <td>The full <code>log.jsonl</code>, which stays on disk for when it is actually needed</td>
+  </tr>
+  <tr>
+    <td>Review → fix round</td>
+    <td>Prioritized findings, the acceptance criteria that failed, "continue end-to-end from here"</td>
+    <td>The original packet; the session already holds it</td>
+  </tr>
+  <tr>
+    <td>Verifier → driver</td>
+    <td><code>verdict.json</code>: result, tested commit, scenario counts and ids, harness edits, findings, evidence</td>
+    <td>A prose claim of PASS; the verdict is validated against its own cross-field rules first</td>
+  </tr>
+  <tr>
+    <td>Driver → user, Goal Packet</td>
+    <td>The ask, the plan with <code>file:line</code> evidence, the gate verdict, open decisions, what authorization unlocks</td>
+    <td>Any assumption that a reply answering a question is an authorization to proceed</td>
+  </tr>
+  <tr>
+    <td>Lost session → replacement</td>
+    <td><code>.handoff/goal.md</code> plus the job directories</td>
+    <td>The repository, and the expectation of rebuilding context from zero</td>
+  </tr>
+</table>
+
+<div class="callout alert">
+  <p><strong>The exclusions are as specific as the inclusions.</strong> Every packet's constraints section forbids committing, pushing, deploying, publishing, and touching secrets or <code>.env</code> values, and the e2e packets narrow that further rather than widening it — the only permission they add is a commit on their own throwaway branch.</p>
+</div>
+
+<h2 id="stage3">Stage 3 — Monitor</h2>
+
+<figure>
+  <img src="diagrams/phase3-monitor.svg" alt="Event flowchart: one decision splits short jobs (blocking status with a wait) from long or parallel jobs (a five-minute /loop tick that reads the goal file then job directories, polls status, updates statuses); a depends-column box and an anomaly box branch right, with dashed loop-back edges for the normal tick cycle and the anomaly resubmit.">
+  <figcaption><strong>Stage 3.</strong> Two cycles and one exit: the tick repeats while anything is RUNNING, the anomaly rule feeds a corrected job back into it, and an all-terminal state ends the loop.</figcaption>
+</figure>
+
+<p>One decision shapes the whole phase: how long the job is expected to take. A short single job gets blocked on — <code>status &lt;jobId&gt; --wait --timeout 300</code>. Long or parallel work gets a <code>/loop</code> tick at five minutes, and the tick prompt is the entire monitoring program: read <code>.handoff/goal.md</code> first, then the job directories for the jobs it says are running, poll each one's <code>status</code>, tail its <code>log.jsonl</code> for the last event, write the statuses back, and stop when nothing is left RUNNING.</p>
+
+<p>Reading the goal file first is not an ordering detail. It is what lets a tick reconstruct its picture from disk rather than from context, which is what makes the loop survive a crash, a resumed session, and its own lack of memory between ticks. Statuses are the deduplication key, so a stale row causes duplicate delegation — which is why the template calls out keeping them current, and why <code>depends</code> is read on the same pass: a row whose dependencies have not reached <code>done</code> is not submitted, however idle the tick looks.</p>
+
+<p>Monitoring is deliberately evidence-only. The signals are the job's own <code>status</code>, the tail of <code>log.jsonl</code>, <code>stderr.log</code>, and repo evidence — never chat text, and never a claim about progress that nothing on disk supports. A job with no new JSONL events across two consecutive ticks, or a <code>FAILED</code> status, is an anomaly with a fixed handling: cancel it, read the stderr, then either resubmit with a corrected prompt or take the task back into the driver, and record the anomaly for the receipt either way. Authentication is kept as its own class inside that rule: an idle or API timeout <em>after</em> successful model events must not be relabeled as a login error.</p>
+
+<h2 id="stage4">Stage 4 — Review gate</h2>
+
+<figure>
+  <img src="diagrams/phase4-review-gate.svg" alt="Event flowchart: result collection, then re-reading the brief, then the complete scoped diff, into a decision node asking whether the diff satisfies the brief; findings branch into a bounded resume that loops back to the brief, a second failure escalates to a takeback, and the satisfied path continues to accept. A side card holds the six-step e2e sequence.">
+  <figcaption><strong>Stage 4.</strong> The decision node is the gate. Rework is a resume carrying findings only, it is capped at two rounds, and the cap has a named consequence rather than a retry.</figcaption>
+</figure>
+
+<div class="callout">
+  <p><strong>This is where the cost claim is earned.</strong> Moving execution to the cheaper meter only holds up if the cheap work is checked properly, so Stage 4 reads the complete diff rather than a sample, and reads it against the written criteria rather than against itself. Findings go back to the same Codex session through <code>resume</code>, carrying the prioritized findings and the failed criteria and nothing else, since the session still holds the original packet.</p>
+</div>
+
+<p>The review is against the acceptance column in <code>.handoff/goal.md</code> and each task's brief, never against the diff alone. The skill cites its reason: in the Superpowers 6 runs, diff-only reviewers caught none of five missing task briefs, because a reviewer holding only a diff redefines the spec as "consistent with what changed". So the question the gate asks is "does this diff satisfy that brief", not "is this diff self-consistent".</p>
+
+<h3>When the run carries e2e rows</h3>
+
+<p>The acceptance rows are sequenced before the fix-round step, and the ordering is load-bearing in a specific way: the driver reviews the <em>tests</em> first. A generated gate weaker than the goal's criteria will green-light a broken feature, and the verifier's verdict inherits that weakness silently. So the driver reads the specifier's scenarios against the acceptance column, records the sha256 of the reviewed <code>.feature</code> files at that moment, integrates the specifier and implementation branches into one combined commit, submits the verifier pinned to that commit, and validates the verdict before acting on it.</p>
+
+<table>
+  <tr><th>Verdict</th><th>What it requires</th><th>What the driver does with it</th></tr>
+  <tr>
+    <td><code>PASS</code></td>
+    <td><code>exit_code == 0</code>, every executed scenario passed, at least one scenario, <code>total == len(ids)</code>, empty <code>findings</code>, and <code>scenarios_sha256</code> equal to the hash recorded at review time</td>
+    <td>Goes to the merge decision, which still needs the driver's own final review</td>
+  </tr>
+  <tr>
+    <td><code>FAIL</code></td>
+    <td>At least one finding, plus either a non-zero exit code or <code>passed &lt; total</code></td>
+    <td>Routed to the original implementer as a product finding — never to the verifier, which does not fix product code</td>
+  </tr>
+  <tr>
+    <td><code>BLOCKED</code></td>
+    <td><code>passed == 0</code> and a finding naming the blocker; <code>command</code> and <code>exit_code</code> may be null</td>
+    <td>Nothing was proved: resolve the prerequisite and rerun. It is never read as a PASS</td>
+  </tr>
+</table>
+
+<p>The split the verifier must respect is three-way. Scenario text and IDs, expected values, and the identity of what an assertion is about are <strong>frozen</strong>. Launch and runner scaffolding — start commands, base URL, waits, fixtures — is <strong>repairable</strong>, and every repaired file has to be named in <code>harness_edits</code>. Product code is <strong>forbidden</strong>. A semantic edit does not get disclosed and accepted; it invalidates the run, and the driver restarts from a clean state with a new recorded hash. Two limits are stated rather than papered over: the hash lock covers the <code>.feature</code> files only, because executable spec files legitimately hold repairable scaffolding, and the Codex worktree path is script-owned and lifecycle-tested while the Claude-backend path follows the same written protocol by hand — parity is not claimed.</p>
+
+<h3>How disagreements are settled</h3>
+
+<p>Two instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan. The arbiter protocol solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> on their own backends, and neither packet may contain the other's answer or a leaning hint. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test.</p>
+
+<p>What happens after that is a fixed escalation, and every step names a decider:</p>
+
+<ul>
+  <li><strong>Two solvers agree.</strong> The answer is adopted and marked dual-verified. When config puts both on the same vendor, the protocol still runs but the receipt records <code>same-vendor</code>, so the weaker independence stays visible rather than being quietly claimed as two opinions.</li>
+  <li><strong>Two solvers disagree.</strong> The driver rules, and records both the point of divergence and the reasoning. Both solvers still appear in <code>roles_used</code>; losing an argument does not erase the entry.</li>
+  <li><strong>Implementation misses acceptance.</strong> The driver's review is the ruling, and its output is one bounded fix round into the same session.</li>
+  <li><strong>Two rounds fail.</strong> Arbitration ends rather than continuing. The driver takes the task back, and the takeback is written into the goal file's status, the notes, and the receipt, which is what lets the memory protocol learn that this task type does not delegate well.</li>
+  <li><strong>Anything sits behind a hard stop.</strong> Merge, production, tags, force-push, deletion, destructive migration, and external publish are the user's alone. One imperative sentence authorizes one action, a question about whether to proceed is not authorization, and an earlier approval for something else never carries over.</li>
+</ul>
+
+<p>Read together, the escalation is a ladder of decreasing automation: machine checks, then a second model, then the driver, then the human. Nothing in it resolves a disagreement by averaging two answers or by taking the more recent one.</p>
+
+<h3>The optional delivery stage</h3>
+
+<p>Stage 4.5 exists only when the user asked for the full Plan→Goal→PR→Verification protocol, and the trigger grading is explicit that a one-line fix must not be escalated into it — a regression case exists to keep ordinary changes off that path. When it does run, it takes the work up to "merge-ready PR plus preview verified" and stops there, filling in the goal file's <code>Delivery</code> block (branch, PR, CI, preview, live) as each becomes known and recording each authorization actually given with the user's verbatim intent. Its verify ladder escalates from the single targeted test through lint, module suite, full build, and then the rung that matters most: re-reading the acceptance criteria against the actual diff rather than the maker's self-report. It only ever runs commands the repo itself documents; a rung the repo has no command for is marked <code>n/a</code> out loud rather than skipped silently.</p>
+
+<h2 id="stage5">Stage 5 — Wrap up</h2>
+
+<figure>
+  <img src="diagrams/phase5-wrap-up.svg" alt="Event flowchart: closing the run, then gathering evidence from job metadata, the config resolve, and the two measured clocks, generating the receipt with make-receipt.py, re-validating it with validate-receipt.py, running the memory protocol, and ending at what the next session inherits from the .handoff directory.">
+  <figcaption><strong>Stage 5.</strong> Every field with a measurement behind it comes from that measurement; the branch names what may not be claimed when nothing measured it.</figcaption>
+</figure>
+
+<p>Every non-trivial run ends with a fixed-schema receipt: <code>phase</code>, <code>claude_session</code>, <code>duration</code>, <code>codex_jobs</code>, <code>codex_job_durations</code>, <code>checks</code>, <code>anomalies</code>, <code>scope</code>, <code>config_source</code>, <code>roles_used</code>, and <code>receipt_schema_version: 4</code>. It is generated by <code>make-receipt.py</code>, which refuses to emit an invalid one, and can be re-checked later by <code>validate-receipt.py</code> against <code>docs/receipt-schema.json</code> — the same check CI runs, run on the run's own output.</p>
+
+<p>The v4 fields are the interesting part, because they are all derived rather than recalled. <code>duration</code> is wall clock from the <code>.handoff/session-start</code> marker, so a run that sat waiting on a permission prompt carries that wait in the number; with no marker and no explicit <code>--started-at</code>, the tool refuses to emit at all. <code>codex_job_durations</code> is measured the same way per job, from each <code>meta</code>'s <code>submitted_at</code> to the mtime of its <code>exit_code</code>, with jobs from an earlier run excluded and a job still going reading <code>running</code>. <code>codex_jobs</code> is a count of job directories including fix rounds, not a recollection. Each role's <code>verified</code> flag comes from the config file, and a role that is unverified still gets an entry with <code>verified: false</code> — it is never dropped to make the receipt look cleaner. In <code>roles_used</code>, an entry's <code>host</code> is the CLI that executed that role, unrelated to the runtime that loaded the skill.</p>
+
+<p>What the schema <em>dropped</em> says as much as what it keeps. <code>direction</code> and <code>monitoring_level</code> were v2 fields describing a second flow and a fragile capability probe; both are gone with the machinery they described, and a receipt still carrying them fails validation, which is the intended signal to regenerate it.</p>
+
+<div class="callout alert">
+  <p>The closing instruction in <code>SKILL.md</code> is the one that holds the rest together: do not fabricate token savings. When telemetry is unavailable, report verifiable behavior instead — which tasks ran on the Codex subscription, how many jobs and fix rounds, that the full diff was reviewed against the acceptance criteria, and that the checks passed.</p>
+</div>
+
+<p>Then the run gets turned into input for the next one. The memory protocol draws its line explicitly: facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>, while the memory layers carry experience — which task types Codex handled well, which effort levels fitted, where rework happened. Instruction files are law; memory is what the next split decision learns from. What stays on disk is the cold-start payload: <code>.handoff/goal.md</code> with its final statuses and notes, <code>.handoff/jobs/</code> with the prompts, logs and session ids, and <code>.handoff/receipts/</code> and <code>.handoff/e2e/</code> with the run's evidence. A resumed session reads those, not the repository.</p>
+
+<h2 id="drift">Drift control across the loop</h2>
+
+<p>The five stages run one control structure: the goal is written down before any work leaves the driver, each gate judges the work against that written goal instead of against the stage before it, and the rework path has a fixed end.</p>
+
+<figure>
+  <img src="diagrams/feedback-loop.svg" alt="Top: six loop stages — plan and split, adversarial gate, delegate, monitor, review gate, accept and wrap — over a goal.md band showing what each stage reads or writes, with return arcs for bounded rework and for anomalies. Middle: two cards for the job directory and the e2e verdict artifact. Bottom: an escalation table from the plan itself through blind arbitration, the review gate, takeback, and hard stops.">
+  <figcaption>The loop, its written reference, and the escalation order when two agents disagree.</figcaption>
+</figure>
+
+<table>
+  <tr><th>Where drift gets in</th><th>What holds it</th><th>Enforced by</th></tr>
+  <tr>
+    <td>The goal is written so it can be met without being achieved</td>
+    <td>The anti-Goodhart clause on <code>done_when</code>; <code>done_when</code> and <code>hard_stops</code> compose by AND, so meeting every condition never authorizes crossing a stop</td>
+    <td>Convention</td>
+  </tr>
+  <tr>
+    <td>The split is drawn for cost rather than for stakes</td>
+    <td>The adversarial gate's three questions, answered in writing, and the corrected task→identity map it produces</td>
+    <td>Convention</td>
+  </tr>
+  <tr>
+    <td>Work lands on the wrong agent or the wrong meter</td>
+    <td><code>handoff-config.py</code> resolution; a <code>backend = claude</code> identity is refused by <code>delegate-codex.sh</code> with a pointer to the subagent</td>
+    <td>Fails closed</td>
+  </tr>
+  <tr>
+    <td>The delegate invents its own stopping points</td>
+    <td>The checkpoint rule, pause only for a destructive action, a real scope change, or something only the user can give, repeated in the goal file and in every packet</td>
+    <td>Convention</td>
+  </tr>
+  <tr>
+    <td>A dependent row runs before what it depends on</td>
+    <td>The <code>depends</code> column, read by the monitor tick before any submit; an <code>e2e_verifier</code> row names both the specifier and the implementation</td>
+    <td>Convention, read every tick</td>
+  </tr>
+  <tr>
+    <td>A job is judged against a commit nobody tested</td>
+    <td><code>--base</code> resolved to an immutable SHA before the job directory exists, echoed back as <code>tested_commit</code> in the verdict</td>
+    <td>Fails closed</td>
+  </tr>
+  <tr>
+    <td>The reviewer grades the diff instead of the goal</td>
+    <td>Stage 4 reads acceptance from <code>goal.md</code>; the verify ladder's fifth rung compares the diff against the criteria rather than the maker's self-report</td>
+    <td>Convention</td>
+  </tr>
+  <tr>
+    <td>The acceptance gate itself is weaker than the criteria</td>
+    <td>The driver reviews the scenarios before the verdict counts, and locks them with <code>scenarios_sha256</code>; <code>PASS</code> is checked against exit code, scenario counts, and an empty findings list</td>
+    <td>Fails closed at <code>validate-verdict.py</code></td>
+  </tr>
+  <tr>
+    <td>A failing task loops forever</td>
+    <td>Two fix rounds maximum, each carrying only prioritized findings and the failed criteria; then the driver takes the task back</td>
+    <td>Convention</td>
+  </tr>
+  <tr>
+    <td>The run reports better than it went</td>
+    <td>Fixed receipt schema, measured <code>duration</code> and per-job durations, unverified roles listed with <code>verified: false</code>, and the standing rule against fabricated token savings</td>
+    <td>Fails closed at receipt validation</td>
+  </tr>
+  <tr>
+    <td>A change to the workflow itself makes it worse</td>
+    <td>The Darwin ratchet: one dimension per round, a real miniloop or two test prompts before keeping anything, a reviewable revert, and no agent as sole maker and sole judge</td>
+    <td>Convention</td>
+  </tr>
+</table>
+
+<p>The pattern in the third column is worth sitting with. Machine enforcement clusters where a wrong value is cheap to detect: resolving config, pinning a base commit, validating a verdict, validating a receipt. The check that actually keeps the work on the goal — reading the diff against written acceptance criteria — is a rule in a prompt. That is not obviously wrong, since no script can judge whether a diff satisfies a brief, but it does mean the strongest guarantees in the system sit around the weakest-enforced one.</p>
+
+<h2 id="observations">Observations</h2>
+
+<p>Things I noticed while reading that a maintainer might want to look at:</p>
+
+<ul>
+  <li><strong><code>resume</code> loses identity metadata.</strong> A resumed job's <code>meta</code> records <code>label=resume</code>, <code>model=inherit</code>, and no <code>role</code> or <code>backend</code>. Since Stage 5 builds <code>roles_used</code> from each job's <code>meta</code>, a run whose work happened mostly in fix rounds has thinner provenance than a clean first pass. Carrying the parent's role, model, and effort forward would cost two lines.<span class="src"> scripts/delegate-codex.sh:352</span></li>
+  <li><strong>An empty session id is cached.</strong> <code>extract_session_id</code> pipes through <code>tee</code>, so a scan that finds nothing writes a newline into <code>session_id</code>. The <code>[ -s ... ]</code> guard then treats that file as populated and later calls return the empty value without rescanning a log that has since grown.<span class="src"> scripts/delegate-codex.sh:171, :175</span></li>
+  <li><strong><code>status</code> exits 0 while a job is still RUNNING.</strong> Only the <code>--wait</code> timeout path returns non-zero, so a caller branching on exit status alone cannot distinguish "finished cleanly" from "still going". The printed <code>state:</code> line is the real signal, and callers have to parse it.<span class="src"> scripts/delegate-codex.sh:445</span></li>
+  <li><strong>The adversarial gate is advisory in the way that matters.</strong> Nothing mechanically blocks a submit that skipped it, unlike the config resolution, the base-commit pin, the verdict validation, and the receipt validation, which all fail closed. Given that the gate is what defends the cost claim, it is the least enforced of the guards.</li>
+</ul>
+
+<footer>
+  Sources read: <span class="mono">SKILL.md</span>, <span class="mono">references/{claude-driven, handoff-template, e2e-gauntlet, fable5-principles, goal-template, goal-to-pr, memory-protocol, darwin-ratchet}.md</span>, <span class="mono">docs/{receipt-schema.json, verdict-schema.json, config-schema.md}</span>, <span class="mono">scripts/{delegate-codex.sh, goal-sync.py, make-receipt.py, validate-verdict.py}</span>. Diagrams are SVG under <span class="mono">docs/research/diagrams/</span>.
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc-links a'));
+  var strip = document.querySelector('.toc-links');
+  var bar = document.querySelector('.toc-progress');
+  var sections = links.map(function (a) { return document.getElementById(a.hash.slice(1)); });
+  var current = null;
+
+  function setActive(index) {
+    if (index === current) return;
+    current = index;
+    links.forEach(function (a, i) {
+      if (i === index) {
+        a.setAttribute('aria-current', 'true');
+        // keep the active chip in view on narrow screens
+        var left = a.offsetLeft - strip.clientWidth / 2 + a.offsetWidth / 2;
+        strip.scrollTo({ left: left, behavior: 'smooth' });
+      } else {
+        a.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  function update() {
+    var probe = 90; // just below the sticky bar
+    var index = 0;
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i] && sections[i].getBoundingClientRect().top <= probe) index = i;
+    }
+    setActive(index);
+
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (max > 0 ? Math.min(1, window.scrollY / max) * 100 : 0) + '%';
+  }
+
+  var ticking = false;
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () { update(); ticking = false; });
+  }
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  update();
+})();
+</script>
+</body>
+</html>

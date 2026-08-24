@@ -38,6 +38,3 @@ node_modules/
 # macOS / Windows filesystem cruft
 .DS_Store
 Thumbs.db
-
-# Local codebase research notes — not part of the shipped skill
-docs/research/

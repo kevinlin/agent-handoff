@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1318">
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
+    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 10.5px; fill: #64748b; }
+    .phase { font-size: 11px; font-weight: 700; fill: #d97706; letter-spacing: 0.08em; }
+    .pill { font-size: 10px; font-weight: 700; }
+    .ntitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
+    .note { font-size: 10px; fill: #475569; }
+    .warn { font-size: 10px; fill: #be123c; }
+    .ev { font-size: 10px; font-weight: 700; fill: #334155; }
+    .back { font-size: 10px; font-weight: 700; fill: #64748b; }
+    .leg { font-size: 10px; fill: #475569; }
+    .fhead { font-size: 11px; font-weight: 700; fill: #0f172a; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#d97706"/>
+    </marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#e11d48"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="1318" fill="#f8fafc"/>
+  <rect width="1200" height="1318" fill="url(#grid)"/>
+  <text x="92" y="40" class="title">Phase 2 — one task row becomes one durable background job</text>
+  <text x="92" y="62" class="subtitle">The prompt path carries the work, the config path carries the routing, and the two never cross.</text>
+  <text x="92" y="86" class="phase">PHASE 2 · DELEGATE</text>
+  <rect x="92" y="104" width="11" height="11" rx="3" fill="#7c3aed" opacity="0.85"/>
+  <text x="109" y="114" class="leg">Claude driver</text>
+  <rect x="213.0" y="104" width="11" height="11" rx="3" fill="#d97706" opacity="0.85"/>
+  <text x="230.0" y="114" class="leg">delegate-codex.sh</text>
+  <rect x="358.0" y="104" width="11" height="11" rx="3" fill="#2563eb" opacity="0.85"/>
+  <text x="375.0" y="114" class="leg">handoff-config.py</text>
+  <rect x="503.0" y="104" width="11" height="11" rx="3" fill="#059669" opacity="0.85"/>
+  <text x="520.0" y="114" class="leg">codex exec</text>
+  <line x1="346" y1="246" x2="346" y2="285" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
+  <line x1="596" y1="348" x2="641" y2="348" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
+  <line x1="346" y1="403" x2="346" y2="442" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="430" class="ev">prompt file path</text>
+  <line x1="346" y1="560" x2="346" y2="599" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="587" class="ev">--role</text>
+  <path d="M 596 654 H 622 V 669 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+  <rect x="596" y="634" width="52" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <text x="622" y="645" class="ev" text-anchor="middle">invalid</text>
+  <line x1="346" y1="702" x2="346" y2="771" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="744" class="ev">backend · model · effort</text>
+  <line x1="346" y1="889" x2="346" y2="928" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="916" class="ev">run.sh</text>
+  <line x1="346" y1="1046" x2="346" y2="1085" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="358" y="1073" class="ev">jobId</text>
+  <path d="M 596 1140 H 622 V 1132 H 641" fill="none" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
+  <rect x="96" y="150" width="500" height="96" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="161" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="174" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="200" class="ntitle">Read one row out of .handoff/goal.md</text>
+  <text x="110" y="218" class="note">task · acceptance · depends · effort</text>
+  <text x="110" y="233" class="note">backend and model are deliberately absent from the row</text>
+  <rect x="96" y="292" width="500" height="111" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="303" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="316" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="342" class="ntitle">Author the delegation packet</text>
+  <text x="110" y="360" class="note">why-forward context · one-sentence task</text>
+  <text x="110" y="375" class="note">acceptance written as commands · scope paths</text>
+  <text x="110" y="390" class="note">checkpoint rule · no commentary · ≤ 3 lines of lessons</text>
+  <rect x="648" y="292" width="500" height="111" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+  <rect x="662" y="303" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="670" y="316" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="662" y="342" class="ntitle">Nothing generates this prompt</text>
+  <text x="662" y="360" class="note">the driver composes it in its own context, writes it to</text>
+  <text x="662" y="375" class="note">$(mktemp), and passes the path; the script's only check is</text>
+  <text x="662" y="390" class="note">that the file exists — authorship discipline, not validation</text>
+  <rect x="96" y="449" width="500" height="111" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="460" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <text x="118" y="473" class="pill" fill="#d97706">delegate-codex.sh</text>
+  <text x="110" y="499" class="ntitle">submit --role &lt;identity&gt;</text>
+  <text x="110" y="517" class="note">--repo · --prompt-file · --label &lt;task-id&gt;</text>
+  <text x="110" y="532" class="note">--worktree &lt;branch&gt; --base &lt;sha&gt; for an isolated tree</text>
+  <text x="110" y="547" class="note">--read-only for scan and review jobs</text>
+  <rect x="96" y="606" width="500" height="96" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="617" width="118" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
+  <text x="118" y="630" class="pill" fill="#2563eb">handoff-config.py</text>
+  <text x="110" y="656" class="ntitle">resolve the identity</text>
+  <text x="110" y="674" class="note">backend · model · effort, plus the source of each value</text>
+  <text x="110" y="689" class="note">session override → project → global → built-in defaults</text>
+  <rect x="648" y="606" width="500" height="126" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
+  <rect x="662" y="617" width="118" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
+  <text x="670" y="630" class="pill" fill="#2563eb">handoff-config.py</text>
+  <text x="662" y="656" class="ntitle">Fail-closed, both ways</text>
+  <text x="662" y="674" class="warn">no Handoff config → hard error, never a default model</text>
+  <text x="662" y="689" class="warn">backend = claude → refused, with a pointer to spawn</text>
+  <text x="662" y="704" class="warn">the handoff-&lt;identity&gt; subagent instead</text>
+  <text x="662" y="719" class="note">the guard against a job landing on the wrong meter</text>
+  <path d="M 596 835 H 622 V 841 H 641" fill="none" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
+  <rect x="648" y="778" width="500" height="126" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+  <rect x="662" y="789" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <text x="670" y="802" class="pill" fill="#d97706">delegate-codex.sh</text>
+  <text x="662" y="828" class="ntitle">--worktree: a tree of its own, pinned to a SHA</text>
+  <text x="662" y="846" class="note">--base is resolved to an immutable commit before the job</text>
+  <text x="662" y="861" class="note">directory exists, so an invalid base fails clean</text>
+  <text x="662" y="876" class="note">meta gains worktree · branch · base_commit; resume inherits it</text>
+  <text x="662" y="891" class="warn">--repo is always the main repo, never a worktree path</text>
+  <rect x="96" y="778" width="500" height="111" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="789" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <text x="118" y="802" class="pill" fill="#d97706">delegate-codex.sh</text>
+  <text x="110" y="828" class="ntitle">Create &lt;repo&gt;/.handoff/jobs/&lt;jobId&gt;/</text>
+  <text x="110" y="846" class="note">prompt.md — copied once, never rewritten: the audit record</text>
+  <text x="110" y="861" class="note">run.sh — the command actually executed, flags included</text>
+  <text x="110" y="876" class="note">meta — role, backend, model, effort, and each value's source</text>
+  <rect x="96" y="935" width="500" height="111" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="946" width="76" height="18" rx="6" fill="#059669" opacity="0.10"/>
+  <text x="118" y="959" class="pill" fill="#059669">codex exec</text>
+  <text x="110" y="985" class="ntitle">nohup codex exec --json, detached</text>
+  <text x="110" y="1003" class="note">stdin &lt;/dev/null, so a long prompt cannot leave it waiting</text>
+  <text x="110" y="1018" class="note">--skip-git-repo-check when git rev-parse says non-repo</text>
+  <text x="110" y="1033" class="note">log.jsonl and stderr.log start filling immediately</text>
+  <rect x="96" y="1092" width="500" height="96" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <rect x="110" y="1103" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="118" y="1116" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="110" y="1142" class="ntitle">Write jobId into the row, status=delegated</text>
+  <text x="110" y="1160" class="note">status is the deduplication key across ticks and sessions</text>
+  <text x="110" y="1175" class="warn">a stale row causes duplicate delegation</text>
+  <rect x="648" y="1092" width="500" height="81" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
+  <rect x="662" y="1103" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <text x="670" y="1116" class="pill" fill="#7c3aed">Claude driver</text>
+  <text x="662" y="1142" class="ntitle">Independent rows submit in parallel</text>
+  <text x="662" y="1160" class="note">one job directory each; no shared state between them</text>
+  <rect x="92" y="1194" width="1056" height="84" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <text x="110" y="1220" class="fhead">The boundary this phase defends</text>
+  <text x="110" y="1240" class="note">No wording in a prompt can move a job onto a different vendor or meter: routing resolves from config into</text>
+  <text x="110" y="1260" class="note">run.sh flags and meta, and the prompt never mentions backend, model, or effort at all.</text>
+</svg>
