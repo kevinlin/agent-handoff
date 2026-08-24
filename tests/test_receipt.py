@@ -39,6 +39,24 @@ def fields(**overrides) -> dict:
 
 
 class ValidateReceiptTests(unittest.TestCase):
+    def test_roles_used_accepts_e2e_roles(self):
+        self.assertEqual(
+            [],
+            validate_receipt.validate(
+                fields(
+                    roles_used='[{"role": "e2e_verifier", "host": "codex", '
+                    '"model": "gpt-x", "effort": "high", "verified": true}]'
+                )
+            ),
+        )
+
+    def test_roles_used_still_rejects_an_unknown_role(self):
+        self.assert_one_failure(
+            "roles_used is invalid",
+            roles_used='[{"role": "cleaner", "host": "codex", '
+            '"model": "gpt-x", "effort": "high", "verified": true}]',
+        )
+
     def assert_one_failure(self, needle: str, **overrides):
         failures = validate_receipt.validate(fields(**overrides))
         self.assertTrue(failures, f"expected a failure mentioning {needle!r}")
