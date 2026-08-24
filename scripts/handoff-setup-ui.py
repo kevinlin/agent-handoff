@@ -805,6 +805,12 @@ HTML = r'''<!doctype html>
     .main-heading p { max-width:530px; margin-top:5px; color:var(--muted-v2); font-size:13px; }
     .current-mode { flex:0 0 auto; color:var(--accent-text); font:11px var(--mono-v2); }
     .matrix { display:grid; gap:12px; padding:18px 20px 20px; }
+    .e2e-addon { margin:0 20px 20px; padding:16px 0 0; border-top:1px solid var(--line-v2); }
+    .e2e-addon > summary { width:max-content; max-width:100%; color:var(--ink); font:680 15px var(--body); cursor:pointer; }
+    .e2e-addon > p { max-width:530px; margin-top:6px; color:var(--muted-v2); font-size:13px; line-height:1.5; }
+    .e2e-toggle { display:flex; align-items:center; gap:8px; width:max-content; margin:12px 0 0; color:var(--ink); font-size:13px; letter-spacing:0; cursor:pointer; }
+    .e2e-toggle input { flex:0 0 auto; width:16px; height:16px; margin:0; accent-color:var(--accent-v2); }
+    .e2e-addon .matrix { padding:14px 0 0; }
     .identity { display:grid; grid-template-columns:minmax(155px,.82fr) minmax(130px,.7fr) minmax(220px,1.2fr) minmax(120px,.62fr); gap:12px; align-items:start; position:relative; min-height:110px; overflow:hidden; padding:17px; border:1px solid var(--line-v2); border-radius:17px; background:var(--card); box-shadow:var(--shadow-card); }
     .identity:nth-child(1) { --row:0; }
     .identity:nth-child(2) { --row:1; }
