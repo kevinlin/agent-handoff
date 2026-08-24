@@ -147,6 +147,11 @@ kill_tree() {
   kill "$pid" 2>/dev/null || true
 }
 
+meta_value() {
+  # Prints the value of one `key=value` line from a job's meta file.
+  sed -n "s/^$1=//p" "${2:-$JOB}/meta"
+}
+
 job_state() {
   # Prints RUNNING | DONE | FAILED | CANCELLED for $JOB.
   if [ -f "$JOB/cancelled" ]; then
@@ -270,7 +275,7 @@ cmd_submit() {
   mkdir -p "$JOB"
   cp "$PROMPT_FILE" "$JOB/prompt.md"
 
-  local WORKDIR="$REPO"
+  WORKDIR="$REPO"
   if [ -n "$WORKTREE_BRANCH" ]; then
     WORKDIR="$REPO/.handoff/worktrees/$JOB_ID"
     mkdir -p "$REPO/.handoff/worktrees"
@@ -289,7 +294,7 @@ cmd_submit() {
       "$WORKDIR" "$WORKTREE_BRANCH" "$BASE_COMMIT" >>"$JOB/meta"
   fi
 
-  write_run_script "$JOB" "$EFFORT" "$MODEL" "$READ_ONLY" "" "$WORKDIR"
+  write_run_script "$JOB" "$EFFORT" "$MODEL" "$READ_ONLY" ""
   launch_job "$JOB"
   echo "$JOB_ID"
 }
@@ -314,7 +319,7 @@ cmd_resume() {
   # `codex exec resume` takes its cwd from the shell, so without this a fix
   # round would land in the main repo instead of the parent's worktree.
   local PARENT_WORKDIR
-  PARENT_WORKDIR="$(sed -n 's/^worktree=//p' "$PARENT_JOB/meta")"
+  PARENT_WORKDIR="$(meta_value worktree "$PARENT_JOB")"
   if [ -n "$PARENT_WORKDIR" ]; then
     [ -d "$PARENT_WORKDIR" ] || die "parent job worktree is missing: $PARENT_WORKDIR"
   else
@@ -325,8 +330,8 @@ cmd_resume() {
   [ -n "$SESSION_ID" ] || die "no session id found in $PARENT_JOB/log.jsonl; cannot resume"
 
   local EFFORT
-  EFFORT="$(sed -n 's/^effort=//p' "$PARENT_JOB/meta")"
-  CODEX_BIN="$(sed -n 's/^codex_bin=//p' "$PARENT_JOB/meta")"
+  EFFORT="$(meta_value effort "$PARENT_JOB")"
+  CODEX_BIN="$(meta_value codex_bin "$PARENT_JOB")"
   if [ -n "$CODEX_BIN" ] && [ -x "$CODEX_BIN" ]; then
     CODEX_BIN_SOURCE="parent"
     CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
@@ -352,18 +357,19 @@ cmd_resume() {
     printf 'worktree=%s\n' "$PARENT_WORKDIR" >>"$JOB/meta"
   fi
 
-  write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID" "$PARENT_WORKDIR"
+  WORKDIR="$PARENT_WORKDIR"
+  write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID"
   launch_job "$JOB"
   echo "$JOB_ID"
 }
 
 write_run_script() {
-  local job="$1" effort="$2" model="$3" read_only="$4" session_id="$5" workdir="${6:-$REPO}"
+  local job="$1" effort="$2" model="$3" read_only="$4" session_id="$5"
   {
     echo '#!/usr/bin/env bash'
     echo 'set -uo pipefail'
     printf 'JOB=%q\n' "$job"
-    printf 'WORKDIR=%q\n' "$workdir"
+    printf 'WORKDIR=%q\n' "$WORKDIR"
     printf 'CODEX_BIN=%q\n' "$CODEX_BIN"
     echo 'PROMPT="$(cat "$JOB/prompt.md")"'
     # </dev/null: a long prompt can make codex exec also wait on stdin for
@@ -381,7 +387,7 @@ write_run_script() {
       local args="--json -C \"\$WORKDIR\" -c 'model_reasoning_effort=\"$effort\"'"
       # Non-git --repo targets need --skip-git-repo-check or codex exec
       # refuses to run ("Not inside a trusted directory").
-      is_git_repo "$workdir" || args="$args --skip-git-repo-check"
+      is_git_repo "$WORKDIR" || args="$args --skip-git-repo-check"
       [ -n "$model" ] && args="$args -m \"$model\""
       [ "$read_only" = "true" ] && args="$args -s read-only"
       printf '"$CODEX_BIN" exec "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
@@ -522,24 +528,15 @@ cmd_cancel() {
     kill_tree "$(cat "$JOB/pid")"
   fi
   touch "$JOB/cancelled"
-  cmd_cleanup "$JOB_ID" --repo "$REPO" || echo "worktree kept for inspection: $JOB_ID"
+  remove_worktree || echo "worktree kept for inspection: $JOB_ID"
   echo "cancelled: $JOB_ID"
 }
 
-# Returns rather than dies on the dirty path: die exits, which would abort
-# cmd_cancel half-way through.
-cmd_cleanup() {
-  local JOB_ID="$1"; shift
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --repo) REPO="${2:-}"; shift 2 ;;
-      *) die "unknown cleanup argument: $1" ;;
-    esac
-  done
-  require_repo
-  require_job "$JOB_ID"
+# Returns rather than dies so cmd_cancel can report a kept worktree and still
+# finish; $JOB and $REPO are already resolved by both callers.
+remove_worktree() {
   local WT
-  WT="$(sed -n 's/^worktree=//p' "$JOB/meta")"
+  WT="$(meta_value worktree)"
   if [ -z "$WT" ] || [ ! -d "$WT" ]; then
     echo "no worktree: $JOB_ID"
     return 0
@@ -550,6 +547,19 @@ cmd_cleanup() {
   fi
   git -C "$REPO" worktree remove "$WT" || { echo "git worktree remove failed: $WT" >&2; return 1; }
   echo "removed worktree: $WT"
+}
+
+cmd_cleanup() {
+  local JOB_ID="$1"; shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --repo) REPO="${2:-}"; shift 2 ;;
+      *) die "unknown cleanup argument: $1" ;;
+    esac
+  done
+  require_repo
+  require_job "$JOB_ID"
+  remove_worktree
 }
 
 cmd_list() {
@@ -575,6 +585,8 @@ cmd_list() {
 [ "$#" -ge 1 ] || { usage; exit 2; }
 COMMAND="$1"; shift
 REPO="${REPO:-}"
+# Working directory for the Codex process: the repo, or a job's worktree.
+WORKDIR="$REPO"
 
 case "$COMMAND" in
   submit) cmd_submit "$@" ;;

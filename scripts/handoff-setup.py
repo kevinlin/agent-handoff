@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -36,14 +36,8 @@ SPEC.loader.exec_module(handoff_config)
 IDENTITIES = handoff_config.IDENTITIES
 CORE_IDENTITIES = handoff_config.CORE_IDENTITIES
 OPTIONAL_IDENTITIES = handoff_config.OPTIONAL_IDENTITIES
-
-
-def ordered(mapping: Mapping[str, Any]) -> List[str]:
-    """Identity names present in ``mapping``, in canonical identity order."""
-
-    return [identity for identity in IDENTITIES if identity in mapping]
-
-
+identities_for = handoff_config.identities_for
+ordered = handoff_config.ordered
 BACKENDS = handoff_config.BACKENDS
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
@@ -63,8 +57,8 @@ ROUTING_LINES = {
 }
 
 
-def routing_policy(identities: Mapping[str, Any]) -> str:
-    return "".join(f"{ROUTING_LINES[name]}\n" for name in ordered(identities))
+def routing_policy(names: Iterable[str]) -> str:
+    return "".join(f"{ROUTING_LINES[name]}\n" for name in ordered(names))
 MANAGED_COMMENT = '<!-- managed by agent-handoff - edit via /agent-handoff config -->'
 
 # ``None`` means that the Codex model must be detected or explicitly supplied.
@@ -264,9 +258,7 @@ def choose_identities(
     identities: Dict[str, Dict[str, Any]] = {}
     sources: Dict[str, Dict[str, str]] = {}
     notes: List[str] = []
-    selected = list(CORE_IDENTITIES)
-    if getattr(args, "with_e2e", False):
-        selected.extend(OPTIONAL_IDENTITIES)
+    selected = identities_for(getattr(args, "with_e2e", False))
     if args.mode == "custom":
         for identity in selected:
             if identity not in backends or identity not in models or identity not in efforts:
@@ -338,7 +330,7 @@ def preserve_verification(
     current: Mapping[str, Mapping[str, Any]],
     desired: Dict[str, Dict[str, Any]],
 ) -> None:
-    for identity in ordered(desired):
+    for identity in desired:
         before = current.get(identity, {})
         after = desired[identity]
         if all(before.get(field) == after[field] for field in ("backend", "model", "effort")):
@@ -386,8 +378,8 @@ def render_agent(identity: str, values: Mapping[str, Any]) -> str:
         f"{body}\n"
     )
 
-def render_managed_block(identities: Mapping[str, Any], newline: str = "\n") -> str:
-    policy = routing_policy(identities).replace("\n", newline)
+def render_managed_block(names: Iterable[str], newline: str = "\n") -> str:
+    policy = routing_policy(names).replace("\n", newline)
     digest = sha256(policy)
     return newline.join((BEGIN_MARKER, f"{HASH_PREFIX}{digest} -->")) + newline + policy + END_MARKER + newline
 
@@ -421,14 +413,14 @@ def _managed_region(text: str, force: bool = False) -> Optional[Tuple[int, int, 
     newline = "\r\n" if "\r\n" in text else "\n"
     return start, finish, newline
 
-def update_managed_block(text: str, identities: Mapping[str, Any], force: bool = False) -> str:
+def update_managed_block(text: str, names: Iterable[str], force: bool = False) -> str:
     region = _managed_region(text, force)
     if region is None:
         newline = "\r\n" if "\r\n" in text else "\n"
         separator = newline if text else ""
-        return text + separator + render_managed_block(identities, newline)
+        return text + separator + render_managed_block(names, newline)
     start, finish, newline = region
-    return text[:start] + render_managed_block(identities, newline) + text[finish:]
+    return text[:start] + render_managed_block(names, newline) + text[finish:]
 
 def remove_managed_block(text: str, force: bool = False) -> str:
     region = _managed_region(text, force)
@@ -522,7 +514,7 @@ def _cli_unavailable(
     }
     return [
         identity
-        for identity in ordered(desired)
+        for identity in desired
         if not available[str(desired[identity]["backend"])]
     ]
 
@@ -550,7 +542,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     new_config = handoff_config.update_host(new_config, identities=desired, path=path)
 
     unavailable = _cli_unavailable(desired, env)
-    for identity in ordered(desired):
+    for identity in desired:
         sources[identity]["backend_value"] = str(desired[identity]["backend"])
         sources[identity]["model_value"] = str(desired[identity]["model"])
         sources[identity]["effort_value"] = str(desired[identity]["effort"])
@@ -637,7 +629,7 @@ def unified_diff(change: FileChange) -> str:
 
 def print_plan(plan: Plan) -> None:
     print("Selections:")
-    for identity in ordered(plan.choices):
+    for identity in plan.choices:
         selected = plan.choices[identity]
         print(
             f"  {identity}: backend={selected['backend_value']} [{selected['backend']}], "
@@ -839,7 +831,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md") as prompt:
         prompt.write("Resolve the configured identity only; this is a dry-run smoke check.\n")
         prompt.flush()
-        for identity in ordered(configured):
+        for identity in configured:
             if configured[identity]["backend"] == "claude":
                 passed, detail = smoke_claude_identity(
                     args, env, identity, configured[identity]
@@ -879,7 +871,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 identity: dict(values)
                 for identity, values in parsed_identities.items()
             }
-            for identity in ordered(configured):
+            for identity in configured:
                 identities.setdefault(identity, dict(configured[identity]))
             for identity in successes:
                 identities[identity]["verified"] = True
@@ -981,10 +973,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     if mode == "custom":
         answer = input("Also configure the optional e2e identities? [y/N]: ").strip().lower()
         with_e2e = answer in ("y", "yes")
-        prompt_for = list(CORE_IDENTITIES)
-        if with_e2e:
-            prompt_for.extend(OPTIONAL_IDENTITIES)
-        for identity in prompt_for:
+        for identity in identities_for(with_e2e):
             identity_backends.append(
                 f"{identity}={input(f'{identity} backend [claude/codex]: ').strip()}"
             )

@@ -194,8 +194,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(original, target.read_text(encoding="utf-8"))
 
     def test_managed_block_five_fail_closed_cases_and_force_boundary(self):
-        core = dict.fromkeys(handoff_setup.CORE_IDENTITIES, {})
-        valid = handoff_setup.render_managed_block(core)
+        valid = handoff_setup.render_managed_block(handoff_setup.CORE_IDENTITIES)
         digest_at = valid.index("sha256:") + len("sha256:")
         wrong_digit = "0" if valid[digest_at] != "0" else "1"
         hash_mismatch = valid[:digest_at] + wrong_digit + valid[digest_at + 1 :]
@@ -221,15 +220,15 @@ class SetupTests(unittest.TestCase):
         for name, text in malformed.items():
             with self.subTest(name=name):
                 with self.assertRaises(handoff_setup.SetupError):
-                    handoff_setup.update_managed_block(text, core)
+                    handoff_setup.update_managed_block(text, handoff_setup.CORE_IDENTITIES)
         self.assertIn(
             handoff_setup.HASH_PREFIX,
-            handoff_setup.update_managed_block(malformed["hash_missing"], core, force=True),
+            handoff_setup.update_managed_block(malformed["hash_missing"], handoff_setup.CORE_IDENTITIES, force=True),
         )
         with self.assertRaises(handoff_setup.SetupError):
-            handoff_setup.update_managed_block(malformed["missing_half"], core, force=True)
+            handoff_setup.update_managed_block(malformed["missing_half"], handoff_setup.CORE_IDENTITIES, force=True)
         empty = handoff_setup.BEGIN_MARKER + "\n" + handoff_setup.END_MARKER + "\n"
-        self.assertIn(handoff_setup.HASH_PREFIX, handoff_setup.update_managed_block(empty, core))
+        self.assertIn(handoff_setup.HASH_PREFIX, handoff_setup.update_managed_block(empty, handoff_setup.CORE_IDENTITIES))
 
     def test_rollback_restores_latest_pre_apply_state_and_keeps_three_backups(self):
         modes = ("balanced", "quality", "cost", "balanced")
@@ -633,12 +632,6 @@ always_on_host_rules = false
         self.assertTrue(identities["fast_worker"]["verified"])
         self.assertTrue(identities["arbiter"]["verified"])
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-class WithE2eTests(SetupTests):
     def configured(self):
         config = self.repo / ".handoff" / "config.toml"
         parsed = handoff_setup.handoff_config.validate_config(
@@ -710,3 +703,6 @@ class WithE2eTests(SetupTests):
         self.assertIn("name: handoff-e2e-specifier", specifier.read_text(encoding="utf-8"))
         # backend=codex identities never get a Claude subagent definition
         self.assertFalse((agents / "handoff-e2e-verifier.md").exists())
+
+if __name__ == "__main__":
+    unittest.main()

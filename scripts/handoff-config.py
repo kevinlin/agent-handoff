@@ -29,6 +29,20 @@ CORE_IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
 # keep writing back byte-identically.
 OPTIONAL_IDENTITIES = ("e2e_specifier", "e2e_verifier")
 IDENTITIES = CORE_IDENTITIES + OPTIONAL_IDENTITIES
+
+
+def identities_for(with_e2e: bool) -> Tuple[str, ...]:
+    """The identity set a setup run configures."""
+
+    return IDENTITIES if with_e2e else CORE_IDENTITIES
+
+
+def ordered(names: Iterable[str]) -> List[str]:
+    """``names`` in canonical identity order."""
+
+    return [identity for identity in IDENTITIES if identity in set(names)]
+
+
 IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "verified", "verified_at")
 BACKENDS = ("claude", "codex")
 V1_UPGRADE_MESSAGE = (
@@ -306,8 +320,7 @@ def emit_host_sections(identities: Mapping[str, Mapping[str, Any]], host: str = 
     """Return canonical identity sections for one host."""
 
     blocks: List[str] = []
-    ordered_identities = [identity for identity in IDENTITIES if identity in identities]
-    for identity in ordered_identities:
+    for identity in ordered(identities):
         fields = identities[identity]
         lines = [f"[hosts.{host}.identities.{identity}]"]
         ordered_fields = [field for field in IDENTITY_FIELD_ORDER if field in fields]

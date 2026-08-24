@@ -303,12 +303,6 @@ class SetupUITests(unittest.TestCase):
         ):
             self.assertIn(required, html)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-class E2eAddOnTests(SetupUITests):
     def test_identity_meta_covers_every_identity(self):
         self.assertEqual(
             set(handoff_setup_ui.engine.IDENTITIES),
@@ -350,3 +344,6 @@ class E2eAddOnTests(SetupUITests):
         raw["with_e2e"] = True
         on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
         self.assertIn("--with-e2e", handoff_setup_ui.engine_arguments(on, "preview"))
+
+if __name__ == "__main__":
+    unittest.main()

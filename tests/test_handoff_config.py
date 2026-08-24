@@ -498,9 +498,6 @@ class LockTests(unittest.TestCase):
             self.assertFalse((root / ".config.lock").exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class OptionalIdentityTests(unittest.TestCase):
     def test_optional_identities_append_after_core(self):
@@ -573,3 +570,6 @@ class OptionalIdentityTests(unittest.TestCase):
         override = handoff_config._parse_override(["e2e_verifier.effort=low"])
         identities = override["hosts"][handoff_config.HOST]["identities"]
         self.assertEqual("low", identities["e2e_verifier"]["effort"])
+
+if __name__ == "__main__":
+    unittest.main()

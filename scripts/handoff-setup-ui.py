@@ -441,9 +441,7 @@ def normalize_payload(
     if not isinstance(supplied, dict):
         raise UIError("Missing identity matrix")
     with_e2e = bool(raw.get("with_e2e"))
-    required = list(engine.CORE_IDENTITIES)
-    if with_e2e:
-        required.extend(engine.OPTIONAL_IDENTITIES)
+    required = engine.identities_for(with_e2e)
     identities: Dict[str, Dict[str, str]] = {}
     for identity in required:
         values = supplied.get(identity)
@@ -762,9 +760,11 @@ HTML = r'''<!doctype html>
     .agent-core small { margin-top:8px; color:var(--on-slab-muted); font:10px var(--mono-v2); }
     .agent-core::after { content:""; position:absolute; inset:-10px; border:1px solid rgba(231,91,56,.32); border-radius:36px; }
     .role-node { position:absolute; left:62%; width:31%; min-width:140px; padding:13px 15px; border:1px solid rgba(250,250,247,.18); border-radius:16px; background:rgba(41,44,36,.92); box-shadow:inset 0 1px rgba(255,255,255,.06); }
-    .role-node.deep { top:10%; }
-    .role-node.fast { top:40%; }
-    .role-node.arbiter { top:70%; }
+    .role-node.deep { top:3%; }
+    .role-node.fast { top:22%; }
+    .role-node.arbiter { top:41%; }
+    .role-node.e2e-spec { top:60%; }
+    .role-node.e2e-verify { top:79%; }
     .role-node span { display:block; margin-bottom:3px; color:var(--on-slab-muted); font-size:11px; }
     .role-node strong { display:block; overflow:hidden; color:var(--on-slab); font:11px/1.45 var(--mono-v2); font-variant-numeric:tabular-nums; text-overflow:ellipsis; white-space:nowrap; }
     .route-line { position:absolute; left:31%; width:34%; height:1px; transform-origin:left center; background:linear-gradient(90deg,rgba(231,91,56,.18),rgba(231,91,56,.78)); }
@@ -927,9 +927,11 @@ HTML = r'''<!doctype html>
       .hero-map { min-height:380px; }
       .agent-core { left:50%; top:43%; transform:translate(-50%,-50%); }
       .role-node { left:7%; width:86%; display:grid; grid-template-columns:90px 1fr; gap:8px; align-items:center; }
-      .role-node.deep { top:63%; }
-      .role-node.fast { top:74%; }
-      .role-node.arbiter { top:85%; }
+      .role-node.deep { top:52%; }
+      .role-node.fast { top:62%; }
+      .role-node.arbiter { top:72%; }
+      .role-node.e2e-spec { top:82%; }
+      .role-node.e2e-verify { top:92%; }
       .route-line { display:none; }
       .detect { grid-template-columns:1fr; }
       .detect .item { border-left:0; }
@@ -986,11 +988,11 @@ HTML = r'''<!doctype html>
         <div class="route-line deep" aria-hidden="true"><i></i></div>
         <div class="route-line fast" aria-hidden="true"><i></i></div>
         <div class="route-line arbiter" aria-hidden="true"><i></i></div>
-        <div class="role-node deep"><span>Deep reasoning</span><strong id="heroDeep">Detecting</strong></div>
-        <div class="role-node fast"><span>Fast execution</span><strong id="heroFast">Detecting</strong></div>
-        <div class="role-node arbiter"><span>Independent arbitration</span><strong id="heroArbiter">Detecting</strong></div>
-        <div class="role-node e2e-spec"><span>Acceptance authoring</span><strong id="heroE2eSpec">Off</strong></div>
-        <div class="role-node e2e-verify"><span>Acceptance execution</span><strong id="heroE2eVerify">Off</strong></div>
+        <div class="role-node deep"><span>Deep reasoning</span><strong id="hero-deep_reasoner">Detecting</strong></div>
+        <div class="role-node fast"><span>Fast execution</span><strong id="hero-fast_worker">Detecting</strong></div>
+        <div class="role-node arbiter"><span>Independent arbitration</span><strong id="hero-arbiter">Detecting</strong></div>
+        <div class="role-node e2e-spec"><span>Acceptance authoring</span><strong id="hero-e2e_specifier">Off</strong></div>
+        <div class="role-node e2e-verify"><span>Acceptance execution</span><strong id="hero-e2e_verifier">Off</strong></div>
       </div>
     </header>
 
@@ -1157,27 +1159,26 @@ HTML = r'''<!doctype html>
       });
       $('currentMode').textContent = `Current mode: ${MODE_LABELS[mode]}`;
     }
+    function activeIdentities() {
+      return $('withE2e').checked
+        ? state.core_identities.concat(state.optional_identities)
+        : state.core_identities;
+    }
     function syncHeroMap() {
-      const targets = {
-        deep_reasoner:'heroDeep',
-        fast_worker:'heroFast',
-        arbiter:'heroArbiter',
-        e2e_specifier:'heroE2eSpec',
-        e2e_verifier:'heroE2eVerify',
-      };
-      const withE2e = $('withE2e').checked;
-      for (const [identity, target] of Object.entries(targets)) {
+      const active = activeIdentities();
+      for (const identity of state.core_identities.concat(state.optional_identities)) {
+        const node = $(`hero-${identity}`);
         const values = matrix[identity];
-        if (!values) continue;
-        if (state.optional_identities.includes(identity) && !withE2e) {
-          $(target).textContent = 'Off';
-          $(target).title = 'Not configured';
+        if (!node || !values) continue;
+        if (!active.includes(identity)) {
+          node.textContent = 'Off';
+          node.title = 'Not configured';
           continue;
         }
         const backend = values.backend === 'claude' ? 'Claude Code' : 'Codex';
         const summary = `${backend} / ${values.model || 'not set'} / ${values.effort}`;
-        $(target).textContent = summary;
-        $(target).title = summary;
+        node.textContent = summary;
+        node.title = summary;
       }
     }
     function invalidate() {
@@ -1249,11 +1250,8 @@ HTML = r'''<!doctype html>
     }
     function payload() {
       const withE2e = $('withE2e').checked;
-      const names = withE2e
-        ? state.core_identities.concat(state.optional_identities)
-        : state.core_identities;
       const identities = {};
-      for (const identity of names) {
+      for (const identity of activeIdentities()) {
         identities[identity] = {
           backend: matrix[identity].backend,
           model: matrix[identity].model,

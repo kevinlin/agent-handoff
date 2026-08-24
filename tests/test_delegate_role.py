@@ -11,6 +11,38 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path("scripts/delegate-codex.sh")
 
 
+def make_env(root: Path, codex_body: str) -> dict[str, str]:
+    """A clean environment pointing HANDOFF_CODEX_BIN at a fake codex."""
+
+    fake_codex = root / "codex"
+    fake_codex.write_text(f"#!/usr/bin/env bash\n{codex_body}", encoding="utf-8")
+    fake_codex.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(root / "home"),
+            "XDG_CONFIG_HOME": str(root / "xdg"),
+            "HANDOFF_CODEX_BIN": str(fake_codex),
+        }
+    )
+    return env
+
+
+def run_delegate(env: dict[str, str], *arguments: str):
+    return subprocess.run(
+        ["bash", str(SCRIPT), *arguments],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def parse_pairs(text: str) -> dict[str, str]:
+    return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+
+
 class DelegateRoleTests(unittest.TestCase):
     def run_submit(self, config: str | None, *arguments: str, init_git: bool = False):
         temporary = tempfile.TemporaryDirectory()
@@ -31,37 +63,16 @@ class DelegateRoleTests(unittest.TestCase):
             config_path = repo / ".handoff" / "config.toml"
             config_path.parent.mkdir()
             config_path.write_text(config, encoding="utf-8")
-        fake_codex = root / "codex"
-        fake_codex.write_text(
-            "#!/usr/bin/env bash\nprintf 'codex-cli test-version\\n'\n",
-            encoding="utf-8",
-        )
-        fake_codex.chmod(0o755)
-        env = os.environ.copy()
-        env.update(
-            {
-                "HOME": str(root / "home"),
-                "XDG_CONFIG_HOME": str(root / "xdg"),
-                "HANDOFF_CODEX_BIN": str(fake_codex),
-            }
-        )
-        result = subprocess.run(
-            [
-                "bash",
-                str(SCRIPT),
-                "submit",
-                "--repo",
-                str(repo),
-                "--prompt-file",
-                str(prompt),
-                "--dry-run",
-                *arguments,
-            ],
-            cwd=ROOT,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
+        env = make_env(root, "printf 'codex-cli test-version\\n'\n")
+        result = run_delegate(
+            env,
+            "submit",
+            "--repo",
+            str(repo),
+            "--prompt-file",
+            str(prompt),
+            "--dry-run",
+            *arguments,
         )
         return result, repo
 
@@ -110,9 +121,7 @@ class DelegateRoleTests(unittest.TestCase):
             'effort = "high"\n'
         )
 
-    @staticmethod
-    def parsed(output: str) -> dict[str, str]:
-        return dict(line.split("=", 1) for line in output.splitlines())
+    parsed = staticmethod(parse_pairs)
 
     def test_deep_reasoner_uses_project_config(self):
         result, _ = self.run_submit(self.config(), "--role", "deep_reasoner")
@@ -232,17 +241,7 @@ class WorktreeTests(unittest.TestCase):
         self.prompt = self.root / "prompt.md"
         self.prompt.write_text("test prompt\n", encoding="utf-8")
         # Exits immediately, so the launched job finishes without doing work.
-        fake_codex = self.root / "codex"
-        fake_codex.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-        fake_codex.chmod(0o755)
-        self.env = os.environ.copy()
-        self.env.update(
-            {
-                "HOME": str(self.root / "home"),
-                "XDG_CONFIG_HOME": str(self.root / "xdg"),
-                "HANDOFF_CODEX_BIN": str(fake_codex),
-            }
-        )
+        self.env = make_env(self.root, "exit 0\n")
 
     def git(self, *arguments: str) -> str:
         return subprocess.run(
@@ -253,14 +252,7 @@ class WorktreeTests(unittest.TestCase):
         ).stdout.strip()
 
     def delegate(self, *arguments: str):
-        return subprocess.run(
-            ["bash", str(SCRIPT), *arguments],
-            cwd=ROOT,
-            env=self.env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        return run_delegate(self.env, *arguments)
 
     def submit_raw(self, *arguments: str):
         return self.delegate(
@@ -279,11 +271,7 @@ class WorktreeTests(unittest.TestCase):
 
     def read_meta(self, job_id: str) -> dict[str, str]:
         meta = self.repo / ".handoff" / "jobs" / job_id / "meta"
-        return dict(
-            line.split("=", 1)
-            for line in meta.read_text(encoding="utf-8").splitlines()
-            if "=" in line
-        )
+        return parse_pairs(meta.read_text(encoding="utf-8"))
 
     def cleanup(self, job_id: str):
         return self.delegate("cleanup", job_id, "--repo", str(self.repo))
