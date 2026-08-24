@@ -20,6 +20,7 @@ All helper scripts live in `$HANDOFF_DIR` (see Tool Location in `SKILL.md`). Job
   - identity `-` for what the driver keeps inline: architecture, the split decision itself, cross-task integration, security/correctness-critical paths, final acceptance. Never route these to a cheaper identity to save money, and never burn the driver's seat on mechanical work.
   Which CLI executes and which meter bills follows from the identity's configured `backend` (`/agent-handoff config`), not from a separate per-task choice. Two escape hatches remain for edge cases: a one-shot Codex subagent (e.g. a rescue agent) for a stuck step needing a second diagnosis with no durable state, and a raw Task-tool subagent when no Handoff identity fits — billing notes for both in `references/fable5-principles.md`.
 - Adversarial gate: attack your own split before acting on it. Answer three questions in writing: does each delegated task really not need the expensive tier, does the integration cost of the split boundary eat the savings, and does each row's identity match the work's actual stakes (with a reason it is not a more expensive one). A row that survives all three gets delegated; anything else gets its identity corrected, merged into a neighbour, or kept inline. Fix the split first, then delegate.
+- Acceptance coverage: add `e2e_specifier` and `e2e_verifier` rows when the change **alters user-observable behaviour at a real interface** (UI, API surface, mobile screen). Skip them for internal refactors, docs, config, and pure library work. When the criterion fires but the identities are unconfigured, say so once — "this change is user-observable; `/agent-handoff config --with-e2e` would add acceptance coverage" — then continue without them. Full protocol, both packets, and the worktree rules: `references/e2e-gauntlet.md`.
 
 ## Sub Agent Routing
 
@@ -59,11 +60,21 @@ The tool fail-closes on both misconfigurations: no Handoff config yet → clear 
 
 - Use `--read-only` for scan/review jobs that must not modify the repo.
 - Record the returned jobId in the goal file's task row. Independent tasks can be submitted in parallel.
+- E2E rows run in a dedicated worktree cut from an immutable SHA:
+
+```bash
+bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+  --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
+  --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
+```
+
+  `--repo` stays the main repo in every invocation; a worktree is a derived working directory, never a `--repo` value. The packet carries the frozen goal excerpt and spec inline, because a worktree holds tracked content only and has no `.handoff/`.
 
 ## Phase 3 — Monitor (loop)
 
 - Short single job (expected under ~5 minutes): block on it — `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" status <jobId> --repo "$REPO" --wait --timeout 300`.
 - Long or multiple jobs: set up the built-in `/loop` skill at a 5-minute interval with a prompt like: read `.handoff/goal.md`, run `delegate-codex.sh status` for every running jobId (tail the job's `log.jsonl` for the last event), update task statuses in the goal file, and when no job is left running, stop the loop and continue with Phase 4.
+- The loop reads each row's `depends` column and does not submit a row whose dependencies have not reached `done`. An `e2e_verifier` row waits on both the specifier row and the implementation row: it needs the tests in its tree, not just the feature.
 - A job stuck with no new JSONL events for two consecutive ticks, or a `status` of FAILED, is a monitoring anomaly: cancel it, read `stderr.log`, and either resubmit with a corrected prompt or take the task back into Claude. Record the anomaly for the receipt.
 
 ## Phase 4 — Full Review Gate
@@ -71,6 +82,15 @@ The tool fail-closes on both misconfigurations: no Handoff config yet → clear 
 - Collect each finished job: `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" result <jobId> --repo "$REPO"`.
 - Claude reviews the complete diff itself — `git diff` (scoped to the files the job touched), plus the fastest relevant check. This is a full review by default, not a sample. Do not accept work you have not read.
 - Review against the acceptance criteria in `.handoff/goal.md`, not against the diff alone. A reviewer given only the diff confidently redefines the spec as "internally consistent with what changed" and misses tasks that were never done — in Superpowers 6, diff-only reviewers caught 0 of 5 missing task briefs. Re-read each task's brief, then ask "does this diff satisfy that brief," not just "is this diff self-consistent."
+- When the run carries e2e rows, sequence them before the fix-round step:
+  1. Review the specifier's scenarios against the acceptance column in `.handoff/goal.md`. A generated test weaker than the goal's criteria will green-light a broken feature, and the verdict inherits that weakness.
+  2. Record the reviewed hash at that moment: `REVIEWED_SHA=$(find features -name '*.feature' | sort | xargs cat | shasum -a 256 | cut -d' ' -f1)`.
+  3. Integrate the specifier and implementation branches onto the feature branch, producing one combined commit.
+  4. Submit the verifier pinned to that commit, then validate its verdict before acting on it: `python3 "$HANDOFF_DIR/scripts/validate-verdict.py" "$REPO/.handoff/e2e/$JOB_ID/verdict.json" --expect-scenarios-sha256 "$REVIEWED_SHA"`.
+  5. PASS goes to the merge decision. FAIL is a product finding routed to the original implementer, never to the verifier. BLOCKED means nothing was proved: resolve the prerequisite and rerun, never read it as PASS.
+  6. Once a worktree is merged or abandoned, `delegate-codex.sh cleanup <jobId> --repo "$REPO"`.
+
+  `main` is reached only after a PASS plus the driver's final review, which keeps merge inside the existing hard-stop rule.
 - Findings? Send one bounded fix round back to the same Codex session:
 
 ```bash
@@ -92,4 +112,5 @@ Only runs when the user asked for the full "full protocol / PR delivery / goal m
 
 - Mark tasks done in `.handoff/goal.md`; stop any remaining `/loop`.
 - Emit the Handoff Session Receipt with `codex_jobs: <count>` (fix rounds included); `claude_session` is the current session. Pass `--repo "$REPO"` so `duration` and `codex_job_durations` are measured from the start marker and the job directories; neither is ever typed from recall. Set `scope` and `config_source` from `handoff-config.py resolve` (or `handoff-setup.py --status`), and build `roles_used` from the roles this run actually invoked: each `delegate-codex.sh` job's `meta` file has `role`/`model`/`effort`/`model_source`/`effort_source`, and `handoff-config.py resolve` has each role's `verified`/`verified_at`. List a role even when `verified` is `false` — never guess it true.
+- E2E roles appear in `roles_used` like any other role when the run used them; `receipt_schema_version` stays `4`.
 - Run the memory protocol in `references/memory-protocol.md`: what got delegated, how Codex performed per task type, rework rounds, and effort fit — so the next split decision starts smarter.
