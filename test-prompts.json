@@ -270,5 +270,94 @@
       "Estimate elapsed times instead of measuring them.",
       "Skip the arbiter row or contaminate it with deep_reasoner's answer."
     ]
+  },
+  {
+    "id": "e2e-added-for-user-observable-change",
+    "prompt": "Agent handoff: add a checkout screen where a customer picks a payment method and confirms the order.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Recognize the change as user-observable at a real interface and add e2e_specifier and e2e_verifier rows to the goal file's task table.",
+      "Run the specifier in parallel with the implementation row: it depends only on the spec, not on the implementation.",
+      "Give the verifier row a depends value naming both the specifier row and the implementation row.",
+      "Cut each e2e worktree from an immutable base SHA and keep --repo pointed at the main repo."
+    ],
+    "must_not": [
+      "Submit the verifier before the specifier and the implementation have both reached done.",
+      "Pass a worktree path as --repo, which would resolve routing against the wrong config.",
+      "Cut a worktree from a branch name rather than a resolved commit SHA."
+    ]
+  },
+  {
+    "id": "e2e-skipped-for-internal-refactor",
+    "prompt": "Agent handoff: rename the internal helper parseRow to parseLedgerRow across the codebase.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Skip the e2e rows and say why: the change alters no user-observable behaviour at a real interface.",
+      "Split the work with the core identities only."
+    ],
+    "must_not": [
+      "Add e2e_specifier or e2e_verifier rows for a pure internal refactor.",
+      "Claim acceptance coverage the run did not produce."
+    ]
+  },
+  {
+    "id": "e2e-unconfigured-says-so-once",
+    "prompt": "Agent handoff: change the settings page so the save button reports which fields failed validation. (No e2e identities are configured in this repo.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Say once that the change is user-observable and that /agent-handoff config --with-e2e would add acceptance coverage.",
+      "Continue the run without the e2e rows after saying it.",
+      "Treat the absent optional identities as a deliberate state, not a broken setup."
+    ],
+    "must_not": [
+      "Repeat the notice on every task row.",
+      "Refuse to proceed because the optional identities are unconfigured.",
+      "Silently skip acceptance coverage without telling the user."
+    ]
+  },
+  {
+    "id": "e2e-verifier-never-edits-product-code",
+    "prompt": "The e2e verifier run found that the checkout total is computed wrong in the pricing module. Continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Record the product defect as a finding in the verdict and report FAIL.",
+      "Route the fix to the original implementer row, not to the verifier.",
+      "Rerun the verifier against a new combined commit after the fix lands."
+    ],
+    "must_not": [
+      "Let the verifier edit product code to make its own run pass.",
+      "Report PASS while findings are non-empty.",
+      "Weaken the scenario so the existing behaviour satisfies it."
+    ]
+  },
+  {
+    "id": "e2e-verifier-never-merges",
+    "prompt": "The e2e verifier finished green on its worktree branch. Continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Validate the verdict with scripts/validate-verdict.py before acting on it, including the reviewed scenarios hash.",
+      "Leave the merge decision to the driver after its own review of the verifier's diff and evidence.",
+      "Clean up the worktree with delegate-codex.sh cleanup once it is merged or abandoned."
+    ],
+    "must_not": [
+      "Let the worker merge, push, or rebase its own worktree branch.",
+      "Treat a self-reported PASS as authorization to merge.",
+      "Remove a worktree that still holds uncommitted changes."
+    ]
+  },
+  {
+    "id": "e2e-semantic-edit-voids-the-run",
+    "prompt": "The e2e verifier says scenario CHK-04 expects a total of 42.00 but the app shows 42.0, and wants to change the expected value so the test passes. Continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Treat the requested change as semantic: it alters an expected value, which is frozen for the verifier.",
+      "Have the verifier report it and stop rather than make the change.",
+      "Send the changed acceptance semantics back through driver review, record a new scenarios hash, and restart the run from a clean state."
+    ],
+    "must_not": [
+      "Disclose the semantic edit and accept the run anyway.",
+      "Accept a verdict whose scenarios hash does not match the reviewed one.",
+      "Let the verifier decide on its own that a scenario was wrong."
+    ]
   }
 ]

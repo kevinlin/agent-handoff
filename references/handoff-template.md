@@ -38,6 +38,7 @@ Delegation packet rules:
 - Acceptance criteria are what the Phase 4 full review checks against; write them as commands or observable behavior, never vibes.
 - Keep the constraints section short — genuine blockers only. Trust the model with approach decisions inside the scope boundary.
 - For fix rounds (`delegate-codex.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet.
+- The e2e packets in `references/e2e-gauntlet.md` **replace** the "Do not commit" constraint line with a commit-on-this-worktree-branch rule. They are the only packets that do; do not append a commit permission to this template.
 
 ## Goal Packet (Plan→Goal→PR→Verification, `references/goal-to-pr.md`)
 

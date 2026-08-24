@@ -5,7 +5,7 @@
 > Claude Code decides, Codex executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.1.0](https://img.shields.io/badge/version-3.1.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.2.0](https://img.shields.io/badge/version-3.2.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -185,6 +185,17 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs` and their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
 - A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
 - Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
+- Five identities, each a `backend + model + effort` triple pinned independently:
+
+  | identity | carries | |
+  |---|---|---|
+  | `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis | core |
+  | `fast_worker` | mechanical, spec-complete implementation and checks | core |
+  | `arbiter` | blind second solve for contested calls | core |
+  | `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
+  | `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
+
+  The optional pair is written only when setup runs `--with-e2e`; a three-identity config is complete. See [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md).
 - A Darwin-style ratchet: improve one workflow dimension at a time and keep only verified gains.
 - A first-run setup wizard (`/agent-handoff config`): balanced/quality/cost presets remain editable per identity; `.handoff/config.toml` is the single source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list; post-install verification uses a tool-free fresh Claude session plus the Codex delegate dry-run chain.
 - Handoff Session Receipt v4: `scope`/`config_source`/`roles_used` prove which model and effort actually ran a role, not just "it was delegated."
@@ -200,16 +211,18 @@ test-prompts.json                       Trigger and behavior regression prompts
 docs/showcase-cost-model.md             Showcase cost-pressure model and real token capture fields
 docs/receipt-schema.json                JSON schema for the Handoff Session Receipt (handoff.receipt.v4)
 docs/config-schema.md                   Handoff config schema v2: identity matrix, precedence, concurrency, TOML subset
+docs/verdict-schema.json                JSON schema for the e2e verdict artifact (handoff.verdict.v1)
 examples/session-receipt.md             Receipt example (schema v4, validated in CI)
 examples/v2.0.0-conversation-cost-receipt.md
                                         Identity, model, effort, and cost receipt for the v2.0.0 failure baseline
 examples/v2.0.1-conversation-cost-receipt.md
-                                        Real task, model, effort, and cost receipt for all three identities
+                                        Real task, model, effort, and cost receipt for the three core identities
 examples/showcase-cost-ledger.json      Cost-pressure ledger for the three operating modes
 references/handoff-template.md          Codex delegation packet and user-facing Goal Packet templates
 references/darwin-ratchet.md            Validation-gated improvement rules
+references/e2e-gauntlet.md              Optional e2e acceptance roles: worktree protocol, both packets, verdict contract
 references/claude-driven.md             The five-phase flow (adversarial split gate and blind arbitration included)
-references/setup.md                     `/agent-handoff config` first-run setup wizard: identity matrix (three cross-vendor identities)
+references/setup.md                     `/agent-handoff config` first-run setup wizard: identity matrix (cross-vendor identities)
 references/tryout.md                    `/agent-handoff tryout` identity tryout: one micro-task per identity, report proving the models are live
 references/goal-to-pr.md                Opt-in full protocol: Plan→Goal→PR→Verification, hard-stop list, imperative authorization
 references/goal-template.md             Template for .handoff/goal.md (task table + checkpoint rule)
@@ -220,8 +233,9 @@ scripts/check-skill-repo.sh             Publish readiness smoke check
 scripts/english-only-scan.py            Fails if any tracked file contains CJK text
 scripts/make-receipt.py                 Generates a pre-validated receipt, can persist to .handoff/
 scripts/validate-receipt.py             Validates Handoff Session Receipt fields and values
+scripts/validate-verdict.py             Validates an e2e verdict artifact, including its cross-field rules
 scripts/run-test-prompts.py             Static validation of the regression prompts
-scripts/delegate-codex.sh               Codex background-job primitive: submit / status / result / resume / cancel
+scripts/delegate-codex.sh               Codex background-job primitive: submit / status / result / resume / cancel / cleanup
 scripts/handoff-config.py               Config engine: TOML-subset parsing, deterministic writes, locking (schema v2)
 scripts/handoff_runtime.py              Shared Claude child-process environment boundary for first-party OAuth
 scripts/handoff-setup.py                Setup wizard engine: --preview/--apply/--rollback/--smoke/--status/--interactive
