@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "handoff.verdict.v1",
+  "title": "Handoff E2E Verdict",
+  "description": "The artifact an e2e_verifier job writes to .handoff/e2e/<jobId>/verdict.json. Structural validity is necessary but not sufficient: the contract is the set of cross-field rules in scripts/validate-verdict.py, which check a PASS against the exit code, the scenario counts, and the hash of the scenarios the driver reviewed. A verdict is a merge-decision input, so check it with that script rather than by shape alone.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "result",
+    "base_commit",
+    "tested_commit",
+    "scenarios_sha256",
+    "target",
+    "command",
+    "exit_code",
+    "scenarios",
+    "harness_edits",
+    "findings",
+    "evidence"
+  ],
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED"],
+      "description": "PASS: every reviewed scenario ran and passed. FAIL: the product did not satisfy a scenario. BLOCKED: no valid execution happened, so nothing was proved either way. BLOCKED is never read as PASS."
+    },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The immutable commit the worktree was cut from."
+    },
+    "tested_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The commit actually under test, echoed back so the verdict names a commit rather than a branch."
+    },
+    "scenarios_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 over the reviewed .feature files in path order. Must equal the hash the driver recorded at review time; a weakened scenario changes it and the run is rejected before its verdict is read. The lock covers .feature files only."
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The approved system under test. A remote, production, destructive, or billable target requires explicit user authorization."
+    },
+    "command": {
+      "type": ["string", "null"],
+      "description": "The exact command that executed the tests. Null only when BLOCKED stopped the run before execution."
+    },
+    "exit_code": {
+      "type": ["integer", "null"],
+      "description": "The runner's exit status. Null only when BLOCKED stopped the run before execution."
+    },
+    "scenarios": {
+      "type": "object",
+      "required": ["total", "passed", "ids"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0},
+        "ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Stable scenario ids (CHK-01 and so on) — the join key between the Gherkin scenarios and this verdict. Its length must equal total."
+        }
+      }
+    },
+    "harness_edits": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Every file the verifier repaired. Repairs are limited to launch and runner scaffolding; the driver diffs exactly these paths, which is what guards behavioural meaning living inside executable spec files rather than .feature files."
+    },
+    "findings": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "What failed or blocked the run. A product failure is a finding routed back to the original implementer, never fixed by the verifier."
+    },
+    "evidence": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Paths to artifacts a human can inspect: videos, screenshots, runner logs."
+    }
+  }
+}
