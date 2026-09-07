@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1348">
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
-    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
-    .subtitle { font-size: 10.5px; fill: #64748b; }
-    .phase { font-size: 11px; font-weight: 700; fill: #059669; letter-spacing: 0.08em; }
-    .pill { font-size: 10px; font-weight: 700; }
-    .ntitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
-    .note { font-size: 10px; fill: #475569; }
-    .warn { font-size: 10px; fill: #be123c; }
-    .ev { font-size: 10px; font-weight: 700; fill: #334155; }
-    .back { font-size: 10px; font-weight: 700; fill: #64748b; }
-    .leg { font-size: 10px; fill: #475569; }
-    .fhead { font-size: 11px; font-weight: 700; fill: #0f172a; }
+    .title { font-size: 21.6px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 12.6px; fill: #64748b; }
+    .phase { font-size: 13.2px; font-weight: 700; fill: #059669; letter-spacing: 0.08em; }
+    .pill { font-size: 12px; font-weight: 700; }
+    .ntitle { font-size: 13.8px; font-weight: 700; fill: #0f172a; }
+    .note { font-size: 12px; fill: #475569; }
+    .warn { font-size: 12px; fill: #be123c; }
+    .ev { font-size: 12px; font-weight: 700; fill: #334155; }
+    .back { font-size: 12px; font-weight: 700; fill: #64748b; }
+    .leg { font-size: 12px; fill: #475569; }
+    .fhead { font-size: 13.2px; font-weight: 700; fill: #0f172a; }
   </style>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -43,7 +43,7 @@
   <line x1="346" y1="560" x2="346" y2="599" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
   <path d="M 596 646 H 622 V 669 H 641" fill="none" stroke="#059669" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <path d="M 596 646 H 622 V 841 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="593" y="626" width="58" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="589.2" y="626" width="65.6" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="638" class="ev" text-anchor="middle">findings</text>
   <path d="M 898 904 V 927 H 52 V 355 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
   <text x="46" y="598" class="back" text-anchor="middle" transform="rotate(-90 46 598)">re-review from the brief</text>
@@ -55,7 +55,7 @@
   <text x="46" y="1084" class="back" text-anchor="middle" transform="rotate(-90 46 1084)">finished inline</text>
   <path d="M 596 355 H 622 V 300 H 641" fill="none" stroke="#059669" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <rect x="648" y="150" width="500" height="210" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
-  <rect x="662" y="161" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="662" y="161" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="670" y="174" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="662" y="200" class="ntitle">When the run carries e2e rows, before any fix round</text>
   <text x="662" y="218" class="note">1 · review the specifier&#39;s scenarios against goal.md acceptance</text>
@@ -68,32 +68,32 @@
   <text x="662" y="323" class="warn">BLOCKED proved nothing: resolve it, never read it as PASS</text>
   <text x="662" y="338" class="note">6 · cleanup &lt;jobId&gt; once the worktree is merged or abandoned</text>
   <rect x="96" y="150" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
-  <rect x="110" y="161" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <rect x="110" y="161" width="138.4" height="18" rx="6" fill="#d97706" opacity="0.10"/>
   <text x="118" y="174" class="pill" fill="#d97706">delegate-codex.sh</text>
   <text x="110" y="200" class="ntitle">result &lt;jobId&gt;</text>
   <text x="110" y="218" class="note">reduces log.jsonl to session_id · last agent message ·</text>
   <text x="110" y="233" class="note">commands run · token usage</text>
   <text x="110" y="248" class="note">the full event stream stays on disk for when it is needed</text>
   <rect x="96" y="307" width="500" height="96" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
-  <rect x="110" y="318" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="318" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="331" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="357" class="ntitle">Re-read the brief before the diff</text>
   <text x="110" y="375" class="note">the acceptance column and each task brief from goal.md</text>
   <text x="110" y="390" class="note">not the stage before it, and not the maker's self-report</text>
   <rect x="96" y="449" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
-  <rect x="110" y="460" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="460" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="473" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="499" class="ntitle">Read the complete diff</text>
   <text x="110" y="517" class="note">git diff, scoped to the files the job touched</text>
   <text x="110" y="532" class="note">the whole thing, never a sample — do not accept unread work</text>
   <text x="110" y="547" class="note">plus the fastest relevant check</text>
   <rect x="96" y="606" width="500" height="81" rx="9" fill="#ffffff" stroke="#059669" stroke-width="2.2"/>
-  <rect x="110" y="617" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="617" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="630" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="656" class="ntitle">Does this diff satisfy that brief?</text>
   <text x="110" y="674" class="note">the question is never “is this diff self-consistent”</text>
   <rect x="648" y="606" width="500" height="126" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
-  <rect x="662" y="617" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="662" y="617" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="670" y="630" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="662" y="656" class="ntitle">Why the brief and not the diff</text>
   <text x="662" y="674" class="warn">in Superpowers 6, diff-only reviewers caught 0 of 5</text>
@@ -101,7 +101,7 @@
   <text x="662" y="704" class="note">a reviewer holding only a diff redefines the spec as</text>
   <text x="662" y="719" class="note">“consistent with whatever changed”</text>
   <rect x="648" y="778" width="500" height="126" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
-  <rect x="662" y="789" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <rect x="662" y="789" width="138.4" height="18" rx="6" fill="#d97706" opacity="0.10"/>
   <text x="670" y="802" class="pill" fill="#d97706">delegate-codex.sh</text>
   <text x="662" y="828" class="ntitle">resume &lt;jobId&gt; --prompt-file &lt;fix-notes&gt;</text>
   <text x="662" y="846" class="note">a new directory &lt;parent&gt;-r2 with its own prompt.md</text>
@@ -109,14 +109,14 @@
   <text x="662" y="876" class="note">the resumed session still holds the original packet</text>
   <text x="662" y="891" class="warn">two rounds maximum per task</text>
   <rect x="648" y="950" width="500" height="111" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
-  <rect x="662" y="961" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="662" y="961" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="670" y="974" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="662" y="1000" class="ntitle">Two rounds failed → take the task back</text>
   <text x="662" y="1018" class="note">finish it in the driver; write the takeback into goal.md's</text>
   <text x="662" y="1033" class="note">status, the notes, and the receipt — so the memory protocol</text>
   <text x="662" y="1048" class="note">learns that this task type does not delegate well</text>
   <rect x="96" y="1107" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
-  <rect x="110" y="1118" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="1118" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="1131" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="1157" class="ntitle">Accept</text>
   <text x="110" y="1175" class="note">optionally /codex review the combined diff as a third gate</text>

@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1230">
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
-    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
-    .subtitle { font-size: 10.5px; fill: #64748b; }
-    .cardtitle { font-size: 13px; font-weight: 700; fill: #0f172a; }
-    .route { font-size: 10px; font-weight: 600; }
-    .sec { font-size: 11px; font-weight: 700; fill: #1e293b; }
-    .secnote { font-size: 10px; fill: #64748b; }
-    .rulehead { font-size: 10.5px; font-weight: 700; fill: #334155; }
-    .rule { font-size: 10px; fill: #475569; }
-    .warn { font-size: 10px; fill: #be123c; }
+    .title { font-size: 21.6px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 12.6px; fill: #64748b; }
+    .cardtitle { font-size: 15.6px; font-weight: 700; fill: #0f172a; }
+    .route { font-size: 12px; font-weight: 600; }
+    .sec { font-size: 13.2px; font-weight: 700; fill: #1e293b; }
+    .secnote { font-size: 12px; fill: #64748b; }
+    .rulehead { font-size: 12.6px; font-weight: 700; fill: #334155; }
+    .rule { font-size: 12px; fill: #475569; }
+    .warn { font-size: 12px; fill: #be123c; }
   </style>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -20,164 +20,164 @@
   <rect width="1240" height="1230" fill="#f8fafc"/>
   <rect width="1240" height="1230" fill="url(#grid)"/>
 
-  <text x="40" y="42" class="title">Packet anatomy — the four named contracts</text>
-  <text x="40" y="64" class="subtitle">Every crossing is a bounded packet with one ask, a scope boundary, and verifiable acceptance; none of them is "paste the repo"</text>
+  <text x="34" y="42" class="title">Packet anatomy — the four named contracts</text>
+  <text x="34" y="64" class="subtitle">Every crossing is a bounded packet with one ask, a scope boundary, and verifiable acceptance; none of them is "paste the repo"</text>
 
   <!-- Card 1 — the base delegation packet -->
-  <rect x="50" y="95" width="350" height="695" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
-  <rect x="50" y="95" width="350" height="52" rx="10" fill="rgba(245,158,11,0.16)"/>
-  <text x="68" y="121" class="cardtitle">Delegation Packet</text>
-  <text x="68" y="139" class="route" fill="#b45309">Claude → Codex · delegate-codex.sh submit</text>
+  <rect x="44" y="95" width="376" height="695" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="44" y="95" width="376" height="52" rx="10" fill="rgba(245,158,11,0.16)"/>
+  <text x="62" y="121" class="cardtitle">Delegation Packet</text>
+  <text x="62" y="139" class="route" fill="#b45309">Claude → Codex · delegate-codex.sh submit</text>
 
-  <text x="68" y="176" class="sec">Context — why-forward</text>
-  <text x="68" y="192" class="secnote">working on X for Y so that Z; never a</text>
-  <text x="68" y="207" class="secnote">bare instruction with no purpose</text>
-  <text x="68" y="231" class="sec">Task</text>
-  <text x="68" y="247" class="secnote">one clear sentence</text>
-  <text x="68" y="271" class="sec">Acceptance</text>
-  <text x="68" y="287" class="secnote">commands or observable behaviour —</text>
-  <text x="68" y="302" class="secnote">what the Phase 4 review judges against</text>
-  <text x="68" y="326" class="sec">Constraints</text>
-  <text x="68" y="342" class="secnote">paths in and out of scope; no commit,</text>
-  <text x="68" y="357" class="secnote">push, deploy, or secrets</text>
-  <text x="68" y="381" class="sec">Checkpoint rule</text>
-  <text x="68" y="397" class="secnote">pause only for an irreversible action, a</text>
-  <text x="68" y="412" class="secnote">real scope change, or user-only input</text>
-  <text x="68" y="436" class="sec">Output discipline</text>
-  <text x="68" y="452" class="secnote">no optional commentary; at most three</text>
-  <text x="68" y="467" class="secnote">lines of lessons for rollout memory</text>
+  <text x="62" y="176" class="sec">Context — why-forward</text>
+  <text x="62" y="192" class="secnote">working on X for Y so that Z; never a</text>
+  <text x="62" y="207" class="secnote">bare instruction with no purpose</text>
+  <text x="62" y="231" class="sec">Task</text>
+  <text x="62" y="247" class="secnote">one clear sentence</text>
+  <text x="62" y="271" class="sec">Acceptance</text>
+  <text x="62" y="287" class="secnote">commands or observable behaviour —</text>
+  <text x="62" y="302" class="secnote">what the Phase 4 review judges against</text>
+  <text x="62" y="326" class="sec">Constraints</text>
+  <text x="62" y="342" class="secnote">paths in and out of scope; no commit,</text>
+  <text x="62" y="357" class="secnote">push, deploy, or secrets</text>
+  <text x="62" y="381" class="sec">Checkpoint rule</text>
+  <text x="62" y="397" class="secnote">pause only for an irreversible action, a</text>
+  <text x="62" y="412" class="secnote">real scope change, or user-only input</text>
+  <text x="62" y="436" class="sec">Output discipline</text>
+  <text x="62" y="452" class="secnote">no optional commentary; at most three</text>
+  <text x="62" y="467" class="secnote">lines of lessons for rollout memory</text>
 
-  <rect x="68" y="490" width="314" height="280" rx="8" fill="#f1f5f9"/>
-  <text x="86" y="514" class="rulehead">Nothing generates this packet</text>
-  <text x="86" y="538" class="rule">The driver composes it in its own</text>
-  <text x="86" y="555" class="rule">context, writes it to $(mktemp), and</text>
-  <text x="86" y="572" class="rule">passes the path. The script's only check</text>
-  <text x="86" y="589" class="rule">is that the file exists — this contract is</text>
-  <text x="86" y="606" class="rule">authorship discipline, not validation.</text>
-  <text x="86" y="632" class="rulehead">Routing is config, not prose</text>
-  <text x="86" y="656" class="rule">--role picks the identity; backend, model</text>
-  <text x="86" y="673" class="rule">and effort resolve from config and are</text>
-  <text x="86" y="690" class="rule">never restated inside the packet itself.</text>
-  <text x="86" y="716" class="rule">Fix rounds are thinner on purpose: the</text>
-  <text x="86" y="733" class="rule">findings, the failed criteria, and</text>
-  <text x="86" y="750" class="rule">"continue end-to-end from here".</text>
+  <rect x="62" y="490" width="340" height="280" rx="8" fill="#f1f5f9"/>
+  <text x="80" y="514" class="rulehead">Nothing generates this packet</text>
+  <text x="80" y="538" class="rule">The driver composes it in its own</text>
+  <text x="80" y="555" class="rule">context, writes it to $(mktemp), and</text>
+  <text x="80" y="572" class="rule">passes the path. The script's only check</text>
+  <text x="80" y="589" class="rule">is that the file exists — this contract is</text>
+  <text x="80" y="606" class="rule">authorship discipline, not validation.</text>
+  <text x="80" y="632" class="rulehead">Routing is config, not prose</text>
+  <text x="80" y="656" class="rule">--role picks the identity; backend, model</text>
+  <text x="80" y="673" class="rule">and effort resolve from config and are</text>
+  <text x="80" y="690" class="rule">never restated inside the packet itself.</text>
+  <text x="80" y="716" class="rule">Fix rounds are thinner on purpose: the</text>
+  <text x="80" y="733" class="rule">findings, the failed criteria, and</text>
+  <text x="80" y="750" class="rule">"continue end-to-end from here".</text>
 
   <!-- Card 2 — the e2e variants -->
-  <rect x="445" y="95" width="350" height="695" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
-  <rect x="445" y="95" width="350" height="52" rx="10" fill="rgba(16,185,129,0.12)"/>
-  <text x="463" y="121" class="cardtitle">E2E Packets</text>
-  <text x="463" y="139" class="route" fill="#047857">Claude → Codex · submit --worktree, optional</text>
+  <rect x="444" y="95" width="376" height="695" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
+  <rect x="444" y="95" width="376" height="52" rx="10" fill="rgba(16,185,129,0.12)"/>
+  <text x="462" y="121" class="cardtitle">E2E Packets</text>
+  <text x="462" y="139" class="route" fill="#047857">Claude → Codex · submit --worktree, optional</text>
 
-  <text x="463" y="176" class="sec">Specification, inline</text>
-  <text x="463" y="192" class="secnote">the frozen goal excerpt and the spec,</text>
-  <text x="463" y="207" class="secnote">verbatim — a worktree has no .handoff/</text>
-  <text x="463" y="231" class="sec">Specifier task</text>
-  <text x="463" y="247" class="secnote">Gherkin scenarios with stable IDs plus</text>
-  <text x="463" y="262" class="secnote">tests in the stack it detected and names</text>
-  <text x="463" y="286" class="sec">Verifier task</text>
-  <text x="463" y="302" class="secnote">run the reviewed tests against a pinned</text>
-  <text x="463" y="317" class="secnote">commit; report what happened, do not</text>
-  <text x="463" y="332" class="secnote">make it pass</text>
-  <text x="463" y="356" class="sec">Target</text>
-  <text x="463" y="372" class="secnote">a named local or ephemeral target; a</text>
-  <text x="463" y="387" class="secnote">remote or billable one is a hard stop</text>
-  <text x="463" y="411" class="sec">Constraints — replaced line</text>
-  <text x="463" y="427" class="secnote">commit on this worktree branch; never</text>
-  <text x="463" y="442" class="secnote">merge, push, rebase, or remove the tree</text>
-  <text x="463" y="466" class="sec">Verdict artifact</text>
-  <text x="463" y="482" class="secnote">.handoff/e2e/&lt;jobId&gt;/verdict.json</text>
+  <text x="462" y="176" class="sec">Specification, inline</text>
+  <text x="462" y="192" class="secnote">the frozen goal excerpt and the spec,</text>
+  <text x="462" y="207" class="secnote">verbatim — a worktree has no .handoff/</text>
+  <text x="462" y="231" class="sec">Specifier task</text>
+  <text x="462" y="247" class="secnote">Gherkin scenarios with stable IDs plus</text>
+  <text x="462" y="262" class="secnote">tests in the stack it detected and names</text>
+  <text x="462" y="286" class="sec">Verifier task</text>
+  <text x="462" y="302" class="secnote">run the reviewed tests against a pinned</text>
+  <text x="462" y="317" class="secnote">commit; report what happened, do not</text>
+  <text x="462" y="332" class="secnote">make it pass</text>
+  <text x="462" y="356" class="sec">Target</text>
+  <text x="462" y="372" class="secnote">a named local or ephemeral target; a</text>
+  <text x="462" y="387" class="secnote">remote or billable one is a hard stop</text>
+  <text x="462" y="411" class="sec">Constraints — replaced line</text>
+  <text x="462" y="427" class="secnote">commit on this worktree branch; never</text>
+  <text x="462" y="442" class="secnote">merge, push, rebase, or remove the tree</text>
+  <text x="462" y="466" class="sec">Verdict artifact</text>
+  <text x="462" y="482" class="secnote">.handoff/e2e/&lt;jobId&gt;/verdict.json</text>
 
-  <rect x="463" y="505" width="314" height="265" rx="8" fill="#f1f5f9"/>
-  <text x="481" y="529" class="rulehead">Frozen · repairable · forbidden</text>
-  <text x="481" y="553" class="rule">Frozen: scenario text and IDs, expected</text>
-  <text x="481" y="570" class="rule">values, what an assertion is about.</text>
-  <text x="481" y="587" class="rule">Repairable: launch and runner</text>
-  <text x="481" y="604" class="rule">scaffolding, named in harness_edits.</text>
-  <text x="481" y="621" class="rule">Forbidden: product code — a failure is a</text>
-  <text x="481" y="638" class="rule">finding, not a bug the verifier fixes.</text>
-  <text x="481" y="664" class="warn">A semantic edit does not get disclosed</text>
-  <text x="481" y="681" class="warn">and accepted; it invalidates the run.</text>
-  <text x="481" y="707" class="rule">Whoever writes the assertions does not</text>
-  <text x="481" y="724" class="rule">decide whether they passed: specifier</text>
-  <text x="481" y="741" class="rule">writes, verifier runs, driver judges</text>
-  <text x="481" y="758" class="rule">the gate itself.</text>
+  <rect x="462" y="505" width="340" height="265" rx="8" fill="#f1f5f9"/>
+  <text x="480" y="529" class="rulehead">Frozen · repairable · forbidden</text>
+  <text x="480" y="553" class="rule">Frozen: scenario text and IDs, expected</text>
+  <text x="480" y="570" class="rule">values, what an assertion is about.</text>
+  <text x="480" y="587" class="rule">Repairable: launch and runner</text>
+  <text x="480" y="604" class="rule">scaffolding, named in harness_edits.</text>
+  <text x="480" y="621" class="rule">Forbidden: product code — a failure is a</text>
+  <text x="480" y="638" class="rule">finding, not a bug the verifier fixes.</text>
+  <text x="480" y="664" class="warn">A semantic edit does not get disclosed</text>
+  <text x="480" y="681" class="warn">and accepted; it invalidates the run.</text>
+  <text x="480" y="707" class="rule">Whoever writes the assertions does not</text>
+  <text x="480" y="724" class="rule">decide whether they passed: specifier</text>
+  <text x="480" y="741" class="rule">writes, verifier runs, driver judges</text>
+  <text x="480" y="758" class="rule">the gate itself.</text>
 
   <!-- Card 3 — the goal packet -->
-  <rect x="840" y="95" width="350" height="695" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
-  <rect x="840" y="95" width="350" height="52" rx="10" fill="rgba(124,58,237,0.12)"/>
-  <text x="858" y="121" class="cardtitle">Goal Packet</text>
-  <text x="858" y="139" class="route" fill="#6d28d9">Claude → user · authorization, opt-in protocol</text>
+  <rect x="844" y="95" width="376" height="695" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="844" y="95" width="376" height="52" rx="10" fill="rgba(124,58,237,0.12)"/>
+  <text x="862" y="121" class="cardtitle">Goal Packet</text>
+  <text x="862" y="139" class="route" fill="#6d28d9">Claude → user · authorization, opt-in protocol</text>
 
-  <text x="858" y="176" class="sec">Ask</text>
-  <text x="858" y="192" class="secnote">one why-forward sentence: what was</text>
-  <text x="858" y="207" class="secnote">asked for and why it matters</text>
-  <text x="858" y="231" class="sec">Plan</text>
-  <text x="858" y="247" class="secnote">goal and non-goals · current-state</text>
-  <text x="858" y="262" class="secnote">evidence as file:line, not vibes · file</text>
-  <text x="858" y="277" class="secnote">scope · phases · risks · acceptance ·</text>
-  <text x="858" y="292" class="secnote">rollback plan</text>
-  <text x="858" y="316" class="sec">Gate Verdict</text>
-  <text x="858" y="332" class="secnote">which rows survived all three questions,</text>
-  <text x="858" y="347" class="secnote">and what is already folded into the plan</text>
-  <text x="858" y="371" class="sec">Open Decisions</text>
-  <text x="858" y="387" class="secnote">only what the user can decide — scope</text>
-  <text x="858" y="402" class="secnote">tradeoffs, priorities, invisible constraints</text>
-  <text x="858" y="426" class="sec">What Authorization Unlocks</text>
-  <text x="858" y="442" class="secnote">work up to merge-ready PR plus preview</text>
-  <text x="858" y="457" class="secnote">verified — and explicitly nothing past it</text>
+  <text x="862" y="176" class="sec">Ask</text>
+  <text x="862" y="192" class="secnote">one why-forward sentence: what was</text>
+  <text x="862" y="207" class="secnote">asked for and why it matters</text>
+  <text x="862" y="231" class="sec">Plan</text>
+  <text x="862" y="247" class="secnote">goal and non-goals · current-state</text>
+  <text x="862" y="262" class="secnote">evidence as file:line, not vibes · file</text>
+  <text x="862" y="277" class="secnote">scope · phases · risks · acceptance ·</text>
+  <text x="862" y="292" class="secnote">rollback plan</text>
+  <text x="862" y="316" class="sec">Gate Verdict</text>
+  <text x="862" y="332" class="secnote">which rows survived all three questions,</text>
+  <text x="862" y="347" class="secnote">and what is already folded into the plan</text>
+  <text x="862" y="371" class="sec">Open Decisions</text>
+  <text x="862" y="387" class="secnote">only what the user can decide — scope</text>
+  <text x="862" y="402" class="secnote">tradeoffs, priorities, invisible constraints</text>
+  <text x="862" y="426" class="sec">What Authorization Unlocks</text>
+  <text x="862" y="442" class="secnote">work up to merge-ready PR plus preview</text>
+  <text x="862" y="457" class="secnote">verified — and explicitly nothing past it</text>
 
-  <rect x="858" y="480" width="314" height="290" rx="8" fill="#f1f5f9"/>
-  <text x="876" y="504" class="rulehead">A decision artifact, not a delegation</text>
-  <text x="876" y="528" class="rule">Sent before any branch, worktree, or</text>
-  <text x="876" y="545" class="rule">goal file exists: the plan stage touches</text>
-  <text x="876" y="562" class="rule">no files at all.</text>
-  <text x="876" y="588" class="warn">A reply that only answers a question in</text>
-  <text x="876" y="605" class="warn">the packet is not authorization. Wait for</text>
-  <text x="876" y="622" class="warn">an actual imperative.</text>
-  <text x="876" y="648" class="rulehead">One imperative, one action</text>
-  <text x="876" y="672" class="rule">Merge, production, tags, force-push,</text>
-  <text x="876" y="689" class="rule">deletion, destructive migration, and</text>
-  <text x="876" y="706" class="rule">external publish are each their own hard</text>
-  <text x="876" y="723" class="rule">stop, each needing its own fresh</text>
-  <text x="876" y="740" class="rule">sentence, recorded verbatim in the goal</text>
-  <text x="876" y="757" class="rule">file's Delivery.authorization field.</text>
+  <rect x="862" y="480" width="340" height="290" rx="8" fill="#f1f5f9"/>
+  <text x="880" y="504" class="rulehead">A decision artifact, not a delegation</text>
+  <text x="880" y="528" class="rule">Sent before any branch, worktree, or</text>
+  <text x="880" y="545" class="rule">goal file exists: the plan stage touches</text>
+  <text x="880" y="562" class="rule">no files at all.</text>
+  <text x="880" y="588" class="warn">A reply that only answers a question in</text>
+  <text x="880" y="605" class="warn">the packet is not authorization. Wait for</text>
+  <text x="880" y="622" class="warn">an actual imperative.</text>
+  <text x="880" y="648" class="rulehead">One imperative, one action</text>
+  <text x="880" y="672" class="rule">Merge, production, tags, force-push,</text>
+  <text x="880" y="689" class="rule">deletion, destructive migration, and</text>
+  <text x="880" y="706" class="rule">external publish are each their own hard</text>
+  <text x="880" y="723" class="rule">stop, each needing its own fresh</text>
+  <text x="880" y="740" class="rule">sentence, recorded verbatim in the goal</text>
+  <text x="880" y="757" class="rule">file's Delivery.authorization field.</text>
 
   <!-- spec review packet -->
-  <rect x="50" y="812" width="1140" height="300" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
-  <rect x="50" y="812" width="1140" height="52" rx="10" fill="rgba(37,99,235,0.10)"/>
-  <text x="68" y="838" class="cardtitle">Spec Review Packet</text>
-  <text x="68" y="856" class="route" fill="#1d4ed8">Claude &#8594; deep_reasoner &#183; planning, read-only, optional</text>
+  <rect x="44" y="812" width="1176" height="300" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <rect x="44" y="812" width="1176" height="52" rx="10" fill="rgba(37,99,235,0.10)"/>
+  <text x="62" y="838" class="cardtitle">Spec Review Packet</text>
+  <text x="62" y="856" class="route" fill="#1d4ed8">Claude &#8594; deep_reasoner &#183; planning, read-only, optional</text>
 
-  <text x="68" y="893" class="sec">Context — why-forward</text>
-  <text x="68" y="909" class="secnote">planning X for Y; the plan is about to go</text>
-  <text x="68" y="924" class="secnote">to them, so read it before they do</text>
-  <text x="68" y="948" class="sec">Specification, inline</text>
-  <text x="68" y="964" class="secnote">the goal line and its done_when, the task</text>
-  <text x="68" y="979" class="secnote">table with acceptance, the design doc —</text>
-  <text x="68" y="994" class="secnote">verbatim, never a path to go read</text>
+  <text x="62" y="893" class="sec">Context — why-forward</text>
+  <text x="62" y="909" class="secnote">planning X for Y; the plan is about to go</text>
+  <text x="62" y="924" class="secnote">to them, so read it before they do</text>
+  <text x="62" y="948" class="sec">Specification, inline</text>
+  <text x="62" y="964" class="secnote">the goal line and its done_when, the task</text>
+  <text x="62" y="979" class="secnote">table with acceptance, the design doc —</text>
+  <text x="62" y="994" class="secnote">verbatim, never a path to go read</text>
 
-  <text x="463" y="893" class="sec">Task</text>
-  <text x="463" y="909" class="secnote">review this plan and report what you</text>
-  <text x="463" y="924" class="secnote">would change before any of it is built</text>
-  <text x="463" y="948" class="sec">Acceptance</text>
-  <text x="463" y="964" class="secnote">prioritized findings, worst first · which</text>
-  <text x="463" y="979" class="secnote">criteria are not verifiable as written ·</text>
-  <text x="463" y="994" class="secnote">what is missing, not only what is wrong</text>
+  <text x="462" y="893" class="sec">Task</text>
+  <text x="462" y="909" class="secnote">review this plan and report what you</text>
+  <text x="462" y="924" class="secnote">would change before any of it is built</text>
+  <text x="462" y="948" class="sec">Acceptance</text>
+  <text x="462" y="964" class="secnote">prioritized findings, worst first · which</text>
+  <text x="462" y="979" class="secnote">criteria are not verifiable as written ·</text>
+  <text x="462" y="994" class="secnote">what is missing, not only what is wrong</text>
 
-  <text x="858" y="893" class="sec">Constraints — narrowed line</text>
-  <text x="858" y="909" class="secnote">read-only: no file edited, no goal file</text>
-  <text x="858" y="924" class="secnote">written, no product code touched</text>
-  <text x="858" y="948" class="sec">Output</text>
-  <text x="858" y="964" class="secnote">no optional commentary; one line saying</text>
-  <text x="858" y="979" class="secnote">the plan is sound beats invented findings</text>
+  <text x="862" y="893" class="sec">Constraints — narrowed line</text>
+  <text x="862" y="909" class="secnote">read-only: no file edited, no goal file</text>
+  <text x="862" y="924" class="secnote">written, no product code touched</text>
+  <text x="862" y="948" class="sec">Output</text>
+  <text x="862" y="964" class="secnote">no optional commentary; one line saying</text>
+  <text x="862" y="979" class="secnote">the plan is sound beats invented findings</text>
 
-  <rect x="68" y="1010" width="1104" height="92" rx="8" fill="#f1f5f9"/>
-  <text x="86" y="1032" class="rulehead">Once per run, and the driver still rules</text>
-  <text x="86" y="1054" class="rule">The goal file's Spec Review block is the marker: a non-empty block means the automatic review is spent, so a revised plan, a thin review,</text>
-  <text x="86" y="1071" class="rule">and a resumed session all fail to re-trigger it. Findings are input to a judgment, never a verdict applied unread.</text>
-  <text x="86" y="1088" class="rule">It is also the one packet that narrows this template rather than widening it: the e2e packets add a commit, this one removes every write.</text>
+  <rect x="62" y="1010" width="1140" height="92" rx="8" fill="#f1f5f9"/>
+  <text x="80" y="1032" class="rulehead">Once per run, and the driver still rules</text>
+  <text x="80" y="1054" class="rule">The goal file's Spec Review block is the marker: a non-empty block means the automatic review is spent, so a revised plan, a thin review,</text>
+  <text x="80" y="1071" class="rule">and a resumed session all fail to re-trigger it. Findings are input to a judgment, never a verdict applied unread.</text>
+  <text x="80" y="1088" class="rule">It is also the one packet that narrows this template rather than widening it: the e2e packets add a commit, this one removes every write.</text>
 
-  <text x="40" y="1150" class="rulehead">Shared invariant</text>
-  <text x="40" y="1172" class="rule">Each packet carries verifiable acceptance and states its scope boundary. The receiver is asked for prioritized findings against that acceptance,</text>
-  <text x="40" y="1190" class="rule">not for a broad rewrite, and the sender stays accountable for the repository evidence it chose to include.</text>
+  <text x="34" y="1150" class="rulehead">Shared invariant</text>
+  <text x="34" y="1172" class="rule">Each packet carries verifiable acceptance and states its scope boundary. The receiver is asked for prioritized findings against that acceptance,</text>
+  <text x="34" y="1190" class="rule">not for a broad rewrite, and the sender stays accountable for the repository evidence it chose to include.</text>
 </svg>

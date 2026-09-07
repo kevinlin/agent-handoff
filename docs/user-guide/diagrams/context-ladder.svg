@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 730">
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
-    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
-    .subtitle { font-size: 10.5px; fill: #64748b; }
-    .colhead { font-size: 12px; font-weight: 700; fill: #334155; }
-    .rung { font-size: 12px; font-weight: 700; fill: #0f172a; }
-    .note { font-size: 10px; fill: #475569; }
-    .num { font-size: 12px; font-weight: 700; fill: #ffffff; }
-    .cardtitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
-    .line { font-size: 10px; fill: #475569; }
-    .warn { font-size: 10px; fill: #be123c; }
+    .title { font-size: 21.6px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 12.6px; fill: #64748b; }
+    .colhead { font-size: 14.4px; font-weight: 700; fill: #334155; }
+    .rung { font-size: 14.4px; font-weight: 700; fill: #0f172a; }
+    .note { font-size: 12px; fill: #475569; }
+    .num { font-size: 14.4px; font-weight: 700; fill: #ffffff; }
+    .cardtitle { font-size: 13.8px; font-weight: 700; fill: #0f172a; }
+    .line { font-size: 12px; fill: #475569; }
+    .warn { font-size: 12px; fill: #be123c; }
   </style>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -27,7 +27,7 @@
   <text x="40" y="64" class="subtitle">Enough for the delegate to decide, never enough to make it re-read the repository</text>
 
   <text x="50" y="110" class="colhead">EVIDENCE LADDER — send the cheapest rung that unblocks the ask</text>
-  <text x="670" y="110" class="colhead">RULES THAT KEEP THE PACKET BOUNDED</text>
+  <text x="650" y="110" class="colhead">RULES THAT KEEP THE PACKET BOUNDED</text>
 
   <!-- rungs -->
   <rect x="50" y="126" width="580" height="80" rx="8" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
@@ -74,33 +74,33 @@
 
 
   <!-- rules cards -->
-  <rect x="670" y="126" width="520" height="100" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
-  <text x="690" y="152" class="cardtitle">The sender gathers, the receiver decides</text>
-  <text x="690" y="174" class="line">The driver reads the repo and picks what matters. Asking the</text>
-  <text x="690" y="191" class="line">receiving agent to discover its own context is what turns one request</text>
-  <text x="690" y="208" class="line">into a recursive scan plus a tree of metered subagents.</text>
+  <rect x="650" y="126" width="570" height="100" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
+  <text x="670" y="152" class="cardtitle">The sender gathers, the receiver decides</text>
+  <text x="670" y="174" class="line">The driver reads the repo and picks what matters. Asking the</text>
+  <text x="670" y="191" class="line">receiving agent to discover its own context is what turns one request</text>
+  <text x="670" y="208" class="line">into a recursive scan plus a tree of metered subagents.</text>
 
-  <rect x="670" y="236" width="520" height="100" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <text x="690" y="262" class="cardtitle">Shaped by the situation, not by habit</text>
-  <text x="690" y="284" class="line">Monorepo: scope every git command to the package and name that path</text>
-  <text x="690" y="301" class="line">in the task line. Plain folder: a bounded file inventory. Debugging:</text>
-  <text x="690" y="318" class="line">reproduction output and failing checks, never file dumps.</text>
+  <rect x="650" y="236" width="570" height="100" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="670" y="262" class="cardtitle">Shaped by the situation, not by habit</text>
+  <text x="670" y="284" class="line">Monorepo: scope every git command to the package and name that path</text>
+  <text x="670" y="301" class="line">in the task line. Plain folder: a bounded file inventory. Debugging:</text>
+  <text x="670" y="318" class="line">reproduction output and failing checks, never file dumps.</text>
 
-  <rect x="670" y="346" width="520" height="100" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
-  <text x="690" y="372" class="cardtitle">A worktree packet has to be self-contained</text>
-  <text x="690" y="394" class="line">A Git worktree receives tracked content only, and .handoff/ is</text>
-  <text x="690" y="411" class="line">gitignored. So no e2e job reads the goal file: the frozen excerpt, the</text>
-  <text x="690" y="428" class="line">spec, and the artifact paths all go inline into the prompt.</text>
+  <rect x="650" y="346" width="570" height="100" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
+  <text x="670" y="372" class="cardtitle">A worktree packet has to be self-contained</text>
+  <text x="670" y="394" class="line">A Git worktree receives tracked content only, and .handoff/ is</text>
+  <text x="670" y="411" class="line">gitignored. So no e2e job reads the goal file: the frozen excerpt, the</text>
+  <text x="670" y="428" class="line">spec, and the artifact paths all go inline into the prompt.</text>
 
-  <rect x="670" y="456" width="520" height="100" rx="8" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
-  <text x="690" y="482" class="cardtitle">Dense replies protect the other side</text>
-  <text x="690" y="504" class="line">Every packet ends with the same rule: no optional commentary, at most</text>
-  <text x="690" y="521" class="line">three lines of lessons. A terse reviewer contract cut reviewer output</text>
-  <text x="690" y="538" class="line">by 41% with no loss of judgment quality.</text>
+  <rect x="650" y="456" width="570" height="100" rx="8" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
+  <text x="670" y="482" class="cardtitle">Dense replies protect the other side</text>
+  <text x="670" y="504" class="line">Every packet ends with the same rule: no optional commentary, at most</text>
+  <text x="670" y="521" class="line">three lines of lessons. A terse reviewer contract cut reviewer output</text>
+  <text x="670" y="538" class="line">by 41% with no loss of judgment quality.</text>
 
-  <rect x="670" y="566" width="520" height="100" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
-  <text x="690" y="592" class="cardtitle">Carried forward, not rebuilt</text>
-  <text x="690" y="614" class="line">A fix round resumes the stored session and sends findings only. A lost</text>
-  <text x="690" y="631" class="line">session restarts from .handoff/goal.md plus the job directories. Standing</text>
-  <text x="690" y="648" class="line">facts live in CLAUDE.md and AGENTS.md; experience lives in memory.</text>
+  <rect x="650" y="566" width="570" height="100" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="670" y="592" class="cardtitle">Carried forward, not rebuilt</text>
+  <text x="670" y="614" class="line">A fix round resumes the stored session and sends findings only. A lost</text>
+  <text x="670" y="631" class="line">session restarts from .handoff/goal.md plus the job directories. Standing</text>
+  <text x="670" y="648" class="line">facts live in CLAUDE.md and AGENTS.md; experience lives in memory.</text>
 </svg>

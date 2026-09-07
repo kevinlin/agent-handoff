@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1110">
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
-    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
-    .subtitle { font-size: 10.5px; fill: #64748b; }
-    .bandnum { font-size: 22px; font-weight: 700; }
-    .bandname { font-size: 12px; font-weight: 700; fill: #0f172a; }
-    .bandsub { font-size: 10px; fill: #64748b; }
-    .cardtitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
-    .line { font-size: 10px; fill: #475569; }
-    .warn { font-size: 10px; fill: #be123c; }
-    .cardhead { font-size: 12px; font-weight: 700; fill: #0f172a; }
+    .title { font-size: 21.6px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 12.6px; fill: #64748b; }
+    .bandnum { font-size: 26.4px; font-weight: 700; }
+    .bandname { font-size: 14.4px; font-weight: 700; fill: #0f172a; }
+    .bandsub { font-size: 12px; fill: #64748b; }
+    .cardtitle { font-size: 13.8px; font-weight: 700; fill: #0f172a; }
+    .line { font-size: 12px; fill: #475569; }
+    .warn { font-size: 12px; fill: #be123c; }
+    .cardhead { font-size: 14.4px; font-weight: 700; fill: #0f172a; }
   </style>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">

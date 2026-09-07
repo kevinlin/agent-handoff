@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1146">
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
-    .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
-    .subtitle { font-size: 10.5px; fill: #64748b; }
-    .phase { font-size: 11px; font-weight: 700; fill: #2563eb; letter-spacing: 0.08em; }
-    .pill { font-size: 10px; font-weight: 700; }
-    .ntitle { font-size: 11.5px; font-weight: 700; fill: #0f172a; }
-    .note { font-size: 10px; fill: #475569; }
-    .warn { font-size: 10px; fill: #be123c; }
-    .ev { font-size: 10px; font-weight: 700; fill: #334155; }
-    .back { font-size: 10px; font-weight: 700; fill: #64748b; }
-    .leg { font-size: 10px; fill: #475569; }
-    .fhead { font-size: 11px; font-weight: 700; fill: #0f172a; }
+    .title { font-size: 21.6px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 12.6px; fill: #64748b; }
+    .phase { font-size: 13.2px; font-weight: 700; fill: #2563eb; letter-spacing: 0.08em; }
+    .pill { font-size: 12px; font-weight: 700; }
+    .ntitle { font-size: 13.8px; font-weight: 700; fill: #0f172a; }
+    .note { font-size: 12px; fill: #475569; }
+    .warn { font-size: 12px; fill: #be123c; }
+    .ev { font-size: 12px; font-weight: 700; fill: #334155; }
+    .back { font-size: 12px; font-weight: 700; fill: #64748b; }
+    .leg { font-size: 12px; fill: #475569; }
+    .fhead { font-size: 13.2px; font-weight: 700; fill: #0f172a; }
   </style>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -41,7 +41,7 @@
   <rect x="461.0" y="104" width="11" height="11" rx="3" fill="#475569" opacity="0.85"/>
   <text x="478.0" y="114" class="leg">.handoff/ on disk</text>
   <path d="M 596 190 H 622 V 213 H 641" fill="none" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
-  <rect x="602" y="170" width="40" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="600" y="170" width="44" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="182" class="ev" text-anchor="middle">short</text>
   <line x1="346" y1="231" x2="346" y2="315" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="280" class="ev">long / many</text>
@@ -52,7 +52,7 @@
   <line x1="346" y1="702" x2="346" y2="741" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="729" class="ev">state + last event</text>
   <path d="M 596 788 H 622 V 818 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="596" y="768" width="52" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="592.8" y="768" width="58.4" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="780" class="ev" text-anchor="middle">stalled</text>
   <path d="M 898 889 V 912 H 52 V 504 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
   <text x="46" y="662" class="back" text-anchor="middle" transform="rotate(-90 46 662)">resubmitted → next tick</text>
@@ -61,12 +61,12 @@
   <line x1="346" y1="829" x2="346" y2="928" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="886" class="ev">all terminal</text>
   <rect x="96" y="150" width="500" height="81" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="2.2"/>
-  <rect x="110" y="161" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="161" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="174" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="200" class="ntitle">How long is this job expected to run?</text>
   <text x="110" y="218" class="note">the one decision in this phase — everything else follows from it</text>
   <rect x="648" y="150" width="500" height="126" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <rect x="662" y="161" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <rect x="662" y="161" width="138.4" height="18" rx="6" fill="#d97706" opacity="0.10"/>
   <text x="670" y="174" class="pill" fill="#d97706">delegate-codex.sh</text>
   <text x="662" y="200" class="ntitle">Under ~5 minutes: block on it</text>
   <text x="662" y="218" class="note">status &lt;jobId&gt; --wait --timeout 300</text>
@@ -74,39 +74,39 @@
   <text x="662" y="248" class="warn">exit 0 even while still RUNNING — the printed</text>
   <text x="662" y="263" class="warn">state: line is the real signal a caller must parse</text>
   <rect x="96" y="322" width="500" height="81" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <rect x="110" y="333" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="333" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="346" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="372" class="ntitle">Long or parallel: arm /loop at 5 minutes</text>
   <text x="110" y="390" class="note">the tick prompt is the whole monitoring program</text>
   <path d="M 596 505 H 622 V 511 H 641" fill="none" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <rect x="648" y="449" width="500" height="126" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
-  <rect x="662" y="460" width="76" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
+  <rect x="662" y="460" width="88" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="670" y="473" class="pill" fill="#2563eb">/loop tick</text>
   <text x="662" y="499" class="ntitle">The depends column is the release valve</text>
   <text x="662" y="517" class="note">a row whose dependencies have not reached done is not</text>
   <text x="662" y="532" class="note">submitted, however idle the tick looks</text>
-  <text x="662" y="547" class="note">an e2e_verifier row waits on the specifier and the</text>
-  <text x="662" y="562" class="note">implementation both: it needs the tests in its tree, not the feature alone</text>
+  <text x="662" y="547" class="note">an e2e_verifier row waits on the specifier and the implementation</text>
+  <text x="662" y="562" class="note">both: it needs the tests in its tree, not the feature alone</text>
   <rect x="96" y="449" width="500" height="111" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <rect x="110" y="460" width="76" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
+  <rect x="110" y="460" width="88" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="118" y="473" class="pill" fill="#2563eb">/loop tick</text>
   <text x="110" y="499" class="ntitle">Each tick, in this order</text>
   <text x="110" y="517" class="note">read .handoff/goal.md first — the split and the statuses</text>
   <text x="110" y="532" class="note">then the job directories for the jobs it says are running</text>
   <text x="110" y="547" class="note">context carries nothing between ticks, by design</text>
   <rect x="96" y="606" width="500" height="96" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <rect x="110" y="617" width="118" height="18" rx="6" fill="#d97706" opacity="0.10"/>
+  <rect x="110" y="617" width="138.4" height="18" rx="6" fill="#d97706" opacity="0.10"/>
   <text x="118" y="630" class="pill" fill="#d97706">delegate-codex.sh</text>
   <text x="110" y="656" class="ntitle">status for every running jobId</text>
   <text x="110" y="674" class="note">pid · exit_code · cancelled → RUNNING | DONE | FAILED | CANCELLED</text>
   <text x="110" y="689" class="note">tail log.jsonl for the last event and its timestamp</text>
   <rect x="96" y="748" width="500" height="81" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <rect x="110" y="759" width="76" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
+  <rect x="110" y="759" width="88" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="118" y="772" class="pill" fill="#2563eb">/loop tick</text>
   <text x="110" y="798" class="ntitle">Update the task statuses in goal.md</text>
   <text x="110" y="816" class="note">the next tick or a session resumed later reads this</text>
   <rect x="648" y="748" width="500" height="141" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
-  <rect x="662" y="759" width="76" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
+  <rect x="662" y="759" width="88" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="670" y="772" class="pill" fill="#2563eb">/loop tick</text>
   <text x="662" y="798" class="ntitle">Anomaly rule</text>
   <text x="662" y="816" class="warn">FAILED, or two consecutive ticks with no new event</text>
@@ -115,7 +115,7 @@
   <text x="662" y="861" class="note">resubmit corrected, or take the task back into the driver</text>
   <text x="662" y="876" class="warn">record the anomaly for the receipt either way</text>
   <rect x="96" y="935" width="500" height="81" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
-  <rect x="110" y="946" width="94" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
+  <rect x="110" y="946" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="959" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="985" class="ntitle">No job left RUNNING → stop the loop</text>
   <text x="110" y="1003" class="note">continue to the Phase 4 review gate</text>
