@@ -1,7 +1,5 @@
 # Add e2e_specifier and e2e_verifier identities
 
-Revised after an independent design review. Its attack points 2 and 3 and all four P2 findings are accepted and folded in below; attack point 1 is declined, with reasons in [Rejected review findings](#rejected-review-findings).
-
 ## Context
 
 Handoff has three identities — `deep_reasoner`, `fast_worker`, `arbiter` — each a `backend + model + effort` triple. All three are *capability tiers*: they say how much brain and which meter, never what work to do.
@@ -176,6 +174,76 @@ The shared packet template's constraint line reads "Do not commit, push, deploy,
 
 > Commit your work on this worktree branch. Do not merge, push, rebase, remove the worktree, or touch secrets or `.env` files.
 
+## Extension: deep_reasoner spec review
+
+Added after the e2e roles shipped, and separate from them: the Gauntlet borrow ends at the two acceptance stages. What this extension reuses is that feature's *shape*: one optional add-on, off by default, absent from a config without making it incomplete.
+
+**The gap.** Phase 1 writes the plan and then attacks it at the adversarial gate. The attacker is the driver, so the agent that wrote the plan is the only agent that judges it. [references/darwin-ratchet.md](references/darwin-ratchet.md) names that failure directly: no agent should be sole maker and sole judge on high-risk work, and every later stage is judged against the plan this one produces. The arbiter does not close it — the arbiter blind-solves a contested answer and never reads a plan.
+
+**The mechanism.** `deep_reasoner` takes a second responsibility alongside its task-row capability tier: one informed review of the spec, on its own configured backend, fired at the moment the workflow hands the plan to the user.
+
+### The toggle
+
+One boolean on the identity, not a sixth identity and not a `[routing]` key:
+
+```toml
+[hosts.claude_code.identities.deep_reasoner]
+backend = "claude"
+model = "opus"
+effort = "high"
+verified = false
+auto_review_spec = true
+```
+
+- **Field, not identity.** The review is a responsibility of a tier that already exists. A sixth identity would mean configuring another backend/model/effort triple for work that wants exactly the tier `deep_reasoner` already names, and would put a pipeline responsibility where the other five carry capability.
+- **`deep_reasoner` only.** `validate_config` rejects the field on any other identity rather than ignoring it, so a toggle written into the wrong section fails at the config boundary instead of quietly doing nothing.
+- **Absent means off**, and `schema_version` stays `2`. Setup writes the field only under `--spec-review`; dropping the flag on a later apply removes it. Existing configs keep their behaviour, and unlike the identity widening this one does not fail closed on an older engine — `validate_config` rejects an unknown identity, not an unknown field inside a known one. An older engine ignores the toggle, which is the correct direction for a field whose absence already means off.
+- **`[routing]` was the alternative**, rejected because the writer owns only `hosts.claude_code.identities.*` and carries `[routing]` across a write byte-for-byte. Writing there would mean taking ownership of a section the engine deliberately does not own.
+
+### Once, and only once
+
+The review fires at most once per run. The driver records the outcome in a new `## Spec Review` block in `.handoff/goal.md`; a non-empty block means the automatic review is spent, and only an explicit user request produces another.
+
+The goal file is the right home for that marker because it is rewritten per run: the marker resets on its own, and the Phase 3 monitor tick and a resumed session both read that file before doing anything else. A marker file elsewhere under `.handoff/` would survive into the next feature's run and suppress a review that should have happened.
+
+Nothing retries: not a review the driver found thin, not an adjusted plan, not a second planning pass inside the same run. Repetition is the failure mode this design exists to avoid.
+
+### Placement and dispatch
+
+Last step of Phase 1, immediately before the plan reaches the user:
+
+```text
+plan drafted -> goal file written -> adversarial gate
+  |
+  `-- spec review (optional, once)
+        backend codex   delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review
+        backend claude  spawn handoff-deep-reasoner (Sub Agent Routing)
+  |
+  `-- driver assesses the findings, adjusts the plan, records the outcome
+  |
+  `-- plan (or Goal Packet) to the user
+```
+
+Sequential, not parallel: the user reads the adjusted plan, not a plan plus a review they have to reconcile themselves.
+
+Both dispatch paths already existed; this needed no new runtime primitive. `--read-only` is what keeps the reviewer out of the repo, and the packet carries the spec inline for the same reason the e2e packets do.
+
+### What it is not
+
+Three instruments now touch a disagreement, and they are not variants of each other:
+
+| instrument | acts on | independence |
+|---|---|---|
+| adversarial gate | a split the driver just wrote | none — the driver attacks itself |
+| spec review | that same plan, read by another agent | informed, not blind |
+| arbiter | the problem, solved again from scratch | blind; a hint contaminates the run |
+
+The arbiter's contamination rule deliberately does not apply here. The plan under review *is* the driver's answer, so withholding it would leave nothing to review. Same-vendor config gets the arbiter's treatment instead: when `deep_reasoner` resolves to the driver's own vendor the review still runs, and the weaker independence is stated rather than claimed away.
+
+**Read-only in both directions.** The reviewer returns prioritized findings and nothing else. It does not edit the spec, write `.handoff/goal.md`, or touch product code. Its findings are input to the driver's judgment, never a verdict the driver applies unread. Under the full protocol, Stage 1's "touches no files" still holds for the repository: the review's job directory lives under the git-ignored `.handoff/`.
+
+**Cost.** One extra job per planning phase on runs where the toggle is on. The toggle is the control, which is why it defaults off.
+
 ## Changes
 
 **Config engine**
@@ -213,6 +281,14 @@ The shared packet template's constraint line reads "Do not commit, push, deploy,
 - [README.md](README.md) — version badge, identity table, File Map lines for `references/e2e-gauntlet.md` and `docs/verdict-schema.json`.
 - [CHANGELOG.md](CHANGELOG.md) — `## v3.2.0` entry.
 
+**Spec review extension** (v3.4.0, the section above)
+
+- [scripts/handoff-config.py](scripts/handoff-config.py) — `auto_review_spec` in `IDENTITY_FIELD_ORDER`; boolean validation restricted to `deep_reasoner`; `set --spec-review` / `--no-spec-review`; the override parser gains a second boolean field.
+- [scripts/handoff-setup.py](scripts/handoff-setup.py) — `--spec-review` / `--no-spec-review` (default off), written onto `deep_reasoner` in both `choose_identities` branches; `--status` reports it; one interactive prompt. `PRESETS` is untouched: a fourth value kind in the preset matrix would break `_preset_matrices` and the UI's preset comparison for no gain.
+- [scripts/handoff-setup-ui.py](scripts/handoff-setup-ui.py) — one checkbox seeded from the resolved config, carried through `normalize_payload` and `engine_arguments`.
+- [references/claude-driven.md](references/claude-driven.md) — the Phase 1 step, the once-per-run rule, and the dispatch per backend. [references/handoff-template.md](references/handoff-template.md) — the Spec Review Packet, whose constraint line forbids every edit rather than permitting one. [references/goal-template.md](references/goal-template.md) — the `## Spec Review` block.
+- No receipt change: `roles_used` already carries `deep_reasoner`, and the review's job directory is already counted in `codex_jobs`.
+
 **Gates**
 
 - [scripts/check-skill-repo.sh](scripts/check-skill-repo.sh) — `check_file` for `references/e2e-gauntlet.md` and `docs/verdict-schema.json`.
@@ -233,4 +309,5 @@ Two costs of this choice are real and stay real: `role` carries two meanings (ca
 - **Setup engine breadth.** Thirteen loops, several of which currently assume `desired[identity]` always exists. The `--with-e2e` flag keeps the change mechanical, but this is where a regression would hide. Existing tests must pass unchanged before any new test is added.
 - **Backend parity.** The Codex worktree lifecycle is script-owned and tested; the Claude path is driver-executed prose following the same protocol. They are not equally hardened in v1, and the flow doc should not read as if they are.
 - **The hash lock is partial.** Behavioral meaning that lives inside executable spec files rather than `.feature` files is guarded by bounded human review, not by the hash. Specifier discipline about separating scaffolding from specs is what keeps that review small; if that discipline slips, the review grows and gets skipped.
+- **The reviewer sees the plan it is judging.** That is the point: an informed review, not a blind solve. It does mean the spec review inherits the driver's framing and will catch a wrong premise less often than an independent solve would. It is a second pair of eyes, not a second opinion, and the flow prose says so rather than letting a reader read arbitration into it.
 - **Cost.** Two extra jobs per user-observable change. The Phase 1 criterion is the control; if it fires too often the criterion tightens, not the identities.

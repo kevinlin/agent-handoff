@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.4.0 (2026-09-07)
+
+### A second pair of eyes on the plan
+
+- feat: `deep_reasoner` gains one responsibility toggle, `auto_review_spec`, written by `handoff-setup.py --spec-review` (default off). With it on, the last step of Phase 1 hands the plan to `deep_reasoner` on its own configured backend for one independent read, and the driver folds in the findings before the plan reaches the user. Until now the adversarial gate was the only check on a plan, and the driver ran it against itself — the agent that wrote the plan was the only agent that judged it
+- feat: the review fires at most once per run. The goal file gains a `## Spec Review` block, and a non-empty block means the automatic review is spent: an adjusted plan, a thin review, and a resumed session all fail to re-trigger it, and another one takes an explicit request. The goal file is rewritten per run, so the marker resets by itself
+- feat: `handoff-config.py set --spec-review` / `--no-spec-review`, `--override deep_reasoner.auto_review_spec=true`, and the field in `--status`. It is a responsibility switch rather than a routing value, so toggling it leaves `verified` and `verified_at` alone, and it is refused on any identity but `deep_reasoner` rather than silently ignored
+- feat: the setup UI carries the toggle as one checkbox, seeded from the resolved config so re-running setup cannot silently clear it
+- docs: `references/handoff-template.md` gains the Spec Review Packet — read-only, findings only, the spec inline. It is the one packet that narrows the template's write permission instead of widening it, which is the opposite direction from the e2e pair. The flow prose states plainly that this review is informed rather than blind: the plan under review is the driver's own answer, so the arbiter's contamination rule does not apply, and same-vendor config is noted the way the arbiter protocol notes it
+
+`schema_version` stays `2` and the receipt schema stays `4`. Absent means off, so every existing config keeps its current behaviour, and an older engine ignores the field rather than refusing the file — `validate_config` fails closed on an unknown identity, not on an unknown field inside a known one.
+
 ## v3.3.0 (2026-09-07)
 
 ### The Codex effort dial reaches the top of the GPT-5.6 range

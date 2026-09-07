@@ -709,5 +709,59 @@ always_on_host_rules = false
         # backend=codex identities never get a Claude subagent definition
         self.assertFalse((agents / "handoff-e2e-verifier.md").exists())
 
+
+class SpecReviewToggleTests(SetupTests):
+    def configured(self):
+        resolved = handoff_setup.handoff_config.resolve_config(self.repo, env=self.env)
+        return resolved["hosts"][handoff_setup.handoff_config.HOST]["identities"]
+
+    def test_default_apply_omits_the_toggle(self):
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertNotIn("auto_review_spec", self.configured()["deep_reasoner"])
+
+    def test_flag_writes_the_toggle_on_deep_reasoner_only(self):
+        status, _, error = self.run_cli(
+            *self.claude_args("--apply", "--mode", "balanced", "--spec-review")
+        )
+        self.assertEqual((0, ""), (status, error))
+        identities = self.configured()
+        self.assertIs(True, identities["deep_reasoner"]["auto_review_spec"])
+        for identity in ("fast_worker", "arbiter"):
+            self.assertNotIn("auto_review_spec", identities[identity])
+
+    def test_reapplying_without_the_flag_removes_it(self):
+        self.run_cli(*self.claude_args("--apply", "--mode", "balanced", "--spec-review"))
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertNotIn("auto_review_spec", self.configured()["deep_reasoner"])
+
+    def test_toggle_survives_custom_mode_and_keeps_verification(self):
+        choices = {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("codex", "gpt-detected", "medium"),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+        }
+        status, _, error = self.run_cli(*self.custom_args(choices), "--spec-review")
+        self.assertEqual((0, ""), (status, error))
+        self.assertIs(True, self.configured()["deep_reasoner"]["auto_review_spec"])
+        status, _, error = self.run_cli(*self.claude_args("--smoke"))
+        self.assertEqual((0, ""), (status, error))
+        identity = self.configured()["deep_reasoner"]
+        # the toggle is not a routing value: smoke keeps it, and it never
+        # invalidated the verification it just wrote
+        self.assertIs(True, identity["auto_review_spec"])
+        self.assertIs(True, identity["verified"])
+
+    def test_status_reports_the_toggle_for_deep_reasoner_only(self):
+        self.run_cli(*self.claude_args("--apply", "--mode", "balanced", "--spec-review"))
+        status, output, _ = self.run_cli(*self.claude_args("--status"))
+        self.assertEqual(0, status)
+        self.assertIn("spec_review=true", output)
+        self.assertEqual(1, output.count("spec_review="))
+        self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertIn("spec_review=false", self.run_cli(*self.claude_args("--status"))[1])
+
+
 if __name__ == "__main__":
     unittest.main()

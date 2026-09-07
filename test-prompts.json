@@ -359,5 +359,54 @@
       "Accept a verdict whose scenarios hash does not match the reviewed one.",
       "Let the verifier decide on its own that a scenario was wrong."
     ]
+  },
+  {
+    "id": "spec-review-runs-once-when-configured",
+    "prompt": "Agent handoff: plan the subscription cancellation flow and split it. (deep_reasoner has auto_review_spec = true in this repo's config.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Write the plan and attack the split first, then send the Spec Review Packet to deep_reasoner through its configured backend before the plan reaches the user.",
+      "Submit it read-only with delegate-codex.sh --role deep_reasoner --read-only, or spawn handoff-deep-reasoner when that identity's backend is claude.",
+      "Put the plan in the packet verbatim; the reviewer starts cold and judges only what it was given.",
+      "Assess the findings, fold in the ones that hold, and say which were rejected and why.",
+      "Record the outcome in the goal file's ## Spec Review block, then hand the adjusted plan to the user."
+    ],
+    "must_not": [
+      "Let deep_reasoner rewrite the plan, edit the goal file, or touch product code.",
+      "Apply the findings unread as if they were a verdict rather than input to the driver's judgment.",
+      "Withhold the plan from the reviewer as though this were the blind arbiter protocol.",
+      "Run a second review because the plan changed after the first one."
+    ]
+  },
+  {
+    "id": "spec-review-not-repeated-in-the-same-run",
+    "prompt": "(The Spec Review block in .handoff/goal.md already records a completed review, and the plan changed after it.) Agent handoff: keep going with this plan.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read the goal file's ## Spec Review block and treat the non-empty entry as the automatic review already being spent.",
+      "Continue into delegation without starting another review.",
+      "Offer a further review only if the user asks for one."
+    ],
+    "must_not": [
+      "Start a second automatic review because the plan was revised.",
+      "Clear or overwrite the Spec Review block to justify running it again.",
+      "Loop plan and review until the reviewer stops finding anything."
+    ]
+  },
+  {
+    "id": "spec-review-on-request-while-the-toggle-is-off",
+    "prompt": "Agent handoff: plan the CSV export change. Get a second pair of eyes on the plan before I read it. (auto_review_spec is not set in this repo.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Run the spec review on request even though auto_review_spec is off; the toggle only decides whether it fires on its own.",
+      "Use deep_reasoner through its configured backend, read-only, with the plan inline in the packet.",
+      "Record the outcome in the goal file's ## Spec Review block like an automatic run.",
+      "Note same-vendor if deep_reasoner resolves to the driver's own vendor, rather than claiming independent review."
+    ],
+    "must_not": [
+      "Refuse the review, or require /agent-handoff config to be re-run first.",
+      "Write auto_review_spec into the config as a side effect of one requested review.",
+      "Repeat the review automatically later in the same run."
+    ]
   }
 ]

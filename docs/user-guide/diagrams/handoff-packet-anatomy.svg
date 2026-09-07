@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 910">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1230">
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
     .title { font-size: 18px; font-weight: 700; fill: #0f172a; }
@@ -17,10 +17,10 @@
     </pattern>
   </defs>
 
-  <rect width="1240" height="910" fill="#f8fafc"/>
-  <rect width="1240" height="910" fill="url(#grid)"/>
+  <rect width="1240" height="1230" fill="#f8fafc"/>
+  <rect width="1240" height="1230" fill="url(#grid)"/>
 
-  <text x="40" y="42" class="title">Packet anatomy — the three named contracts</text>
+  <text x="40" y="42" class="title">Packet anatomy — the four named contracts</text>
   <text x="40" y="64" class="subtitle">Every crossing is a bounded packet with one ask, a scope boundary, and verifiable acceptance; none of them is "paste the repo"</text>
 
   <!-- Card 1 — the base delegation packet -->
@@ -142,7 +142,42 @@
   <text x="876" y="740" class="rule">sentence, recorded verbatim in the goal</text>
   <text x="876" y="757" class="rule">file's Delivery.authorization field.</text>
 
-  <text x="40" y="836" class="rulehead">Shared invariant</text>
-  <text x="40" y="858" class="rule">Each packet carries verifiable acceptance and states its scope boundary. The receiver is asked for prioritized findings against that acceptance,</text>
-  <text x="40" y="876" class="rule">not for a broad rewrite, and the sender stays accountable for the repository evidence it chose to include.</text>
+  <!-- spec review packet -->
+  <rect x="50" y="812" width="1140" height="300" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <rect x="50" y="812" width="1140" height="52" rx="10" fill="rgba(37,99,235,0.10)"/>
+  <text x="68" y="838" class="cardtitle">Spec Review Packet</text>
+  <text x="68" y="856" class="route" fill="#1d4ed8">Claude &#8594; deep_reasoner &#183; planning, read-only, optional</text>
+
+  <text x="68" y="893" class="sec">Context — why-forward</text>
+  <text x="68" y="909" class="secnote">planning X for Y; the plan is about to go</text>
+  <text x="68" y="924" class="secnote">to them, so read it before they do</text>
+  <text x="68" y="948" class="sec">Specification, inline</text>
+  <text x="68" y="964" class="secnote">the goal line and its done_when, the task</text>
+  <text x="68" y="979" class="secnote">table with acceptance, the design doc —</text>
+  <text x="68" y="994" class="secnote">verbatim, never a path to go read</text>
+
+  <text x="463" y="893" class="sec">Task</text>
+  <text x="463" y="909" class="secnote">review this plan and report what you</text>
+  <text x="463" y="924" class="secnote">would change before any of it is built</text>
+  <text x="463" y="948" class="sec">Acceptance</text>
+  <text x="463" y="964" class="secnote">prioritized findings, worst first · which</text>
+  <text x="463" y="979" class="secnote">criteria are not verifiable as written ·</text>
+  <text x="463" y="994" class="secnote">what is missing, not only what is wrong</text>
+
+  <text x="858" y="893" class="sec">Constraints — narrowed line</text>
+  <text x="858" y="909" class="secnote">read-only: no file edited, no goal file</text>
+  <text x="858" y="924" class="secnote">written, no product code touched</text>
+  <text x="858" y="948" class="sec">Output</text>
+  <text x="858" y="964" class="secnote">no optional commentary; one line saying</text>
+  <text x="858" y="979" class="secnote">the plan is sound beats invented findings</text>
+
+  <rect x="68" y="1010" width="1104" height="92" rx="8" fill="#f1f5f9"/>
+  <text x="86" y="1032" class="rulehead">Once per run, and the driver still rules</text>
+  <text x="86" y="1054" class="rule">The goal file's Spec Review block is the marker: a non-empty block means the automatic review is spent, so a revised plan, a thin review,</text>
+  <text x="86" y="1071" class="rule">and a resumed session all fail to re-trigger it. Findings are input to a judgment, never a verdict applied unread.</text>
+  <text x="86" y="1088" class="rule">It is also the one packet that narrows this template rather than widening it: the e2e packets add a commit, this one removes every write.</text>
+
+  <text x="40" y="1150" class="rulehead">Shared invariant</text>
+  <text x="40" y="1172" class="rule">Each packet carries verifiable acceptance and states its scope boundary. The receiver is asked for prioritized findings against that acceptance,</text>
+  <text x="40" y="1190" class="rule">not for a broad rewrite, and the sender stays accountable for the repository evidence it chose to include.</text>
 </svg>

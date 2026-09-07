@@ -21,6 +21,17 @@ All helper scripts live in `$HANDOFF_DIR` (see Tool Location in `SKILL.md`). Job
   Which CLI executes and which meter bills follows from the identity's configured `backend` (`/agent-handoff config`), not from a separate per-task choice. Two escape hatches remain for edge cases: a one-shot Codex subagent (e.g. a rescue agent) for a stuck step needing a second diagnosis with no durable state, and a raw Task-tool subagent when no Handoff identity fits — billing notes for both in `references/fable5-principles.md`.
 - Adversarial gate: attack your own split before acting on it. Answer three questions in writing: does each delegated task really not need the expensive tier, does the integration cost of the split boundary eat the savings, and does each row's identity match the work's actual stakes (with a reason it is not a more expensive one). A row that survives all three gets delegated; anything else gets its identity corrected, merged into a neighbour, or kept inline. Fix the split first, then delegate.
 - Acceptance coverage: add `e2e_specifier` and `e2e_verifier` rows when the change **alters user-observable behaviour at a real interface** (UI, API surface, mobile screen). Skip them for internal refactors, docs, config, and pure library work. When the criterion fires but the identities are unconfigured, say so once — "this change is user-observable; `/agent-handoff config --with-e2e` would add acceptance coverage" — then continue without them. Full protocol, both packets, and the worktree rules: `references/e2e-gauntlet.md`.
+- Spec review (optional, once): when `deep_reasoner` carries `auto_review_spec = true` in its config, or the user asks for a second pair of eyes, give the plan one independent read before the user sees it. Build the Spec Review Packet from `references/handoff-template.md` and send it through the identity's configured backend:
+
+```bash
+bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+  --repo "$REPO" --prompt-file "$prompt" --label spec-review \
+  --role deep_reasoner --read-only
+```
+
+  A `backend = claude` identity is refused by that tool by design: spawn `handoff-deep-reasoner` instead (Sub Agent Routing below). Then assess the findings yourself, fold in the ones that hold, and record the outcome in the goal file's `## Spec Review` block before the plan (or the Goal Packet) goes to the user.
+
+  Three rules make this safe to leave on. It fires **at most once per run**: a non-empty `## Spec Review` block means the automatic review is spent, so an adjusted plan, a thin review, and a resumed session all fail to re-trigger it, and only an explicit user request produces another. The reviewer is **read-only** — it returns prioritized findings and never edits the spec, the goal file, or product code, and its findings are input to your judgment rather than a verdict you apply unread. And it is **not blind**: the plan under review is your own answer, so the arbiter's contamination rule does not apply here. When `deep_reasoner` resolves to the driver's own vendor the review still runs, and the receipt notes `same-vendor` exactly as the arbiter protocol does.
 
 ## Sub Agent Routing
 
@@ -112,5 +123,5 @@ Only runs when the user asked for the full "full protocol / PR delivery / goal m
 
 - Mark tasks done in `.handoff/goal.md`; stop any remaining `/loop`.
 - Emit the Handoff Session Receipt with `codex_jobs: <count>` (fix rounds included); `claude_session` is the current session. Pass `--repo "$REPO"` so `duration` and `codex_job_durations` are measured from the start marker and the job directories; neither is ever typed from recall. Set `scope` and `config_source` from `handoff-config.py resolve` (or `handoff-setup.py --status`), and build `roles_used` from the roles this run actually invoked: each `delegate-codex.sh` job's `meta` file has `role`/`model`/`effort`/`model_source`/`effort_source`, and `handoff-config.py resolve` has each role's `verified`/`verified_at`. List a role even when `verified` is `false` — never guess it true.
-- E2E roles appear in `roles_used` like any other role when the run used them; `receipt_schema_version` stays `4`.
+- E2E roles and a spec-review job appear in `roles_used` like any other role when the run used them; `receipt_schema_version` stays `4`.
 - Run the memory protocol in `references/memory-protocol.md`: what got delegated, how Codex performed per task type, rework rounds, and effort fit — so the next split decision starts smarter.

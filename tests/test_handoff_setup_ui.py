@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import http.client
 import importlib.util
+import io
 import os
 import sys
 import tempfile
@@ -344,6 +346,51 @@ class SetupUITests(unittest.TestCase):
         raw["with_e2e"] = True
         on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
         self.assertIn("--with-e2e", handoff_setup_ui.engine_arguments(on, "preview"))
+
+    def test_payload_carries_the_toggle_both_ways(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        off = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertFalse(off["spec_review"])
+        raw["spec_review"] = True
+        on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertTrue(on["spec_review"])
+
+    def test_engine_arguments_always_state_the_toggle(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        off = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertIn("--no-spec-review", handoff_setup_ui.engine_arguments(off, "preview"))
+        raw["spec_review"] = True
+        on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertIn("--spec-review", handoff_setup_ui.engine_arguments(on, "apply"))
+
+    def test_state_seeds_the_checkbox_from_the_written_config(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        self.assertFalse(controller.state()["initial_spec_review"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            handoff_setup_ui.engine.main(
+                [
+                    "--apply",
+                    "--repo",
+                    str(self.repo),
+                    "--exclude-choice",
+                    "track",
+                    "--no-write-agents",
+                    "--spec-review",
+                ],
+                env=self.env,
+            )
+        seeded = handoff_setup_ui.SetupController(self.repo, self.env).state()
+        self.assertTrue(seeded["initial_spec_review"])
+        self.assertEqual("deep_reasoner", seeded["spec_review_identity"])
+
+    def test_the_page_wires_the_checkbox(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('id="specReview"', source)
+        self.assertIn("spec_review: $('specReview').checked", source)
+        self.assertIn("$('specReview').checked = state.initial_spec_review", source)
+
 
 if __name__ == "__main__":
     unittest.main()

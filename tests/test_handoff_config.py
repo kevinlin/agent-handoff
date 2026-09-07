@@ -571,5 +571,121 @@ class OptionalIdentityTests(unittest.TestCase):
         identities = override["hosts"][handoff_config.HOST]["identities"]
         self.assertEqual("low", identities["e2e_verifier"]["effort"])
 
+
+class SpecReviewFieldTests(unittest.TestCase):
+    def run_cli(self, *arguments):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            status = handoff_config.main(list(arguments))
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_round_trips_on_deep_reasoner(self):
+        text = handoff_config.update_host(
+            "",
+            identities={
+                "deep_reasoner": {
+                    "backend": "claude",
+                    "model": "opus",
+                    "effort": "high",
+                    "auto_review_spec": True,
+                    "verified": False,
+                }
+            },
+        )
+        self.assertIn("auto_review_spec = true", text)
+        parsed = handoff_config.parse_config(text)
+        identity = parsed["hosts"][handoff_config.HOST]["identities"]["deep_reasoner"]
+        self.assertIs(True, identity["auto_review_spec"])
+
+    def test_absent_field_is_not_emitted(self):
+        text = handoff_config.emit_host_sections(
+            {"deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"}}
+        )
+        self.assertNotIn("auto_review_spec", text)
+
+    def test_rejected_on_another_identity(self):
+        with self.assertRaisesRegex(
+            handoff_config.ConfigValidationError, "only valid on deep_reasoner"
+        ):
+            handoff_config.update_host(
+                "",
+                identities={
+                    "fast_worker": {
+                        "backend": "codex",
+                        "model": "gpt-test",
+                        "effort": "medium",
+                        "auto_review_spec": True,
+                    }
+                },
+            )
+
+    def test_rejected_when_not_a_boolean(self):
+        with self.assertRaisesRegex(
+            handoff_config.ConfigValidationError, "auto_review_spec must be a boolean"
+        ):
+            handoff_config.validate_config(
+                "schema_version = 2\n"
+                "revision = 0\n"
+                "[hosts.claude_code.identities.deep_reasoner]\n"
+                'backend = "claude"\n'
+                'model = "opus"\n'
+                'effort = "high"\n'
+                'auto_review_spec = "yes"\n'
+            )
+
+    def test_override_parses_a_boolean(self):
+        override = handoff_config._parse_override(["deep_reasoner.auto_review_spec=true"])
+        identities = override["hosts"][handoff_config.HOST]["identities"]
+        self.assertIs(True, identities["deep_reasoner"]["auto_review_spec"])
+        with self.assertRaisesRegex(handoff_config.ConfigError, "must be true or false"):
+            handoff_config._parse_override(["deep_reasoner.auto_review_spec=maybe"])
+
+    def test_cli_toggles_without_resetting_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = ("--repo", directory)
+            self.assertEqual(0, self.run_cli(*base, "init")[0])
+            status, _, error = self.run_cli(
+                *base, "set", "--role", "deep_reasoner",
+                "--backend", "claude", "--model", "opus", "--effort", "high",
+                "--verified", "--verified-at", "2026-09-07T00:00:00Z",
+            )
+            self.assertEqual((0, ""), (status, error))
+            status, _, error = self.run_cli(
+                *base, "set", "--role", "deep_reasoner", "--spec-review"
+            )
+            self.assertEqual((0, ""), (status, error))
+            path = Path(directory) / ".handoff" / "config.toml"
+            written = path.read_text(encoding="utf-8")
+            self.assertIn("auto_review_spec = true", written)
+            self.assertIn("verified = true", written)
+            self.assertIn("2026-09-07T00:00:00Z", written)
+            status, _, error = self.run_cli(
+                *base, "set", "--role", "deep_reasoner", "--no-spec-review"
+            )
+            self.assertEqual((0, ""), (status, error))
+            self.assertIn("auto_review_spec = false", path.read_text(encoding="utf-8"))
+
+    def test_cli_refuses_the_toggle_on_another_identity_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = ("--repo", directory)
+            self.assertEqual(0, self.run_cli(*base, "init")[0])
+            path = Path(directory) / ".handoff" / "config.toml"
+            self.assertEqual(
+                0,
+                self.run_cli(
+                    *base, "set", "--role", "fast_worker",
+                    "--backend", "codex", "--model", "gpt-test", "--effort", "medium",
+                )[0],
+            )
+            before = path.read_bytes()
+            status, _, error = self.run_cli(
+                *base, "set", "--role", "fast_worker", "--spec-review"
+            )
+            self.assertEqual(2, status)
+            self.assertIn("only valid on deep_reasoner", error)
+            self.assertEqual(before, path.read_bytes())
+
+
 if __name__ == "__main__":
     unittest.main()

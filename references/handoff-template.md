@@ -1,6 +1,6 @@
 # Agent Handoff Packet Templates
 
-Two packets, both bounded: the delegation packet Claude sends to a Codex job, and the Goal Packet Claude sends to the user for authorization. Cite evidence; do not paste the whole repo.
+Three packets, all bounded: the delegation packet Claude sends to a Codex job, the spec review packet it sends to `deep_reasoner` during planning, and the Goal Packet it sends to the user for authorization. Cite evidence; do not paste the whole repo.
 
 ## Claude → Codex Delegation Packet
 
@@ -38,7 +38,55 @@ Delegation packet rules:
 - Acceptance criteria are what the Phase 4 full review checks against; write them as commands or observable behavior, never vibes.
 - Keep the constraints section short — genuine blockers only. Trust the model with approach decisions inside the scope boundary.
 - For fix rounds (`delegate-codex.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet.
-- The e2e packets in `references/e2e-gauntlet.md` **replace** the "Do not commit" constraint line with a commit-on-this-worktree-branch rule. They are the only packets that do; do not append a commit permission to this template.
+- The e2e packets in `references/e2e-gauntlet.md` **replace** the "Do not commit" constraint line with a commit-on-this-worktree-branch rule. They are the only packets that do; do not append a commit permission to this template. The Spec Review Packet below moves in the opposite direction — it removes the write permission this template implies rather than widening it.
+
+## Spec Review Packet (Phase 1, optional)
+
+Use this packet when `deep_reasoner` reviews the plan before it reaches the user — automatically when its config carries `auto_review_spec = true`, or on request. It runs once per run. Send it through the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`, or the `handoff-deep-reasoner` subagent when the backend is `claude`.
+
+The spec goes in the packet verbatim. The reviewer starts cold and must not go looking for the plan itself; what it is given is what it judges.
+
+```markdown
+# Handoff Spec Review
+
+## Context
+I'm planning [the larger task] for [who it's for]. They need [what the
+output enables]. I wrote the plan below and I am about to send it to them,
+so I want one independent read of it first.
+
+## Specification
+[The plan verbatim: the goal line with its done_when, the task table with
+identities and acceptance criteria, and the design or spec document under
+review. Inline, not by path.]
+
+## Task
+Review this plan and report what you would change before any of it is
+built.
+
+## Acceptance
+- Prioritized findings, worst first, each naming what breaks and where.
+- Say plainly which acceptance criteria are not verifiable as written.
+- Say plainly where the plan is wrong about the repository, and cite the
+  evidence you were given for it.
+- Name what is missing, not only what is wrong.
+- If the plan is sound, say so in one line rather than inventing findings.
+
+## Constraints
+- Read-only. Do not edit any file, write the goal file, or change product
+  code. Findings only.
+- Judge the plan I wrote. Do not rewrite it into your own plan.
+- Do not run the work; this is a review of a plan, not an implementation.
+
+## Output
+- DO NOT send optional commentary. Answer only what was asked.
+- End with at most 3 lines of lessons learned.
+```
+
+Spec review rules:
+
+- **The driver rules.** The findings are input to a judgment, never a verdict. Fold in what holds, say what you rejected and why, and keep ownership of the plan.
+- **Once per run.** Record the outcome in the goal file's `## Spec Review` block; a non-empty block means the automatic review is spent. Another one takes an explicit user request.
+- **Not blind, and not arbitration.** The plan under review is the driver's own answer, so nothing here is withheld. When the same problem has to be solved twice independently, that is the arbiter protocol in `references/claude-driven.md`, not this packet.
 
 ## Goal Packet (Plan→Goal→PR→Verification, `references/goal-to-pr.md`)
 

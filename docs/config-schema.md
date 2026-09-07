@@ -6,6 +6,8 @@ An identity is the complete routing choice `backend + model + effort`. Tasks sel
 
 The first three are core and always configured. `e2e_specifier` and `e2e_verifier` are optional: setup writes them only when it runs with `--with-e2e`, and a config carrying just the three core identities is complete. `schema_version` stays `2` — adding identity names does not change the document shape.
 
+`deep_reasoner` carries one extra field the others do not: `auto_review_spec`, the toggle for the optional Phase 1 spec review. It is a responsibility switch, not a routing value — changing it never invalidates a verification, and absent means off.
+
 A config that carries the optional identities fails closed on a pre-3.2 engine: `validate_config` raises on an identity name it does not recognise. That is the correct direction for a version skew — an older engine refuses the file rather than silently ignoring two identities.
 
 ## Locations and precedence
@@ -29,6 +31,7 @@ revision = 0
 backend = "claude"          # claude | codex — which CLI executes
 model = "opus"
 effort = "high"
+auto_review_spec = true     # optional, deep_reasoner only; setup writes it under --spec-review
 verified = false
 
 [hosts.claude_code.identities.fast_worker]
@@ -71,6 +74,7 @@ always_on_host_rules = false
 | `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI: `claude` or `codex`. |
 | `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. |
 | `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. |
+| `hosts.claude_code.identities.deep_reasoner.auto_review_spec` | boolean | no | Whether `deep_reasoner` reviews the plan once during Phase 1 planning, before it reaches the user. Absent means off. Rejected on any other identity. |
 | `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
 | `routing.always_on_host_rules` | boolean | no | Whether setup writes a persistent routing block; default `false`. |
@@ -79,7 +83,7 @@ Every configured identity requires `backend`, `model`, and `effort`. Backend is 
 
 ## Ownership and deterministic writes
 
-The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
+The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `auto_review_spec`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
 
 Comments and formatting inside an owned section are intentionally not retained. All unowned chunks remain in their original order and retain their original bytes, including comments and line endings.
 
@@ -122,10 +126,12 @@ python3 scripts/handoff-config.py --scope project init
 python3 scripts/handoff-config.py --scope project validate
 python3 scripts/handoff-config.py --scope project get hosts.claude_code.identities.deep_reasoner.backend
 python3 scripts/handoff-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
+python3 scripts/handoff-config.py --scope project set --role deep_reasoner --spec-review
 python3 scripts/handoff-config.py --repo /path/to/repo resolve
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
+python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.auto_review_spec=true
 ```
 
-The `set` command retains `--role` as its identity selector, and accepts the optional e2e identities alongside the core three. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
+The `set` command retains `--role` as its identity selector, and accepts the optional e2e identities alongside the core three. `--spec-review` / `--no-spec-review` write `auto_review_spec` and are refused on any identity but `deep_reasoner`; unlike a backend, model, or effort change, they leave `verified` and `verified_at` intact. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
 
 Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates the complete precedence chain; `get`, `set`, `validate`, and `init` target the selected scope.

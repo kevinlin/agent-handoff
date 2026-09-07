@@ -171,7 +171,7 @@
 <header>
   <h1>Agent Handoff: how the agent handoff works</h1>
   <p class="lede">Agent Handoff splits coding work between Claude Code and Codex to move execution onto the cheaper meter without lowering the quality bar. Everything interesting in it is in the handoff: what crosses between the two agents, what is enforced at the boundary, and what evidence survives afterwards.</p>
-  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.2.0 · reviewed 2026-08-24</p>
+  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.4.0 · reviewed 2026-09-07</p>
 </header>
 
 <h2 id="shape">The shape of the thing</h2>
@@ -179,14 +179,14 @@
 <p>Agent Handoff is one flow with one driver. Claude Code plans, splits, gates and reviews; Codex executes the delegable bulk of the implementation as background jobs on its own subscription. The skill went through a two-direction era where Codex could also be the orchestrator, and that half is gone: there is no <code>direction</code> field, no second host adapter, and no second monitoring surface. What is left is a single spine of five stages, and the interesting design lives in what crosses between them.</p>
 
 <figure>
-  <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol.">
+  <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol. The plan and split band notes the optional spec review and its once-per-run marker.">
   <figcaption>The flow, phase by phase. The job primitive turns each delegated task into filesystem state that a later tick or a resumed session can read.</figcaption>
 </figure>
 
 <p>The driver plans, writes the split into <code>.handoff/goal.md</code>, and delegates. Each task row carries one judgment: which capability the work needs. That single choice determines everything downstream, because the identity's configured <code>backend</code> decides which CLI executes and which meter bills.</p>
 
 <div class="grid">
-  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find late: architecture, root-cause diagnosis, config changes that fail silently.</p></div>
+  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find late: architecture, root-cause diagnosis, config changes that fail silently. Also the reviewer of the plan itself, when that toggle is on.</p></div>
   <div class="card"><h4>fast_worker</h4><p>Mechanical, specification-complete work whose acceptance criteria are enough to verify it. The bulk of what gets delegated.</p></div>
   <div class="card"><h4>arbiter</h4><p>The blind second solver, invoked for contentious calls rather than assigned routine rows.</p></div>
   <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Turns a frozen specification into Gherkin scenarios with stable IDs plus repo-native executable tests. Depends only on the spec, so it runs beside the implementation.</p></div>
@@ -195,6 +195,8 @@
 </div>
 
 <p>Three of the five are always configured; the two e2e identities are written only when setup runs <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five are a <code>backend + model + effort</code> triple that can be mixed across vendors, and the values live only in <code>.handoff/config.toml</code> or <code>~/.config/handoff/config.toml</code> — never in a prompt, never in a doc.</p>
+
+<p>One identity carries a sixth field. <code>deep_reasoner.auto_review_spec</code> is a responsibility toggle rather than a routing value: it says whether that identity reads the plan once during Stage 1, and nothing else about it. The engine rejects it on any other identity instead of ignoring it. Absent means off, and flipping it leaves <code>verified</code> alone: no model, backend, or effort changed.</p>
 
 <h3>The job primitive</h3>
 
@@ -224,8 +226,8 @@
 <h2 id="stage1">Stage 1 — Plan and split</h2>
 
 <figure>
-  <img src="diagrams/phase1-plan-split.svg" alt="Event flowchart: the user's request enters the Claude driver, which preflights, drafts the split, reads and compare-and-set writes the goal file through goal-sync.py, then attacks its own split at the adversarial gate; a refusal box and a failed-question box branch right, with a dashed loop back to the compose step.">
-  <figcaption><strong>Stage 1.</strong> The two branches are the ones that stop the run: a compare-and-set refusal, and a gate answer that sends the split back to be rewritten.</figcaption>
+  <img src="diagrams/phase1-plan-split.svg" alt="Event flowchart: the user's request enters the Claude driver, which preflights, drafts the split, reads and compare-and-set writes the goal file through goal-sync.py, then attacks its own split at the adversarial gate; a refusal box and a failed-question box branch right, with a dashed loop back to the compose step. Below the gate, an optional deep_reasoner spec review node feeds an adjusted plan into the ready-to-delegate step, with a side card on why that review is informed rather than blind.">
+  <figcaption><strong>Stage 1.</strong> The two branches are the ones that stop the run: a compare-and-set refusal, and a gate answer that sends the split back to be rewritten. The last step is the optional one, and the only one that leaves the driver before the user has seen anything.</figcaption>
 </figure>
 
 <p>Preflight does four cheap things, and one of them is a clock. <code>make-receipt.py --start</code> stamps <code>.handoff/session-start</code>, which is what the Stage 5 receipt measures <code>duration</code> against; without the marker the tool later refuses to emit rather than accept a remembered start time. The other three are the Codex CLI version check (a missing CLI stops the flow instead of pretending the job primitives exist), a one-time offer to add the <code>DO NOT send optional commentary</code> line to the repo's <code>AGENTS.md</code>, and a <code>git status --short</code> so pre-existing dirt can be told apart from Codex's diff later.</p>
@@ -246,6 +248,18 @@
   <p><strong>Acceptance coverage is decided here too.</strong> When the change alters user-observable behaviour at a real interface (a UI, an API surface, a mobile screen), the split gains an <code>e2e_specifier</code> row and an <code>e2e_verifier</code> row, with <code>depends</code> wired so the verifier waits on both the specifier and the implementation. Internal refactors, docs, config, and pure library work skip them. When the criterion fires but the identities are unconfigured, the rule is to say so exactly once, name <code>/agent-handoff config --with-e2e</code>, and continue without them: setup state does not get to quietly override the driver's judgment, and it does not block the run either.</p>
 </div>
 
+<h3>A second reader for the plan itself</h3>
+
+<p>Everything above is the driver checking its own work. The adversarial gate attacks a split the driver just wrote, which means the agent that authored the plan is the only agent that judged it — the maker-is-also-judge failure the Darwin ratchet names, sitting on the one decision every later stage is judged against. The optional spec review is what closes it: before the plan reaches the user, <code>deep_reasoner</code> reads it once on its own configured backend and reports what it would change.</p>
+
+<p>Three properties keep an optional extra job from turning into an argument that never ends. It fires <strong>once per run</strong>: the goal file's <code>## Spec Review</code> block is the marker, and a non-empty block means the automatic review is spent, so a revised plan, a thin review, and a resumed session all fail to re-trigger it. It is <strong>read-only</strong>: <code>--read-only</code> on the job, findings as the whole output, no edit to the spec, the goal file, or product code. And the driver <strong>rules</strong> — findings are input to a judgment, not a verdict applied unread.</p>
+
+<div class="callout claude">
+  <p><strong>This one is deliberately not blind.</strong> The arbiter withholds every hint because two independent solutions to the same problem are what it is measuring. Here the plan under review <em>is</em> the driver's answer, so withholding it would leave nothing to read; the packet carries the goal line, the task table, and the design document verbatim. The cost is real and stated rather than hidden: an informed reader inherits the author's framing and will catch a wrong premise less often than an independent solve would. It is a second pair of eyes, not a second opinion. When <code>deep_reasoner</code> resolves to the driver's own vendor, the run says <code>same-vendor</code> the way the arbiter protocol does.</p>
+</div>
+
+<p>The toggle is off by default, which means the review answers to the driver's judgment and the user's request rather than to setup state, the same rule the e2e criterion follows from the other direction. Asking for it once does not write it into the config, and having it configured does not license a second pass.</p>
+
 <h2 id="stage2">Stage 2 — Delegate</h2>
 
 <figure>
@@ -265,13 +279,14 @@
 <h3>The packet contracts</h3>
 
 <figure>
-  <img src="diagrams/handoff-packet-anatomy.svg" alt="Three side-by-side cards: the Claude-to-Codex Delegation Packet, the E2E specifier and verifier packets that run in a worktree, and the Goal Packet sent to the user for authorization, each with its sections and enforcement rules.">
+  <img src="diagrams/handoff-packet-anatomy.svg" alt="Three side-by-side cards — the Claude-to-Codex Delegation Packet, the E2E specifier and verifier packets that run in a worktree, and the Goal Packet sent to the user for authorization — over a full-width fourth card for the read-only Spec Review Packet, each with its sections and enforcement rules.">
   <figcaption>Every crossing has a named shape, a scope boundary, and an acceptance the receiver is asked to judge against.</figcaption>
 </figure>
 
 <ul>
   <li><strong>The Delegation Packet</strong> (driver → Codex job) is prose, disciplined by convention: why-forward context, one-sentence task, acceptance as commands, constraints limited to genuine blockers, the checkpoint rule, and a fixed output rule — no optional commentary, at most three lines of lessons learned. The terse reviewer contract is presented as measured rather than folklore: 41% less reviewer output with no loss in judgment quality.</li>
   <li><strong>The E2E packets</strong> are the same shape with the "do not commit" constraint <em>replaced</em> by a commit-on-this-worktree-branch rule — they are the only packets that do. They also carry the specification inline, because a worktree has no <code>.handoff/</code> to read it from, and they name an approved local or ephemeral test target rather than letting the verifier guess one.</li>
+  <li><strong>The Spec Review Packet</strong> (driver → <code>deep_reasoner</code>, Stage 1) is the one packet that <em>narrows</em> the template rather than widening it: read-only, findings only, no edit to any file. It carries the plan verbatim because the reviewer starts cold and must judge what it was given rather than go looking for the plan itself, and it asks for what is missing as well as what is wrong — plus a one-line "this is sound" when it is, rather than invented findings.</li>
   <li><strong>The Goal Packet</strong> (driver → user) is not a delegation at all but a decision artifact: the ask, the plan with <code>file:line</code> evidence, the gate's verdict, the open decisions only the user can settle, and an explicit statement of what confirming it does and does not authorize. It is sent before any branch, worktree, or goal file exists.</li>
 </ul>
 
@@ -302,6 +317,11 @@
     <td>Driver → e2e worktree job</td>
     <td>The frozen goal excerpt and the spec verbatim, the approved test target, the commit-on-this-branch rule</td>
     <td><code>.handoff/</code> in any form; a worktree carries tracked content only</td>
+  </tr>
+  <tr>
+    <td>Driver → deep_reasoner, spec review</td>
+    <td>The plan verbatim — goal line, task table, acceptance criteria, the design document — and the ask for prioritized findings</td>
+    <td>Any authority to edit: not the plan, not the goal file, not the repo</td>
   </tr>
   <tr>
     <td>Codex job → driver</td>
@@ -387,7 +407,7 @@
 
 <h3>How disagreements are settled</h3>
 
-<p>Two instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan. The arbiter protocol solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> on their own backends, and neither packet may contain the other's answer or a leaning hint. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test.</p>
+<p>Three instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan, and the attacker is the driver itself. The optional spec review hands that same plan to another agent for one informed read; its output is findings the driver rules on. The arbiter protocol solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> on their own backends, and neither packet may contain the other's answer or a leaning hint. Only the third one is blind, and the difference is not cosmetic: a hint that would merely bias a reviewer invalidates an arbitration. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test.</p>
 
 <p>What happens after that is a fixed escalation, and every step names a decider:</p>
 
@@ -429,7 +449,7 @@
 <p>The five stages run one control structure: the goal is written down before any work leaves the driver, each gate judges the work against that written goal instead of against the stage before it, and the rework path has a fixed end.</p>
 
 <figure>
-  <img src="diagrams/feedback-loop.svg" alt="Top: six loop stages — plan and split, adversarial gate, delegate, monitor, review gate, accept and wrap — over a goal.md band showing what each stage reads or writes, with return arcs for bounded rework and for anomalies. Middle: two cards for the job directory and the e2e verdict artifact. Bottom: an escalation table from the plan itself through blind arbitration, the review gate, takeback, and hard stops.">
+  <img src="diagrams/feedback-loop.svg" alt="Top: six loop stages — plan and split, adversarial gate, delegate, monitor, review gate, accept and wrap — over a goal.md band showing what each stage reads or writes, with return arcs for bounded rework and for anomalies. Middle: two cards for the job directory and the e2e verdict artifact. Bottom: an escalation table from the plan itself through the optional outside read of the plan, blind arbitration, the review gate, takeback, and hard stops.">
   <figcaption>The loop, its written reference, and the escalation order when two agents disagree.</figcaption>
 </figure>
 
@@ -439,6 +459,11 @@
     <td>The goal is written so it can be met without being achieved</td>
     <td>The anti-Goodhart clause on <code>done_when</code>; <code>done_when</code> and <code>hard_stops</code> compose by AND, so meeting every condition never authorizes crossing a stop</td>
     <td>Convention</td>
+  </tr>
+  <tr>
+    <td>The plan is judged only by the agent that wrote it</td>
+    <td>The optional spec review: one independent read by <code>deep_reasoner</code> before the plan reaches the user, recorded in the goal file's <code>## Spec Review</code> block</td>
+    <td>Convention, once per run</td>
   </tr>
   <tr>
     <td>The split is drawn for cost rather than for stakes</td>

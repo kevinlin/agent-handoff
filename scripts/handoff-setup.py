@@ -36,6 +36,7 @@ SPEC.loader.exec_module(handoff_config)
 IDENTITIES = handoff_config.IDENTITIES
 CORE_IDENTITIES = handoff_config.CORE_IDENTITIES
 OPTIONAL_IDENTITIES = handoff_config.OPTIONAL_IDENTITIES
+SPEC_REVIEW_IDENTITY = handoff_config.SPEC_REVIEW_IDENTITY
 identities_for = handoff_config.identities_for
 ordered = handoff_config.ordered
 BACKENDS = handoff_config.BACKENDS
@@ -243,6 +244,17 @@ def detect_claude(env: Mapping[str, str]) -> Dict[str, str]:
                 break
     return detected
 
+def apply_spec_review(identities: Dict[str, Dict[str, Any]], args: argparse.Namespace) -> None:
+    """Write the deep_reasoner spec-review toggle when --spec-review is on.
+
+    Absent means off, so an apply without the flag drops a previously written
+    one; that removal is how the toggle is turned back off.
+    """
+
+    if getattr(args, "spec_review", False) and SPEC_REVIEW_IDENTITY in identities:
+        identities[SPEC_REVIEW_IDENTITY]["auto_review_spec"] = True
+
+
 def choose_identities(
     args: argparse.Namespace,
     env: Mapping[str, str],
@@ -273,6 +285,7 @@ def choose_identities(
                 "verified": False,
             }
             sources[identity] = {field: "custom" for field in ("backend", "model", "effort")}
+        apply_spec_review(identities, args)
         validate_backend_efforts(identities)
         return identities, sources, notes
 
@@ -323,6 +336,7 @@ def choose_identities(
             "${CODEX_HOME:-$HOME/.codex}/config.toml or pass "
             f"{examples}; no model name is guessed."
         )
+    apply_spec_review(identities, args)
     validate_backend_efforts(identities)
     return identities, sources, notes
 
@@ -755,12 +769,18 @@ def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     identities = resolved["hosts"][handoff_config.HOST]["identities"]
     for identity in IDENTITIES:
         values = identities.get(identity, {})
+        spec_review = (
+            f" spec_review={str(values.get('auto_review_spec', False)).lower()}"
+            if identity == SPEC_REVIEW_IDENTITY
+            else ""
+        )
         print(
             f"{identity}: backend={values.get('backend', '<unset>')} "
             f"model={values.get('model', '<unset>')} "
             f"effort={values.get('effort', '<unset>')} "
             f"verified={str(values.get('verified', False)).lower()} "
             f"verified_at={values.get('verified_at', '<unset>')}"
+            f"{spec_review}"
         )
     return 0
 
@@ -966,6 +986,9 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     scope = "global" if (input("Scope [1 project/2 global] (1): ").strip() or "1") == "2" else "project"
     write_agents = input("Generate handoff agents? [Y/n]: ").strip().lower() not in ("n", "no")
     routing = input("Write managed routing block? [y/N]: ").strip().lower() in ("y", "yes")
+    spec_review = input(
+        f"Let {SPEC_REVIEW_IDENTITY} review the spec once during planning? [y/N]: "
+    ).strip().lower() in ("y", "yes")
     identity_backends: List[str] = []
     identity_models: List[str] = []
     identity_efforts: List[str] = []
@@ -986,6 +1009,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     selected = argparse.Namespace(**vars(args))
     selected.mode, selected.scope = mode, scope
     selected.with_e2e = with_e2e
+    selected.spec_review = spec_review
     selected.write_agents, selected.routing_block = write_agents, routing
     selected.role_backend = identity_backends
     selected.role_model, selected.role_effort = identity_models, identity_efforts
@@ -1023,6 +1047,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     e2e.add_argument("--no-with-e2e", dest="with_e2e", action="store_false")
     parser.set_defaults(with_e2e=False)
+    spec_review = parser.add_mutually_exclusive_group()
+    spec_review.add_argument(
+        "--spec-review",
+        dest="spec_review",
+        action="store_true",
+        help=(
+            f"Let {SPEC_REVIEW_IDENTITY} review the spec once during planning, "
+            "before the plan reaches the user."
+        ),
+    )
+    spec_review.add_argument("--no-spec-review", dest="spec_review", action="store_false")
+    parser.set_defaults(spec_review=False)
     agents = parser.add_mutually_exclusive_group()
     agents.add_argument("--write-agents", dest="write_agents", action="store_true", help="Generate namespaced Claude agents (default).")
     agents.add_argument("--no-write-agents", dest="write_agents", action="store_false", help="Skip Claude agent generation.")

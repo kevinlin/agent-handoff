@@ -43,7 +43,11 @@ def ordered(names: Iterable[str]) -> List[str]:
     return [identity for identity in IDENTITIES if identity in set(names)]
 
 
-IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "verified", "verified_at")
+IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "auto_review_spec", "verified", "verified_at")
+# auto_review_spec is a responsibility toggle, not a routing value: it belongs to
+# one identity only, and changing it never invalidates a verification.
+SPEC_REVIEW_IDENTITY = "deep_reasoner"
+BOOLEAN_FIELDS = ("auto_review_spec", "verified")
 BACKENDS = ("claude", "codex")
 V1_UPGRADE_MESSAGE = (
     'Detected a schema v1 config. Rerun /agent-handoff config to upgrade '
@@ -292,6 +296,16 @@ def _validate_data(
             if required not in fields or not isinstance(fields[required], str) or not fields[required].strip():
                 raise ConfigValidationError(
                     f"hosts.{host}.identities.{identity}.{required} must be a non-empty string"
+                )
+        if "auto_review_spec" in fields:
+            if identity != SPEC_REVIEW_IDENTITY:
+                raise ConfigValidationError(
+                    f"hosts.{host}.identities.{identity}.auto_review_spec is only valid on "
+                    f"{SPEC_REVIEW_IDENTITY}"
+                )
+            if not isinstance(fields["auto_review_spec"], bool):
+                raise ConfigValidationError(
+                    f"hosts.{host}.identities.{identity}.auto_review_spec must be a boolean"
                 )
         if "verified" in fields and not isinstance(fields["verified"], bool):
             raise ConfigValidationError(f"hosts.{host}.identities.{identity}.verified must be a boolean")
@@ -577,9 +591,9 @@ def _parse_override(items: Iterable[str], host: str = HOST) -> Dict[str, Any]:
         if len(parts) != 2 or parts[0] not in IDENTITIES or parts[1] not in IDENTITY_FIELD_ORDER:
             raise ConfigError(f"override must target IDENTITY.FIELD: {dotted!r}")
         field = parts[1]
-        if field == "verified":
+        if field in BOOLEAN_FIELDS:
             if raw not in ("true", "false"):
-                raise ConfigError("verified override must be true or false")
+                raise ConfigError(f"{field} override must be true or false")
             value: Any = raw == "true"
         elif raw.startswith('"'):
             value = _parse_value(raw, 1, len(dotted) + 2)
@@ -610,6 +624,15 @@ def build_parser() -> argparse.ArgumentParser:
     verified.add_argument("--unverified", dest="verified", action="store_false")
     set_parser.set_defaults(verified=None)
     set_parser.add_argument("--verified-at")
+    spec_review = set_parser.add_mutually_exclusive_group()
+    spec_review.add_argument(
+        "--spec-review",
+        dest="auto_review_spec",
+        action="store_true",
+        help=f"Let {SPEC_REVIEW_IDENTITY} review the spec once during planning.",
+    )
+    spec_review.add_argument("--no-spec-review", dest="auto_review_spec", action="store_false")
+    set_parser.set_defaults(auto_review_spec=None)
 
     resolve_parser = subparsers.add_parser("resolve", help="Resolve session > project > global > defaults.")
     resolve_parser.add_argument("--override", action="append", default=[], metavar="IDENTITY.FIELD=VALUE")
@@ -660,6 +683,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "effort": args.effort,
                 "verified": args.verified,
                 "verified_at": args.verified_at,
+                "auto_review_spec": args.auto_review_spec,
             }
             identity_changed = any(
                 value is not None

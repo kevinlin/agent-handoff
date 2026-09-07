@@ -5,7 +5,7 @@
 > Claude Code decides, Codex executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.3.0](https://img.shields.io/badge/version-3.3.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.4.0](https://img.shields.io/badge/version-3.4.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -185,17 +185,18 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs` and their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
 - A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
 - Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
+- An optional second pair of eyes on the plan (`--spec-review`): before a plan reaches you, `deep_reasoner` reads it once on its own model and reports what it would change. Read-only, once per run, and the driver still rules — it closes the gap where the agent that wrote the plan is the only one that judged it.
 - Five identities, each a `backend + model + effort` triple pinned independently:
 
   | identity | carries | |
   |---|---|---|
-  | `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis | core |
+  | `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis, and the optional one-shot review of the plan | core |
   | `fast_worker` | mechanical, spec-complete implementation and checks | core |
   | `arbiter` | blind second solve for contested calls | core |
   | `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
   | `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
 
-  The optional pair is written only when setup runs `--with-e2e`; a three-identity config is complete. See [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md).
+  The optional pair is written only when setup runs `--with-e2e`; a three-identity config is complete. See [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md). `deep_reasoner` carries one further toggle, `--spec-review`, also off by default.
 - A Darwin-style ratchet: improve one workflow dimension at a time and keep only verified gains.
 - A first-run setup wizard (`/agent-handoff config`): balanced/quality/cost presets remain editable per identity; `.handoff/config.toml` is the single source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list; post-install verification uses a tool-free fresh Claude session plus the Codex delegate dry-run chain.
 - Handoff Session Receipt v4: `scope`/`config_source`/`roles_used` prove which model and effort actually ran a role, not just "it was delegated."

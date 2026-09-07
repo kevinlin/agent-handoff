@@ -31,6 +31,7 @@ If the user already has their own `deep-reasoner.md` / `fast-worker.md` agents, 
 ## Rules
 
 - Show every identity and its concrete backend/model/effort selection in one local page, including the optional e2e pair when it is enabled.
+- The page carries one more optional toggle: whether `deep_reasoner` reviews the plan once during planning before the user sees it (`--spec-review`, default off). Seed the checkbox from the resolved config so re-running setup never silently clears it, and treat it as a responsibility toggle, not a routing value — turning it on or off leaves `verified` alone.
 - Values the engine detected are filled and source-labelled, not re-asked.
 - Preview before every write; the user sees paths + diffs, not a summary.
 - No silent model fallback. Effort may only be adjusted to an advertised value while the user is changing backend/model in the UI; apply and smoke surface unsupported combinations and never swap models quietly.
