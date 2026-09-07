@@ -389,7 +389,8 @@ class SetupUITests(unittest.TestCase):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('id="specReview"', source)
         self.assertIn("spec_review: $('specReview').checked", source)
-        self.assertIn("$('specReview').checked = state.initial_spec_review", source)
+        self.assertIn("box ? box.checked : state.initial_spec_review", source)
+        self.assertIn("identity === state.spec_review_identity ? reviewAddon()", source)
 
 
 if __name__ == "__main__":

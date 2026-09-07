@@ -817,7 +817,7 @@ HTML = r'''<!doctype html>
     .e2e-toggle { display:flex; align-items:center; gap:8px; width:max-content; margin:12px 0 0; color:var(--ink); font-size:13px; letter-spacing:0; cursor:pointer; }
     .e2e-toggle input { flex:0 0 auto; width:16px; height:16px; margin:0; accent-color:var(--accent-v2); }
     .e2e-addon .matrix { padding:14px 0 0; }
-    .review-addon { margin:0 20px 4px; padding:16px 0 0; border-top:1px solid var(--line-v2); }
+    .review-addon { grid-column:1/-1; margin:3px 0 0; padding:14px 0 0; border-top:1px solid var(--line-v2); }
     .review-addon > p { max-width:530px; margin:6px 0 0; color:var(--muted-v2); font-size:13px; line-height:1.5; }
     .review-addon strong { color:var(--ink); font:680 15px var(--body); }
     .identity { display:grid; grid-template-columns:minmax(155px,.82fr) minmax(130px,.7fr) minmax(220px,1.2fr) minmax(120px,.62fr); gap:12px; align-items:start; position:relative; min-height:110px; overflow:hidden; padding:17px; border:1px solid var(--line-v2); border-radius:17px; background:var(--card); box-shadow:var(--shadow-card); }
@@ -1026,12 +1026,6 @@ HTML = r'''<!doctype html>
             <span class="current-mode" id="currentMode">Current mode: loading</span>
           </div>
           <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
-          <div class="review-addon">
-            <strong>Second pair of eyes on the plan (optional)</strong>
-            <p>Before a plan reaches you, deep_reasoner reads it once on its own model and
-               reports what it would change. It happens once per run and never edits anything.</p>
-            <label class="e2e-toggle"><input type="checkbox" id="specReview"> Review the plan before I see it</label>
-          </div>
           <details id="e2eAddOn" class="e2e-addon">
             <summary>E2E acceptance testing (optional)</summary>
             <p>Adds two identities that write and run acceptance tests for
@@ -1241,10 +1235,22 @@ HTML = r'''<!doctype html>
           <div class="field"><label for="${identity}-backend">Runs on</label><select id="${identity}-backend" data-field="backend"><option value="claude" ${values.backend === 'claude' ? 'selected' : ''}>Claude Code</option><option value="codex" ${values.backend === 'codex' ? 'selected' : ''}>Codex</option></select></div>
           <div class="field model-field"><label for="${identity}-model">Model</label><select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select><div class="source" id="${identity}-source">Source: ${esc(sourceLabel(source))}</div></div>
           <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
+          ${identity === state.spec_review_identity ? reviewAddon() : ''}
         </article>`;
       }).join('');
     }
+    function reviewAddon() {
+      const box = $('specReview');
+      const checked = box ? box.checked : state.initial_spec_review;
+      return `<div class="review-addon">
+            <strong>Second pair of eyes on the plan (optional)</strong>
+            <p>Before a plan reaches you, deep_reasoner reads it once on its own model and
+               reports what it would change. It happens once per run and never edits anything.</p>
+            <label class="e2e-toggle"><input type="checkbox" id="specReview" ${checked ? 'checked' : ''}> Review the plan before I see it</label>
+          </div>`;
+    }
     function bindIdentityInputs() {
+      $('specReview').addEventListener('change', invalidate);
       document.querySelectorAll('.identity select').forEach(control => control.addEventListener('input', event => {
         const card = event.target.closest('.identity');
         const identity = card.dataset.identity;
@@ -1305,7 +1311,6 @@ HTML = r'''<!doctype html>
       state = await api('/api/state');
       mode = state.initial_mode;
       matrix = clone(state.initial_matrix);
-      $('specReview').checked = state.initial_spec_review;
       $('repo').textContent = state.repo;
       const codex = state.detected.codex_model ? `${state.detected.codex_model} / ${state.detected.codex_effort || 'not set'}` : 'No model detected';
       $('detect').innerHTML = `
@@ -1321,7 +1326,6 @@ HTML = r'''<!doctype html>
       syncReadiness();
       $('configWorkspace').setAttribute('aria-busy', 'false');
     }
-    $('specReview').addEventListener('change', invalidate);
     $('withE2e').addEventListener('change', () => {
       renderIdentities();
       syncHeroMap();
