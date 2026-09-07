@@ -131,13 +131,18 @@ class SetupTests(unittest.TestCase):
         status, _, error = self.run_cli(*self.custom_args(choices, action="--preview"))
         self.assertEqual((0, ""), (status, error))
 
-        choices["deep_reasoner"] = ("claude", "opus", "minimal")
-        status, _, error = self.run_cli(*self.custom_args(choices, action="--preview"))
-        self.assertEqual(2, status)
-        self.assertIn("backend=claude", error)
+        for codex_only in ("minimal", "ultra"):
+            choices["deep_reasoner"] = ("claude", "opus", codex_only)
+            status, _, error = self.run_cli(*self.custom_args(choices, action="--preview"))
+            self.assertEqual(2, status)
+            self.assertIn("backend=claude", error)
 
         choices["deep_reasoner"] = ("claude", "opus", "high")
-        choices["fast_worker"] = ("codex", "gpt-detected", "max")
+        choices["fast_worker"] = ("codex", "gpt-detected", "ultra")
+        status, _, error = self.run_cli(*self.custom_args(choices, action="--preview"))
+        self.assertEqual((0, ""), (status, error))
+
+        choices["fast_worker"] = ("codex", "gpt-detected", "supreme")
         status, _, error = self.run_cli(*self.custom_args(choices, action="--preview"))
         self.assertEqual(2, status)
         self.assertIn("backend=codex", error)

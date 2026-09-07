@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.3.0 (2026-09-07)
+
+### The Codex effort dial reaches the top of the GPT-5.6 range
+
+- fix: `max` and `ultra` are configurable Codex efforts. `codex model/list` reports both on the GPT-5.6 models, but the setup engine intersected that list against a five-value tuple, so the wizard silently dropped the top two levels and `delegate-codex.sh` refused a config that carried one — `ERROR: invalid --effort: max` on an identity the wizard itself could not have offered. Both values are verified against the live CLI rather than assumed: `model_reasoning_effort` accepts them, and an unknown level still fails closed with the API naming what it supports
+- docs: `references/fable5-principles.md` says what the two new levels are for, and that `ultra` subdivides the job through automatic task delegation rather than only thinking longer
+
+No change was needed for the newly released models themselves. Model names have never been hardcoded. Claude Code resolves `opus` and `fable` as rolling aliases; verified locally, `opus` and `claude-opus-5` smoke-pass and `fable` resolves to Fable 5.1. Codex models come from the account-aware `model/list`, so a model this account cannot list yet still routes end to end once it does.
+
 ## v3.2.0 (2026-08-24)
 
 ### Optional e2e acceptance roles

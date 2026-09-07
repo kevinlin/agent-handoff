@@ -166,6 +166,16 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("high", parsed["effort"])
         self.assertEqual("default", parsed["effort_source"])
 
+    def test_gpt_5_6_efforts_are_accepted_and_unknown_ones_refused(self):
+        for effort in ("minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
+            with self.subTest(effort=effort):
+                result, _ = self.run_submit(None, "--effort", effort)
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                self.assertEqual(effort, self.parsed(result.stdout)["effort"])
+        result, _ = self.run_submit(None, "--effort", "supreme")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid --effort: supreme", result.stderr)
+
     def test_dry_run_does_not_create_jobs_directory(self):
         result, repo = self.run_submit(self.config(), "--role", "deep_reasoner")
         self.assertEqual(0, result.returncode, result.stderr)

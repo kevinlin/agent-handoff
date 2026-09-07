@@ -5,7 +5,7 @@
 > Claude Code decides, Codex executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.2.0](https://img.shields.io/badge/version-3.2.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.3.0](https://img.shields.io/badge/version-3.3.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 

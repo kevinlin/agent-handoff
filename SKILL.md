@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-version: 3.2.0
+version: 3.3.0
 description: |
   Agent Handoff — cost-split workflow where Claude Code drives and Codex executes. Claude plans and splits the work, attacks its own split before acting on it, delegates quota-pressure tasks to Codex background jobs, monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---

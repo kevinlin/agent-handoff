@@ -62,7 +62,7 @@ class SetupUITests(unittest.TestCase):
             "                {'model': 'gpt-catalog', 'displayName': 'GPT Catalog', "
             "'description': 'Account model', 'isDefault': True, "
             "'supportedReasoningEfforts': [{'reasoningEffort': 'low'}, "
-            "{'reasoningEffort': 'high'}, {'reasoningEffort': 'ultra'}]},\n"
+            "{'reasoningEffort': 'high'}, {'reasoningEffort': 'none'}]},\n"
             "                {'model': 'gpt-catalog-fast', 'displayName': 'GPT Catalog Fast', "
             "'description': 'Fast model', 'isDefault': False, "
             "'supportedReasoningEfforts': [{'reasoningEffort': 'medium'}]},\n"
@@ -144,7 +144,7 @@ class SetupUITests(unittest.TestCase):
         self.assertEqual(
             {
                 "claude": ["low", "medium", "high", "xhigh", "max"],
-                "codex": ["minimal", "low", "medium", "high", "xhigh"],
+                "codex": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
             },
             state["efforts_by_backend"],
         )
