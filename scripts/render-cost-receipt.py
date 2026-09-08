@@ -351,6 +351,10 @@ def _figure_cell(column: dict) -> str:
     return f"≥ {body} ({column['measured']} of {column['total']} jobs measured)"
 
 
+def _job_count(count: int) -> str:
+    return f"{count} job" if count == 1 else f"{count} jobs"
+
+
 def _cost_sentence(figure: dict) -> str:
     """`unknown` claims a reading was attempted and failed. A run with no
     claude-backed job had nothing to read, and says so instead."""
@@ -412,14 +416,14 @@ def render_markdown(payload: dict) -> str:
     out += ["", "## Summary", ""]
 
     codex, outside = summary["codex_subscription"], summary["outside_driver"]
-    out.append(f"**Ran on a Codex subscription** ({codex['jobs']} jobs). "
+    out.append(f"**Ran on a Codex subscription** ({_job_count(codex['jobs'])}). "
                "No cost figure: the Codex CLI emits none.")
     out.append("")
     out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")
     out.append("|" + "---|" * len(COUNTERS))
     out.append("| " + " | ".join(_figure_cell(codex["usage"][c]) for c in COUNTERS) + " |")
     out.append("")
-    out.append(f"**Ran outside the driver session** ({outside['jobs']} jobs). "
+    out.append(f"**Ran outside the driver session** ({_job_count(outside['jobs'])}). "
                f"{_cost_sentence(outside)}")
     out.append("")
     out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")

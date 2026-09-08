@@ -409,6 +409,14 @@ class MarkdownTests(unittest.TestCase):
     def test_measured_zero_renders_as_zero(self):
         self.assertEqual(rcr.md_cell(0), "0")
 
+    def test_a_single_job_figure_is_not_pluralised(self):
+        out = rcr.render_markdown(self.payload(rows=[row("job-a", "codex", 100)]))
+        self.assertIn("(1 job)", out)
+        self.assertNotIn("1 jobs", out)
+
+    def test_two_jobs_are_pluralised(self):
+        self.assertIn("(2 jobs)", rcr.render_markdown(self.payload()))
+
     def test_codex_only_run_states_there_were_no_claude_jobs(self):
         out = rcr.render_markdown(self.payload(rows=[row("job-a", "codex", 100)]))
         self.assertIn("no claude-backed jobs", out)

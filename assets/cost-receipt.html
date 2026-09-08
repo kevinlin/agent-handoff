@@ -55,6 +55,7 @@ const el = (tag, text, cls) => {
 const num = (v) => v === null || v === undefined ? "unknown" : v.toLocaleString();
 const figureCell = (c) => c.value === null ? "unknown"
   : (c.complete ? num(c.value) : `\u2265 ${num(c.value)} (${c.measured} of ${c.total})`);
+const jobCount = (n) => `${n} ${n === 1 ? "job" : "jobs"}`;
 // "unknown" claims a reading was attempted and failed; a run with no
 // claude-backed job had nothing to read.
 const costNote = (fig) => !fig.cost_applicable
@@ -96,7 +97,7 @@ function render() {
    ["Ran outside the driver session", data.summary.outside_driver, true]
   ].forEach(([title, fig, withCost]) => {
     const card = el("section", null, "card");
-    card.appendChild(el("h2", `${title} \u00b7 ${fig.jobs} jobs`));
+    card.appendChild(el("h2", `${title} \u00b7 ${jobCount(fig.jobs)}`));
     card.appendChild(el("p", withCost
       ? costNote(fig)
       : "No cost figure: the Codex CLI emits none.", "note"));
