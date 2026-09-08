@@ -437,5 +437,90 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(json.loads(match.group(1))["claude_session"], hostile)
 
 
+import contextlib
+import io
+
+
+class CliTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        job = self.tmp / ".handoff" / "jobs" / "job-a"
+        job.mkdir(parents=True)
+        (job / "meta").write_text("backend=codex\nmodel=m\nrole=r\nlabel=l\n")
+        (job / "exit_code").write_text("0\n")
+        (job / "log.jsonl").write_text(json.dumps(CODEX_TURN) + "\n")
+        self.receipts = self.tmp / ".handoff" / "receipts"
+        self.receipts.mkdir(parents=True)
+        self.text = receipt_text(codex_jobs="1", codex_job_durations="job-a=1min 00sec",
+                                 cc_jobs="0", cc_job_durations="none")
+
+    def write(self, name):
+        path = self.receipts / name
+        path.write_text(self.text)
+        return path
+
+    def run_cli(self, *args):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = rcr.main([*args, "--repo", str(self.tmp), "--no-open"])
+        return code, err.getvalue()
+
+    def test_last_picks_the_greatest_stamp_not_the_newest_mtime(self):
+        old = self.write("receipt-20260908T100000Z.md")
+        new = self.write("receipt-20260908T155001Z.md")
+        Path(old).touch()  # older stamp, newer mtime
+        self.assertEqual(rcr.resolve_receipt(self.tmp, None), new)
+
+    def test_explicit_missing_path_exits_two(self):
+        code, err = self.run_cli(str(self.tmp / "nope.md"))
+        self.assertEqual(code, 2)
+        self.assertIn("no such receipt file", err)
+
+    def test_writes_both_outputs_named_for_the_stamp(self):
+        self.write("receipt-20260908T155001Z.md")
+        code, _ = self.run_cli()
+        self.assertEqual(code, 0)
+        out = self.tmp / ".handoff" / "cost-receipts"
+        self.assertTrue((out / "20260908T155001Z.md").is_file())
+        self.assertTrue((out / "20260908T155001Z.html").is_file())
+
+    def test_arbitrary_input_is_named_for_its_basename(self):
+        other = self.tmp / "notes.md"
+        other.write_text(self.text)
+        self.assertEqual(self.run_cli(str(other))[0], 0)
+        self.assertTrue((self.tmp / ".handoff" / "cost-receipts" / "notes.md").is_file())
+
+    def test_no_receipt_and_no_selector_exits_two(self):
+        code, err = self.run_cli()
+        self.assertEqual(code, 2)
+        self.assertIn("`make-receipt.py --save`", err)
+
+    def test_invalid_receipt_exits_two_and_writes_nothing(self):
+        self.text = receipt_text(receipt_schema_version="4")
+        self.write("receipt-20260908T155001Z.md")
+        code, err = self.run_cli()
+        self.assertEqual(code, 2)
+        self.assertIn("schema_version", err)
+        self.assertFalse((self.tmp / ".handoff" / "cost-receipts").exists())
+
+    def test_rerun_overwrites_in_place(self):
+        self.write("receipt-20260908T155001Z.md")
+        self.run_cli()
+        out = self.tmp / ".handoff" / "cost-receipts" / "20260908T155001Z.md"
+        first = out.read_text()
+        self.run_cli()
+        self.assertIn("Handoff Cost Receipt", out.read_text())
+        self.assertEqual(first.splitlines()[0], out.read_text().splitlines()[0])
+
+    def test_html_output_carries_the_payload(self):
+        self.write("receipt-20260908T155001Z.md")
+        self.run_cli()
+        html = (self.tmp / ".handoff" / "cost-receipts" / "20260908T155001Z.html").read_text()
+        match = re.search(
+            r'<script id="handoff-payload" type="application/json">(.*?)</script>',
+            html, re.S)
+        self.assertEqual(json.loads(match.group(1))["jobs"][0]["job_id"], "job-a")
+
+
 if __name__ == "__main__":
     unittest.main()

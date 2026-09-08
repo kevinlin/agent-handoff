@@ -13,6 +13,7 @@ import glob
 import json
 import re
 import sys
+import webbrowser
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,6 +22,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 from handoff_runtime import inject, job_state, read_meta  # noqa: E402
 
+DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "cost-receipt.html"
 RECEIPT_HEADER = "[Handoff session receipt]"
 SCHEMA_VERSION = "5"
 FIELD_LINE = re.compile(r"^([a-z_]+):\s*(.+)$")
@@ -431,11 +433,67 @@ def render_markdown(payload: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def resolve_receipt(repo: Path, selector: str | None) -> Path:
+    if selector and selector != "last":
+        path = Path(selector)
+        if not path.is_file():
+            raise ReceiptError(f"no such receipt file: {selector}")
+        return path
+    # Ordered by stamp, not mtime: the stamp is the receipt's own generation
+    # time and survives a copy. Names in one directory are unique, so the
+    # greatest stamp is unambiguous.
+    saved = sorted((repo / ".handoff" / "receipts").glob("receipt-*.md"),
+                   key=lambda p: p.name)
+    if not saved:
+        raise ReceiptError(
+            "no saved receipt found under .handoff/receipts/. "
+            "Generate one with `make-receipt.py --save`.")
+    return saved[-1]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("receipt", nargs="?", default=None)
-    parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument("receipt", nargs="?", default=None,
+                        help="Path to a receipt file, or 'last' (default).")
+    parser.add_argument("--repo", type=Path, default=Path.cwd(),
+                        help="Repository root (default: current directory).")
+    parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
+    parser.add_argument("--no-open", action="store_true",
+                        help="Write the pages and print their paths instead of opening.")
     args = parser.parse_args(argv)
+
+    try:
+        receipt_path = resolve_receipt(args.repo, args.receipt)
+        receipt = load_receipt(receipt_path.read_text(encoding="utf-8"), args.repo)
+    except (ReceiptError, OSError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
+    rows = [job_row(args.repo, job) for job in receipt["jobs"]]
+    interval = run_interval(receipt_path, receipt["fields"].get("duration", "0min 00sec"))
+    session = receipt["fields"].get("claude_session", "none")
+    driver = (driver_row(session, interval) if session != "none"
+              else {"state": "unavailable", "usage": _blank_usage(),
+                    "models": [], "cost_usd": None})
+
+    sources = [str(receipt_path)] + [
+        str(args.repo / ".handoff" / "jobs" / r["job_id"] / "log.jsonl") for r in rows]
+    payload = build_payload(receipt, rows, driver, interval, sources)
+
+    stamp_match = RECEIPT_STAMP.match(receipt_path.name)
+    stem = stamp_match.group(1) if stamp_match else receipt_path.stem
+    out_dir = args.repo / ".handoff" / "cost-receipts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    md_path = out_dir / f"{stem}.md"
+    html_path = out_dir / f"{stem}.html"
+    md_path.write_text(render_markdown(payload), encoding="utf-8")
+    html_path.write_text(
+        inject(args.template.read_text(encoding="utf-8"), payload), encoding="utf-8")
+
+    print(md_path)
+    print(html_path)
+    if not args.no_open:
+        webbrowser.open(html_path.as_uri())
     return 0
 
 
