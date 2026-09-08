@@ -22,8 +22,10 @@ node_modules/
 # unittest / pytest run caches
 .pytest_cache/
 
-# Per-repo skill runtime state: config, goal, jobs, receipts, handoffs, backups
+# Agent Handoff: config, goal, jobs, receipts, handoffs, backups
 .handoff/
+.claude/agents/handoff-fast-worker.md
+
 
 # Marker written by install.sh into an installed skill dir
 .install-meta
