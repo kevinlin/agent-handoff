@@ -455,6 +455,42 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(json.loads(match.group(1))["claude_session"], hostile)
 
 
+class SourcePathTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.sources = [str(self.tmp / ".handoff" / "receipts" / "receipt-x.md"),
+                        str(self.tmp / ".handoff" / "jobs" / "job-a" / "log.jsonl"),
+                        "/somewhere/else/outside.jsonl"]
+        self.payload = rcr.build_payload(
+            {"fields": {"claude_session": "sid-1", "duration": "11min 01sec"}},
+            [row("job-a", "codex", 100)],
+            {"state": "measured", "usage": {c: None for c in rcr.COUNTERS},
+             "models": [], "cost_usd": None},
+            None, self.sources, self.tmp)
+
+    def test_no_source_is_absolute_or_names_the_repo_root(self):
+        for source in self.payload["sources"]:
+            self.assertFalse(source.startswith("/"))
+            self.assertNotIn(str(self.tmp), source)
+
+    def test_a_path_outside_the_repo_keeps_only_its_basename(self):
+        self.assertIn("outside.jsonl", self.payload["sources"])
+
+    def test_markdown_carries_no_absolute_path(self):
+        out = rcr.render_markdown(self.payload)
+        self.assertNotIn(str(self.tmp), out)
+        self.assertIn(".handoff/jobs/job-a/log.jsonl", out)
+
+    def test_injected_html_payload_carries_no_absolute_path(self):
+        html = rcr.inject(TEMPLATE.read_text(encoding="utf-8"), self.payload)
+        match = re.search(
+            r'<script id="handoff-payload" type="application/json">(.*?)</script>',
+            html, re.S)
+        for source in json.loads(match.group(1))["sources"]:
+            self.assertFalse(source.startswith("/"))
+            self.assertNotIn(str(self.tmp), source)
+
+
 import contextlib
 import io
 

@@ -364,8 +364,22 @@ def _cost_sentence(figure: dict) -> str:
             f"{repr(figure['cost_usd'])}{partial}.")
 
 
+def _relative_source(source: str, repo: Path | None) -> str:
+    """Both outputs are committed artifacts, so no absolute path may reach them:
+    a home directory in the Method list would outlive the run in the repository."""
+    path = Path(source)
+    if repo is not None:
+        for base in (Path(repo), Path(repo).resolve()):
+            for candidate in (path, path.resolve()):
+                try:
+                    return str(candidate.relative_to(base))
+                except ValueError:
+                    continue
+    return path.name
+
+
 def build_payload(receipt: dict, rows: list[dict], driver: dict,
-                  interval, sources: list[str]) -> dict:
+                  interval, sources: list[str], repo: Path | None = None) -> dict:
     fields = receipt["fields"]
     return {
         "claude_session": fields.get("claude_session", "none"),
@@ -381,7 +395,7 @@ def build_payload(receipt: dict, rows: list[dict], driver: dict,
                  for r in rows],
         "driver": driver,
         "summary": summarize(rows),
-        "sources": sources,
+        "sources": [_relative_source(source, repo) for source in sources],
         "counters": list(COUNTERS),
     }
 
@@ -492,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sources = [str(receipt_path)] + [
         str(args.repo / ".handoff" / "jobs" / r["job_id"] / "log.jsonl") for r in rows]
-    payload = build_payload(receipt, rows, driver, interval, sources)
+    payload = build_payload(receipt, rows, driver, interval, sources, args.repo)
 
     stamp_match = RECEIPT_STAMP.match(receipt_path.name)
     stem = stamp_match.group(1) if stamp_match else receipt_path.stem
