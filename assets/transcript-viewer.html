@@ -4,52 +4,164 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Handoff Transcript</title>
+<script>
+  // Resolved before first paint, so a stored choice never flashes the other
+  // theme. Same 'handoff-theme' key and vocabulary as the setup wizard.
+  (() => {
+    let preference = 'system';
+    try { preference = localStorage.getItem('handoff-theme') || 'system'; }
+    catch (error) { preference = 'system'; }
+    if (!['system', 'light', 'dark'].includes(preference)) preference = 'system';
+    const dark = preference === 'dark' ||
+      (preference === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.dataset.themePreference = preference;
+  })();
+</script>
 <style>
+  /* light-dark() resolves against the used color-scheme, so the toggle only
+     has to set color-scheme — one token set covers both themes. */
   :root {
     color-scheme: light dark;
-    --bg: #fbfbfa; --fg: #1a1a19; --muted: #6b6b68; --line: #e3e3e0;
-    --card: #ffffff; --accent: #4a5cd6; --ok: #2f7d4f; --bad: #b3412e;
+    --bg:     light-dark(#fbfbfa, #16161a);
+    --fg:     light-dark(#1a1a19, #e8e8e6);
+    --muted:  light-dark(#6b6b68, #9a9a96);
+    --line:   light-dark(#e3e3e0, #2c2c31);
+    --card:   light-dark(#ffffff, #1e1e23);
+    --accent: light-dark(#4a5cd6, #8b9aff);
+    --ok:     light-dark(#2f7d4f, #5fbe84);
+    --bad:    light-dark(#b3412e, #e2705a);
+    --hover:  light-dark(#f1f1ef, #23232a);
+    /* Segmented tray, matching the setup wizard's theme switch. */
+    --switch-bg:    light-dark(#ececea, #23232a);
+    --switch-hover: light-dark(#e3e3e0, #2c2c31);
+    --switch-fg:    light-dark(#3d3d3a, #c3c3bf);
+    --on-accent:    light-dark(#ffffff, #16161a);
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --measure: 70ch;                        /* readable line length for prose */
+    --gutter: clamp(1rem, 3vw, 2.5rem);
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#16161a; --fg:#e8e8e6; --muted:#9a9a96; --line:#2c2c31;
-            --card:#1e1e23; --accent:#8b9aff; --ok:#5fbe84; --bad:#e2705a; }
-  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"]  { color-scheme: dark; }
   * { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6
     ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 6rem; }
+  /* A wide window spends its width on the things that were being truncated:
+     trace rows, shell output, and the header grid. Prose is capped at
+     --measure instead, since a 200-character line is not more readable for
+     being possible. */
+  main { max-width:90rem; margin:0 auto; padding:1.5rem var(--gutter) 6rem; }
+
+  #topbar { display:flex; justify-content:flex-end; margin-bottom:.5rem; }
+  .segmented { display:flex; gap:2px; padding:3px; border:1px solid var(--line);
+    border-radius:12px; background:var(--switch-bg); }
+  .segmented button { position:relative; min-height:36px; padding:8px 12px;
+    border:0; border-radius:9px; background:transparent; color:var(--switch-fg);
+    font:12px var(--mono); cursor:pointer; }
+  .segmented button::before { content:""; position:absolute; inset:-4px 0; }
+  .segmented button[aria-pressed="true"] { background:var(--accent);
+    color:var(--on-accent); }
+  .segmented button:focus-visible { outline:2px solid var(--accent);
+    outline-offset:2px; }
+
   #header { border:1px solid var(--line); border-radius:.5rem;
-    background:var(--card); padding:.9rem 1rem; margin-bottom:1.25rem; }
-  #header dl { display:grid; grid-template-columns:auto 1fr; gap:.15rem .75rem;
-    margin:0; font-size:.85rem; }
+    background:var(--card); padding:.9rem 1rem; margin-bottom:1.25rem;
+    box-shadow:0 1px 2px rgb(0 0 0 / .04), 0 2px 6px rgb(0 0 0 / .03); }
+  #header dl { display:grid; grid-template-columns:auto minmax(0,1fr);
+    gap:.15rem .75rem; margin:0; font-size:.85rem; }
   #header dt { color:var(--muted); }
-  #header dd { margin:0; font-variant-numeric:tabular-nums; }
-  .row { border-bottom:1px solid var(--line); padding:.35rem 0; }
+  #header dd { margin:0; padding-inline-end:1.5rem; overflow-wrap:anywhere;
+    font-variant-numeric:tabular-nums; }
+  /* Twelve stacked pairs is a tall ribbon on a wide screen. Pairs flow
+     left-to-right, so the same grid just gains columns. */
+  @media (min-width:62rem) {
+    #header dl { grid-template-columns:repeat(2, auto minmax(0,1fr)); }
+  }
+  @media (min-width:92rem) {
+    #header dl { grid-template-columns:repeat(3, auto minmax(0,1fr)); }
+  }
+
+  #controls { display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center;
+    margin-bottom:.75rem; font-size:.85rem; }
+  /* display:flex above outranks the UA [hidden] rule, which would otherwise
+     leave a stray checkbox on the empty drop page. */
+  #controls[hidden] { display:none; }
+  #controls label { display:inline-flex; align-items:center; gap:.45rem;
+    cursor:pointer; padding:.45rem .5rem; margin-inline:-.5rem;
+    border-radius:.35rem; user-select:none; }
+
+  .row { border-bottom:1px solid var(--line); }
   .row summary { cursor:pointer; display:flex; gap:.6rem; align-items:baseline;
-    font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.82rem; }
-  .row .glyph { flex:none; width:1.2rem; text-align:center; }
-  .row .label { flex:1; overflow:hidden; text-overflow:ellipsis;
+    font-family:var(--mono); font-size:.82rem;
+    padding:.4rem .5rem; margin-inline:-.5rem; border-radius:.35rem; }
+  @media (hover:hover) and (pointer:fine) {
+    .row summary:hover { background:var(--hover); }
+    .segmented button:hover { background:var(--switch-hover); color:var(--fg); }
+    .segmented button[aria-pressed="true"]:hover { background:var(--accent);
+      color:var(--on-accent); }
+  }
+  .row summary:focus-visible { outline:2px solid var(--accent);
+    outline-offset:1px; }
+  .row .glyph { flex:none; width:1.4rem; text-align:center; color:var(--muted); }
+  .row .glyph.ok { color:var(--ok); }
+  .row .glyph.bad { color:var(--bad); }
+  .row .label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
     white-space:nowrap; }
-  .row .size { flex:none; color:var(--muted); font-size:.78rem; }
-  .row pre { overflow-x:auto; background:var(--card); border:1px solid var(--line);
-    border-radius:.4rem; padding:.6rem .75rem; font-size:.8rem; margin:.5rem 0 .25rem; }
-  .agent { padding:1rem 0 1.25rem; border-bottom:1px solid var(--line); }
-  .agent :is(h1,h2,h3) { font-size:1.05rem; margin:1rem 0 .4rem; }
-  .agent pre { overflow-x:auto; background:var(--card); border:1px solid var(--line);
-    border-radius:.4rem; padding:.6rem .75rem; }
+  .row .size { flex:none; color:var(--muted); font-size:.78rem;
+    font-variant-numeric:tabular-nums; }
+  /* A 100 KB shell output would otherwise bury the rest of the transcript
+     the moment its row is opened. */
+  .row pre { overflow:auto; max-height:min(60vh, 40rem); background:var(--card);
+    border:1px solid var(--line); border-radius:.4rem; padding:.6rem .75rem;
+    font-size:.8rem; margin:.5rem 0; }
+
+  /* Agent prose quotes absolute paths, which have no break opportunity and
+     would otherwise push the page wider than a narrow window. */
+  .agent { padding:1rem 0 1.25rem; border-bottom:1px solid var(--line);
+    overflow-wrap:break-word; }
+  /* Capping the children rather than the article keeps the separator rule
+     flush with the trace rows above and below it. */
+  .agent > * { max-width:var(--measure); text-wrap:pretty; }
+  .agent > :is(h1,h2,h3,h4) { font-size:1.05rem; margin:1rem 0 .4rem;
+    text-wrap:balance; }
+  .agent > pre { max-width:none; overflow-x:auto; background:var(--card);
+    border:1px solid var(--line); border-radius:.4rem; padding:.6rem .75rem; }
   .agent code { font-size:.85em; }
+  .agent :not(pre) > code { background:var(--card); border:1px solid var(--line);
+    border-radius:.25rem; padding:.05em .3em; }
+  .agent > table { max-width:100%; width:max-content; display:block;
+    overflow-x:auto; border-collapse:collapse; font-size:.9em; margin:.75rem 0; }
+  .agent :is(th,td) { border:1px solid var(--line); padding:.3rem .6rem;
+    text-align:left; vertical-align:top; }
+  .agent > blockquote { margin:.75rem 0; padding-left:.9rem;
+    border-left:3px solid var(--line); color:var(--muted); }
+
   .muted { color:var(--muted); font-style:italic; }
   .bad { color:var(--bad); }
   .ok { color:var(--ok); }
   #dropzone { border:2px dashed var(--line); border-radius:.6rem;
-    padding:3rem 1rem; text-align:center; color:var(--muted); }
+    padding:3rem 1rem; margin-top:1.5rem; text-align:center; color:var(--muted); }
   #dropzone.over { border-color:var(--accent); color:var(--fg); }
-  #controls { display:flex; gap:1rem; align-items:center; margin-bottom:.75rem;
-    font-size:.85rem; }
+
+  @media (prefers-reduced-motion:no-preference) {
+    .row summary, .segmented button, #dropzone {
+      transition:background-color .16s ease, border-color .16s ease,
+                 color .16s ease, transform .1s var(--ease-out); }
+    .segmented button:active { transform:scale(.98); }
+  }
 </style>
 </head>
 <body>
 <main>
+  <div id="topbar">
+    <div class="segmented" id="themeSwitch" role="group" aria-label="Theme">
+      <button type="button" data-theme-choice="system">System</button>
+      <button type="button" data-theme-choice="light">Light</button>
+      <button type="button" data-theme-choice="dark">Dark</button>
+    </div>
+  </div>
   <div id="header" hidden></div>
   <div id="controls" hidden>
     <label><input type="checkbox" id="only-agent"> Conversation only</label>
@@ -528,6 +640,30 @@ if(__exports != exports)module.exports = exports;return module.exports}));
   let payload = null;
   try { payload = JSON.parse(slot.textContent); } catch (_) { payload = null; }
   if (payload) window.HandoffViewer.mount(payload);
+
+  const root = document.documentElement;
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+  let themePreference = root.dataset.themePreference || 'system';
+
+  function applyTheme(preference) {
+    themePreference = preference;
+    const dark = preference === 'dark' ||
+      (preference === 'system' && systemDark.matches);
+    root.dataset.theme = dark ? 'dark' : 'light';
+    root.dataset.themePreference = preference;
+    document.querySelectorAll('#themeSwitch button').forEach(el =>
+      el.setAttribute('aria-pressed', String(el.dataset.themeChoice === preference)));
+  }
+  document.querySelectorAll('#themeSwitch button').forEach(el =>
+    el.addEventListener('click', () => {
+      applyTheme(el.dataset.themeChoice);
+      try { localStorage.setItem('handoff-theme', el.dataset.themeChoice); }
+      catch (error) { /* private window: this session only */ }
+    }));
+  systemDark.addEventListener('change', () => {
+    if (themePreference === 'system') applyTheme('system');
+  });
+  applyTheme(themePreference);
 
   const zone = document.getElementById('dropzone');
   const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
