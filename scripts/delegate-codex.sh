@@ -3,29 +3,32 @@ set -euo pipefail
 
 # delegate-codex.sh — Claude-driven Handoff delegation primitive.
 #
-# Wraps `codex exec --json` as background jobs with durable state under
-# <repo>/.handoff/jobs/<jobId>/ so a Claude Code session (or a /loop tick)
-# can submit work to Codex, poll it, collect the result, and send follow-up
-# fix rounds against the same Codex session.
+# The name is historical: this is the delegation primitive for BOTH backends.
+# It wraps `codex exec --json` and `claude --print --output-format stream-json`
+# as background jobs with durable state under <repo>/.handoff/jobs/<jobId>/ so
+# a Claude Code session (or a /loop tick) can submit work to a worker CLI, poll
+# it, collect the result, and send follow-up fix rounds against the same worker
+# session. The identity's configured backend decides which CLI runs the job.
 #
 # Job directory layout:
-#   prompt.md    the exact prompt sent to codex exec
+#   prompt.md    the exact prompt sent to the worker CLI
 #   run.sh       the command actually executed (audit trail)
-#   log.jsonl    codex exec --json event stream
-#   stderr.log   codex stderr (tokens, warnings, auth errors)
+#   log.jsonl    the worker's JSON event stream
+#   stderr.log   worker stderr (tokens, warnings, auth errors)
 #   pid          background worker pid
 #   exit_code    written when the worker finishes
-#   session_id   codex thread/session id, extracted from log.jsonl
-#   meta         label, effort, mode, parent job, timestamps
+#   session_id   worker thread/session id, extracted from log.jsonl
+#   meta         label, backend, effort, mode, parent job, timestamps
 
 usage() {
   cat <<'USAGE'
-delegate-codex.sh — background Codex jobs for the Claude-driven Handoff flow
+delegate-codex.sh — background delegation jobs for the Handoff flow
+(the name is historical; it drives both the codex and claude backends)
 
 Usage:
   delegate-codex.sh submit --repo <path> --prompt-file <file>
-                    [--label <name>] [--effort minimal|low|medium|high|xhigh|max|ultra]
-                    [--model <model>]
+                    [--label <name>] [--effort <level>] [--model <model>]
+                    [--backend codex|claude]
                     [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
                     [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
@@ -36,11 +39,18 @@ Usage:
   delegate-codex.sh cleanup <jobId> --repo <path>
   delegate-codex.sh list    --repo <path>
 
-Defaults: --effort high (Handoff default for delegated work), read-write
-sandbox per the user's codex config. Use --read-only for review/adversarial
-jobs that must not touch the repo. --role resolves backend, model, and effort
-from Handoff config; an identity with backend=claude must be spawned as a
-subagent instead of delegated here.
+Defaults: --backend codex, --effort high (Handoff default for delegated
+work), read-write sandbox per the user's codex config. Use --read-only for
+review/adversarial jobs that must not touch the repo; it maps to `-s read-only`
+on codex and `--permission-mode plan` on claude.
+
+--role resolves backend, model, and effort from Handoff config, and the
+identity's backend decides which CLI executes the job — always. --backend is
+for role-less ad-hoc jobs only: passing one that contradicts a named role is
+refused rather than silently overriding the config.
+
+Efforts are per CLI, never one shared enum: codex takes
+minimal|low|medium|high|xhigh|max|ultra, claude takes low|medium|high|xhigh|max.
 
 --worktree runs the job in a dedicated Git worktree under
 <repo>/.handoff/worktrees/<jobId>, cut from --base (default HEAD) resolved to
@@ -49,9 +59,13 @@ and removal stay with the driver. `cleanup <jobId>` removes the worktree and
 refuses one holding uncommitted changes. --repo always names the main repo,
 never a worktree.
 
-Codex binary: set HANDOFF_CODEX_BIN to an executable path or command name to
-override discovery. On macOS the ChatGPT/Codex app-bundled CLI is preferred
-when present so app-only models use a compatible client; otherwise PATH is used.
+Worker binary: set HANDOFF_CODEX_BIN or HANDOFF_CLAUDE_BIN to an executable
+path or command name to override discovery. On macOS the ChatGPT/Codex
+app-bundled CLI is preferred when present so app-only models use a compatible
+client; otherwise PATH is used.
+
+HANDOFF_CLAUDE_PERMISSION_MODE overrides a claude worker's default
+`acceptEdits`. A read-only job stays `plan` regardless.
 
 Exit codes: status prints RUNNING/DONE/FAILED/CANCELLED; `status --wait`
 returns non-zero on timeout or failure so callers can branch on it.
@@ -93,9 +107,12 @@ is_git_repo() {
   git -C "$1" rev-parse --git-dir >/dev/null 2>&1
 }
 
-resolve_codex_bin() {
-  local configured="${HANDOFF_CODEX_BIN:-}"
-  local candidate=""
+resolve_worker_bin() {
+  # Finds the CLI for one backend. The CODEX_* variable names are kept so the
+  # meta keys and resume's parent-binary reuse stay unchanged across backends.
+  local backend="$1" env_var configured candidate=""
+  if [ "$backend" = "claude" ]; then env_var="HANDOFF_CLAUDE_BIN"; else env_var="HANDOFF_CODEX_BIN"; fi
+  configured="${!env_var:-}"
 
   CODEX_BIN_SOURCE="path"
   if [ -n "$configured" ]; then
@@ -105,8 +122,9 @@ resolve_codex_bin() {
     else
       candidate="$(command -v "$configured" 2>/dev/null || true)"
     fi
-    [ -n "$candidate" ] && [ -x "$candidate" ] || die "HANDOFF_CODEX_BIN is not executable: $configured"
-  elif [ "$(uname -s)" = "Darwin" ]; then
+    [ -n "$candidate" ] && [ -x "$candidate" ] || die "$env_var is not executable: $configured"
+  elif [ "$backend" = "codex" ] && [ "$(uname -s)" = "Darwin" ]; then
+    # App-bundle probe is codex-only: app-only models need a compatible client.
     for candidate in "/Applications/ChatGPT.app/Contents/Resources/codex" "/Applications/Codex.app/Contents/Resources/codex"; do
       if [ -x "$candidate" ]; then
         CODEX_BIN_SOURCE="app"
@@ -117,14 +135,22 @@ resolve_codex_bin() {
   fi
 
   if [ -z "$candidate" ]; then
-    candidate="$(command -v codex 2>/dev/null || true)"
+    candidate="$(command -v "$backend" 2>/dev/null || true)"
     CODEX_BIN_SOURCE="path"
   fi
-  [ -n "$candidate" ] && [ -x "$candidate" ] || die "codex CLI not found; install it or set HANDOFF_CODEX_BIN"
+  [ -n "$candidate" ] && [ -x "$candidate" ] || die "$backend CLI not found; install it or set $env_var"
 
   CODEX_BIN="$candidate"
   CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
   CODEX_VERSION="${CODEX_VERSION:-unknown}"
+}
+
+validate_effort() {
+  # Efforts are per CLI, never one shared enum.
+  case "$1" in
+    claude) case "$2" in low|medium|high|xhigh|max) ;; *) die "invalid --effort for claude: $2" ;; esac ;;
+    *) case "$2" in minimal|low|medium|high|xhigh|max|ultra) ;; *) die "invalid --effort: $2" ;; esac ;;
+  esac
 }
 
 make_job_id() {
@@ -200,8 +226,9 @@ PY
 cmd_submit() {
   local PROMPT_FILE="" LABEL="task" EFFORT="high" MODEL="" ROLE="" READ_ONLY="false" DRY_RUN="false"
   local WORKTREE_BRANCH="" WORKTREE_BASE="" BASE_COMMIT=""
-  local EFFORT_EXPLICIT="false" MODEL_EXPLICIT="false"
-  local EFFORT_SOURCE="default" MODEL_SOURCE="default"
+  local EFFORT_EXPLICIT="false" MODEL_EXPLICIT="false" BACKEND_EXPLICIT="false"
+  local EFFORT_SOURCE="default" MODEL_SOURCE="default" BACKEND_SOURCE="default"
+  BACKEND="codex"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --repo) REPO="${2:-}"; shift 2 ;;
@@ -210,6 +237,7 @@ cmd_submit() {
       --effort) EFFORT="${2:-}"; EFFORT_EXPLICIT="true"; shift 2 ;;
       --model) MODEL="${2:-}"; MODEL_EXPLICIT="true"; shift 2 ;;
       --role) ROLE="${2:-}"; shift 2 ;;
+      --backend) BACKEND="${2:-}"; BACKEND_EXPLICIT="true"; shift 2 ;;
       --worktree) WORKTREE_BRANCH="${2:-}"; shift 2 ;;
       --base) WORKTREE_BASE="${2:-}"; shift 2 ;;
       --read-only) READ_ONLY="true"; shift ;;
@@ -220,6 +248,7 @@ cmd_submit() {
   require_repo
   [ -n "$PROMPT_FILE" ] && [ -f "$PROMPT_FILE" ] || die "--prompt-file is required and must exist"
   case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier) ;; *) die "invalid --role: $ROLE" ;; esac
+  case "$BACKEND" in codex|claude) ;; *) die "invalid --backend: $BACKEND" ;; esac
 
   if [ -n "$WORKTREE_BRANCH" ]; then
     is_git_repo "$REPO" || die "--worktree requires --repo to be a git repository"
@@ -233,18 +262,23 @@ cmd_submit() {
   if [ -n "$ROLE" ]; then
     local CONFIG_JSON CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
     if ! CONFIG_JSON="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve)"; then
-      die "failed to resolve Codex identity config; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend codex --model <model> --effort <effort>'"
+      die "failed to resolve Handoff identity config; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
     fi
     CONFIG_SOURCE="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("source", ""))')" || die "invalid JSON from handoff-config.py resolve"
     ROLE_BACKEND="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("backend", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
     ROLE_MODEL="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("model", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
     ROLE_EFFORT="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("effort", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
     if [ -z "$ROLE_BACKEND" ] || [ -z "$ROLE_MODEL" ] || [ -z "$ROLE_EFFORT" ]; then
-      die "Codex identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend codex --model <model> --effort <effort>'"
+      die "Handoff identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
     fi
-    if [ "$ROLE_BACKEND" != "codex" ]; then
-      die "identity $ROLE is configured as backend=$ROLE_BACKEND; spawn the handoff-$ROLE subagent instead of delegating to Codex"
+    # The configured backend decides which CLI runs the job — always. An
+    # explicit --backend that contradicts the config is refused rather than
+    # silently moving the work onto another vendor and meter.
+    if [ "$BACKEND_EXPLICIT" = "true" ] && [ "$BACKEND" != "$ROLE_BACKEND" ]; then
+      die "--backend $BACKEND contradicts identity $ROLE, configured as backend=$ROLE_BACKEND; change the config with 'handoff-config.py set --role $ROLE --backend $BACKEND' instead of overriding it per job"
     fi
+    BACKEND="$ROLE_BACKEND"
+    BACKEND_SOURCE="config:$CONFIG_SOURCE"
     if [ "$MODEL_EXPLICIT" = "false" ]; then
       MODEL="$ROLE_MODEL"
       MODEL_SOURCE="config:$CONFIG_SOURCE"
@@ -256,15 +290,16 @@ cmd_submit() {
   fi
   [ "$MODEL_EXPLICIT" = "false" ] || MODEL_SOURCE="explicit"
   [ "$EFFORT_EXPLICIT" = "false" ] || EFFORT_SOURCE="explicit"
-  case "$EFFORT" in minimal|low|medium|high|xhigh|max|ultra) ;; *) die "invalid --effort: $EFFORT" ;; esac
-  resolve_codex_bin
+  if [ "$BACKEND_EXPLICIT" = "true" ] && [ -z "$ROLE" ]; then BACKEND_SOURCE="explicit"; fi
+  validate_effort "$BACKEND" "$EFFORT"
+  resolve_worker_bin "$BACKEND"
 
   LABEL="$(echo "$LABEL" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//;s/-$//')"
   if [ "$DRY_RUN" = "true" ]; then
     local SKIP_GIT_REPO_CHECK=""
-    is_git_repo "$REPO" || SKIP_GIT_REPO_CHECK="--skip-git-repo-check"
-    printf 'role=%s\nbackend=codex\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\n' \
-      "${ROLE:-none}" "${MODEL:-default}" "$EFFORT" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
+    [ "$BACKEND" = "codex" ] && { is_git_repo "$REPO" || SKIP_GIT_REPO_CHECK="--skip-git-repo-check"; }
+    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\n' \
+      "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "${MODEL:-default}" "$EFFORT" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
       "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK"
     return 0
   fi
@@ -284,8 +319,8 @@ cmd_submit() {
   fi
 
   {
-    printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=codex\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=fresh\n' \
-      "$LABEL" "$EFFORT" "${MODEL:-default}" "${ROLE:-none}" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
+    printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=%s\nbackend_source=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=fresh\n' \
+      "$LABEL" "$EFFORT" "${MODEL:-default}" "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
       "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)"
   } >"$JOB/meta"
 
@@ -316,8 +351,16 @@ cmd_resume() {
   [ "$(job_state)" = "RUNNING" ] && die "parent job still running; wait or cancel first"
 
   local PARENT_JOB="$JOB"
-  # `codex exec resume` takes its cwd from the shell, so without this a fix
-  # round would land in the main repo instead of the parent's worktree.
+  # A fix round resumes on the parent job's backend, never on a re-decided one.
+  # Jobs written before backend dispatch carry no `backend=` line; they are
+  # codex by construction.
+  BACKEND="$(meta_value backend "$PARENT_JOB")"
+  BACKEND="${BACKEND:-codex}"
+  local PARENT_ROLE
+  PARENT_ROLE="$(meta_value role "$PARENT_JOB")"
+  # `codex exec resume` and `claude --resume` both take cwd from the shell, so
+  # without this a fix round would land in the main repo instead of the
+  # parent's worktree.
   local PARENT_WORKDIR
   PARENT_WORKDIR="$(meta_value worktree "$PARENT_JOB")"
   if [ -n "$PARENT_WORKDIR" ]; then
@@ -337,7 +380,7 @@ cmd_resume() {
     CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
     CODEX_VERSION="${CODEX_VERSION:-unknown}"
   else
-    resolve_codex_bin
+    resolve_worker_bin "$BACKEND"
   fi
   local ROUND=2
   case "$PARENT_ID" in *-r[0-9]*) ROUND=$(( ${PARENT_ID##*-r} + 1 )) ;; esac
@@ -349,8 +392,9 @@ cmd_resume() {
   printf '%s' "$SESSION_ID" >"$JOB/session_id"
 
   {
-    printf 'label=resume\neffort=%s\nmodel=inherit\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
-      "${EFFORT:-high}" "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)" "$PARENT_ID"
+    printf 'label=resume\neffort=%s\nmodel=inherit\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
+      "${EFFORT:-high}" "${PARENT_ROLE:-none}" "$BACKEND" \
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)" "$PARENT_ID"
   } >"$JOB/meta"
 
   if [ "$PARENT_WORKDIR" != "$REPO" ]; then
@@ -372,11 +416,13 @@ write_run_script() {
     printf 'WORKDIR=%q\n' "$WORKDIR"
     printf 'CODEX_BIN=%q\n' "$CODEX_BIN"
     echo 'PROMPT="$(cat "$JOB/prompt.md")"'
-    # </dev/null: a long prompt can make codex exec also wait on stdin for
+    # </dev/null: a long prompt can make a worker CLI also wait on stdin for
     # more input ("Reading additional input from stdin..."); the background
     # job's stdin is never closed on its own, so without this the job hangs
     # forever with no further JSONL events.
-    if [ -n "$session_id" ]; then
+    if [ "$BACKEND" = "claude" ]; then
+      write_claude_exec_line "$effort" "$model" "$read_only" "$session_id"
+    elif [ -n "$session_id" ]; then
       # `codex exec resume` accepts no -C/-s flags: cwd comes from the shell,
       # sandbox and effort go through -c config overrides.
       local args="--json -c 'model_reasoning_effort=\"$effort\"'"
@@ -395,6 +441,31 @@ write_run_script() {
     echo 'echo $? >"$JOB/exit_code"'
   } >"$job/run.sh"
   chmod +x "$job/run.sh"
+}
+
+write_claude_exec_line() {
+  local effort="$1" model="$2" read_only="$3" session_id="$4"
+  # Credential boundary: a nested Claude Code host injects provider URLs and
+  # credentials that would override the user's normal first-party CLI login.
+  # Mirrors handoff_runtime.clean_claude_env(). Bash prefix expansion is exact
+  # and needs no subprocess; a sed alternation over `env` fails silently on
+  # BSD sed, which has no `\|` in a basic regular expression.
+  echo 'for name in ${!ANTHROPIC_@} ${!CLAUDE_CODE_@}; do unset "$name"; done'
+  echo 'export CLAUDECODE=""'
+  # `claude` takes its cwd from the shell; it has no -C.
+  echo 'cd "$WORKDIR"'
+  local mode="${HANDOFF_CLAUDE_PERMISSION_MODE:-acceptEdits}"
+  # ponytail: acceptEdits lets the worker edit files, but its Bash calls still
+  # follow the user's own settings.json allowlist, so a worker may be unable to
+  # run its own acceptance check. HANDOFF_CLAUDE_PERMISSION_MODE is the escape.
+  [ "$read_only" = "true" ] && mode="plan"
+  local args="--print --output-format stream-json --verbose --permission-prompts none --permission-mode $mode --effort $effort"
+  if [ -n "$session_id" ]; then
+    args="$args --resume $session_id"
+  elif [ -n "$model" ]; then
+    args="$args --model \"$model\""
+  fi
+  printf '"$CODEX_BIN" %s -- "$PROMPT" >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
 }
 
 launch_job() {
@@ -487,6 +558,19 @@ try:
                     commands.append(item.get("command", ""))
             elif etype == "turn.completed":
                 usage = event.get("usage") or {}
+            elif etype == "assistant":
+                # Claude stream-json: content blocks on the assistant message.
+                for block in (event.get("message") or {}).get("content") or []:
+                    if block.get("type") == "text" and block.get("text"):
+                        messages.append(block["text"])
+                    elif block.get("type") == "tool_use":
+                        arguments = block.get("input") or {}
+                        commands.append(arguments.get("command") or block.get("name", ""))
+            elif etype == "result":
+                # Claude stream-json terminal event.
+                if event.get("result"):
+                    messages.append(event["result"])
+                usage = event.get("usage") or usage
 except FileNotFoundError:
     print("ERROR: no log.jsonl for this job", file=sys.stderr)
     sys.exit(1)
@@ -585,8 +669,10 @@ cmd_list() {
 [ "$#" -ge 1 ] || { usage; exit 2; }
 COMMAND="$1"; shift
 REPO="${REPO:-}"
-# Working directory for the Codex process: the repo, or a job's worktree.
+# Working directory for the worker process: the repo, or a job's worktree.
 WORKDIR="$REPO"
+# Which CLI runs the job; submit and resume set it from config or parent meta.
+BACKEND="codex"
 
 case "$COMMAND" in
   submit) cmd_submit "$@" ;;

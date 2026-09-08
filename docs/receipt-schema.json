@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "handoff.receipt.v4",
+  "$id": "handoff.receipt.v5",
   "title": "Handoff Session Receipt",
-  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 4 adds duration and codex_job_durations, both measured from repo state rather than recalled.",
+  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 5 splits the delegated-job counts by the backend that executed them: codex_jobs/codex_job_durations for codex-backed jobs, cc_jobs/cc_job_durations for claude-backed ones. All four are measured from repo state rather than recalled.",
   "type": "object",
   "required": [
     "phase",
@@ -12,6 +12,8 @@
     "anomalies",
     "codex_jobs",
     "codex_job_durations",
+    "cc_jobs",
+    "cc_job_durations",
     "scope",
     "config_source",
     "roles_used",
@@ -22,9 +24,11 @@
       "enum": [
         "planning",
         "codex implementation",
+        "delegated implementation",
         "review",
         "final fix"
-      ]
+      ],
+      "description": "'delegated implementation' covers a run whose delegated work executed on either backend; 'codex implementation' is kept for runs that were entirely codex-backed."
     },
     "claude_session": {
       "type": "string",
@@ -49,12 +53,22 @@
     "codex_jobs": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of delegate-codex.sh background jobs, including fix rounds. 0 when none were used."
+      "description": "Number of codex-backed delegate-codex.sh background jobs, including fix rounds. 0 when none were used."
     },
     "codex_job_durations": {
       "type": "string",
       "pattern": "^(none|[^=;]+=(\\d+min [0-5]\\dsec|running)(; [^=;]+=(\\d+min [0-5]\\dsec|running))*)$",
-      "description": "'none', or per-job wall clock as 'jobId=74min 05sec' entries joined by '; ', oldest first. Measured from each job's meta submitted_at to the mtime of its exit_code; a job still running reads 'running'. Jobs submitted before the session start belong to an earlier run and are left out."
+      "description": "'none', or per-job wall clock for the codex-backed jobs as 'jobId=74min 05sec' entries joined by '; ', oldest first. Measured from each job's meta submitted_at to the mtime of its exit_code; a job still running reads 'running'. Jobs submitted before the session start belong to an earlier run and are left out."
+    },
+    "cc_jobs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of claude-backed delegate-codex.sh background jobs, including fix rounds. 0 when none were used. Same primitive and same job directories as codex_jobs; only the executing CLI differs."
+    },
+    "cc_job_durations": {
+      "type": "string",
+      "pattern": "^(none|[^=;]+=(\\d+min [0-5]\\dsec|running)(; [^=;]+=(\\d+min [0-5]\\dsec|running))*)$",
+      "description": "'none', or per-job wall clock for the claude-backed jobs, same grammar and same measurement as codex_job_durations."
     },
     "scope": {
       "enum": [
@@ -75,7 +89,7 @@
       "description": "Highest-priority layer that supplied the resolved config, per docs/config-schema.md; n/a when no configured role was touched."
     },
     "roles_used": {
-      "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. Here 'host' is the CLI that executed the role, not the runtime that loaded SKILL.md. An unverified role is still listed, never omitted. The optional e2e roles appear only on runs that used them; widening this enum is additive, so v4 receipts written before the e2e identities existed remain valid.",
+      "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. Here 'host' is the CLI that executed the role, not the runtime that loaded SKILL.md. An unverified role is still listed, never omitted. The optional e2e roles appear only on runs that used them; widening this enum is additive.",
       "oneOf": [
         {
           "const": "none"
@@ -125,8 +139,8 @@
       ]
     },
     "receipt_schema_version": {
-      "const": 4,
-      "description": "Always 4 for this contract; a receipt without duration and codex_job_durations is a v3 receipt."
+      "const": 5,
+      "description": "Always 5 for this contract; a receipt without cc_jobs and cc_job_durations is a v4 receipt, written before a claude-backed identity could be delegated as a real job."
     }
   },
   "additionalProperties": false

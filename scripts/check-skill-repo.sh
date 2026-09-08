@@ -184,7 +184,7 @@ else
 fi
 
 if python3 scripts/validate-receipt.py examples/session-receipt.md >/dev/null; then
-  echo "PASS examples/session-receipt.md validates against the v4 schema"
+  echo "PASS examples/session-receipt.md validates against the v5 schema"
 else
   echo "FAIL examples/session-receipt.md must be a valid receipt"
   fail=$((fail + 1))

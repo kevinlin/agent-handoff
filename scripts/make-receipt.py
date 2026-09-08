@@ -9,18 +9,19 @@ the target repo's .handoff/receipts/.
 Usage:
     python3 make-receipt.py --start --repo PATH        # Phase 0: stamp the start
     python3 make-receipt.py --phase "final fix" --claude-session abc123 \
-        --checks "npm test; bash lint.sh" --codex-jobs 2 \
+        --checks "npm test; bash lint.sh" --codex-jobs 2 --cc-jobs 1 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
         [--anomalies none] [--started-at ISO8601] [--save] [--repo PATH]
 
-Tip: get --codex-jobs from the job directories under <repo>/.handoff/jobs/
-instead of recalling how many were submitted.
+Tip: get --codex-jobs and --cc-jobs from the job directories under
+<repo>/.handoff/jobs/ instead of recalling how many were submitted; each job's
+meta names the backend that executed it.
 
 Duration is wall clock: --start writes <repo>/.handoff/session-start, and the
 receipt run measures against it, so time blocked on a human approval counts.
 Per-job durations come from each job's meta submitted_at and the mtime of its
-exit_code; jobs submitted before the session start belong to an earlier run
-and are left out.
+exit_code, partitioned by that job's backend; jobs submitted before the session
+start belong to an earlier run and are left out.
 """
 
 from __future__ import annotations
@@ -58,12 +59,17 @@ def format_duration(seconds: float) -> str:
     return f"{whole // 60}min {whole % 60:02d}sec"
 
 
-def job_durations(repo: str, started: datetime) -> str:
-    """Per-job wall clock from delegate-codex.sh job state, oldest first."""
+def job_durations(repo: str, started: datetime) -> dict[str, str]:
+    """Per-job wall clock from job state, oldest first, split by backend.
 
-    measured: list[tuple[datetime, str]] = []
+    Returns {"codex": ..., "claude": ...}. A job directory written before
+    backend dispatch carries no `backend=` line and is codex by construction.
+    """
+
+    measured: dict[str, list[tuple[datetime, str]]] = {"codex": [], "claude": []}
     for meta in Path(repo).resolve().glob(".handoff/jobs/job-*/meta"):
-        found = re.search(r"^submitted_at=(.+)$", meta.read_text(encoding="utf-8"), re.M)
+        text = meta.read_text(encoding="utf-8")
+        found = re.search(r"^submitted_at=(.+)$", text, re.M)
         if not found:
             continue
         submitted = parse_iso(found.group(1))
@@ -75,9 +81,14 @@ def job_durations(repo: str, started: datetime) -> str:
             if exit_code.is_file()
             else "running"
         )
-        measured.append((submitted, f"{meta.parent.name}={value}"))
+        backend = re.search(r"^backend=(.+)$", text, re.M)
+        bucket = "claude" if backend and backend.group(1).strip() == "claude" else "codex"
+        measured[bucket].append((submitted, f"{meta.parent.name}={value}"))
 
-    return "; ".join(entry for _, entry in sorted(measured)) or "none"
+    return {
+        backend: "; ".join(entry for _, entry in sorted(entries)) or "none"
+        for backend, entries in measured.items()
+    }
 
 
 def main() -> int:
@@ -87,7 +98,8 @@ def main() -> int:
     parser.add_argument("--claude-session", help="Session id, or 'none'.")
     parser.add_argument("--checks")
     parser.add_argument("--anomalies", default="none")
-    parser.add_argument("--codex-jobs", default="0", help="Number of delegate-codex.sh jobs including fix rounds.")
+    parser.add_argument("--codex-jobs", default="0", help="Number of codex-backed delegate-codex.sh jobs including fix rounds.")
+    parser.add_argument("--cc-jobs", default="0", help="Number of claude-backed delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--scope", default="n/a", help="project | global | n/a (default: n/a, when no configured role was touched).")
     parser.add_argument("--config-source", default="n/a", help="session | project | global | default | n/a.")
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
@@ -126,6 +138,7 @@ def main() -> int:
         print(f"FAIL session start {started.isoformat()} is in the future; check the clock", file=sys.stderr)
         return 1
 
+    durations = job_durations(args.repo, started)
     fields = {
         "phase": args.phase,
         "claude_session": args.claude_session,
@@ -133,11 +146,13 @@ def main() -> int:
         "checks": args.checks,
         "anomalies": args.anomalies,
         "codex_jobs": args.codex_jobs,
-        "codex_job_durations": job_durations(args.repo, started),
+        "codex_job_durations": durations["codex"],
+        "cc_jobs": args.cc_jobs,
+        "cc_job_durations": durations["claude"],
         "scope": args.scope,
         "config_source": args.config_source,
         "roles_used": args.roles_used,
-        "receipt_schema_version": "4",
+        "receipt_schema_version": "5",
     }
 
     validator = load_validator()

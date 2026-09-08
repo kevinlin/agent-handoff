@@ -170,13 +170,13 @@
 
 <header>
   <h1>Agent Handoff: how the agent handoff works</h1>
-  <p class="lede">Agent Handoff splits coding work between Claude Code and Codex to move execution onto the cheaper meter without lowering the quality bar. Everything interesting in it is in the handoff: what crosses between the two agents, what is enforced at the boundary, and what evidence survives afterwards.</p>
-  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.4.0 · reviewed 2026-09-07</p>
+  <p class="lede">Agent Handoff splits coding work between a driving Claude Code session and a delegated worker CLI, moving execution off the driver’s meter <em>and</em> off its context window without lowering the quality bar. Everything interesting in it is in the handoff: what crosses between the two agents, what is enforced at the boundary, and what evidence survives afterwards.</p>
+  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.5.0 · reviewed 2026-09-08</p>
 </header>
 
 <h2 id="shape">The shape of the thing</h2>
 
-<p>Agent Handoff is one flow with one driver. Claude Code plans, splits, gates and reviews; Codex executes the delegable bulk of the implementation as background jobs on its own subscription. The skill went through a two-direction era where Codex could also be the orchestrator, and that half is gone: there is no <code>direction</code> field, no second host adapter, and no second monitoring surface. What is left is a single spine of five stages, and the interesting design lives in what crosses between them.</p>
+<p>Agent Handoff is one flow with one driver. Claude Code plans, splits, gates and reviews; a worker CLI executes the delegable bulk of the implementation as background jobs. Which CLI is not a per-run decision: each task row names an identity, and that identity’s configured <code>backend</code> says whether the job runs on <code>codex exec</code> or on a second Claude Code. Codex is the common answer, not the definition — delegation still pays when the backend is <code>claude</code>, because the execution history stays in the job directory instead of the driver’s context. The skill went through a two-direction era where Codex could also be the orchestrator, and that half is gone: there is no <code>direction</code> field, no second host adapter, and no second monitoring surface. What is left is a single spine of five stages, and the interesting design lives in what crosses between them.</p>
 
 <figure>
   <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol. The plan and split band notes the optional spec review and its once-per-run marker.">
@@ -200,7 +200,7 @@
 
 <h3>The job primitive</h3>
 
-<p><code>delegate-codex.sh</code> wraps <code>codex exec --json</code> as a detached background job with durable state under <code>&lt;repo&gt;/.handoff/jobs/&lt;jobId&gt;/</code>. State lives on disk, so a <code>/loop</code> tick or a resumed session reconstructs progress without carrying it in context.</p>
+<p><code>delegate-codex.sh</code> wraps <code>codex exec --json</code> — or <code>claude --print --output-format stream-json</code>, per the identity’s backend — as a detached background job with durable state under <code>&lt;repo&gt;/.handoff/jobs/&lt;jobId&gt;/</code>. The name is historical; one script, one job shape, one code path. State lives on disk, so a <code>/loop</code> tick or a resumed session reconstructs progress without carrying it in context.</p>
 
 <table>
   <tr><th>File</th><th>What it carries</th></tr>
@@ -210,15 +210,16 @@
   <tr><td><code>stderr.log</code></td><td>Tokens, warnings, auth errors; the first thing to read on a FAILED job</td></tr>
   <tr><td><code>pid</code> / <code>exit_code</code> / <code>cancelled</code></td><td>The three inputs to <code>job_state</code>: RUNNING, DONE, FAILED, CANCELLED</td></tr>
   <tr><td><code>session_id</code></td><td>Extracted from the stream; the handle that makes <code>resume</code> possible</td></tr>
-  <tr><td><code>meta</code></td><td>Label, role, backend, model, effort, and the <em>source</em> of model and effort (config vs explicit), plus <code>submitted_at</code> and, for a worktree job, <code>worktree</code> / <code>branch</code> / <code>base_commit</code></td></tr>
+  <tr><td><code>meta</code></td><td>Label, role, backend, model, effort, and the <em>source</em> of each of backend, model and effort (config vs explicit vs parent), plus <code>submitted_at</code> and, for a worktree job, <code>worktree</code> / <code>branch</code> / <code>base_commit</code></td></tr>
 </table>
 
 <p>Three of its behaviours are worth calling out because they encode failures someone clearly hit:</p>
 
 <ul>
-  <li><strong>Fail-closed routing.</strong> With <code>--role</code>, model and effort resolve from <code>handoff-config.py</code>. No config is a hard error, never a silent default. An identity configured as <code>backend = claude</code> is refused with a pointer to spawn the <code>handoff-&lt;identity&gt;</code> subagent instead — the guard against a job landing on the wrong vendor and the wrong meter.</li>
-  <li><strong>Stdin is closed (<code>&lt;/dev/null</code>).</strong> A long prompt can otherwise make <code>codex exec</code> wait for more input, and a detached job's stdin never closes on its own, so the job would hang forever with no further events.</li>
-  <li><strong>Non-git targets get <code>--skip-git-repo-check</code></strong>, detected via <code>git rev-parse</code> rather than a <code>.git</code> directory test, so worktrees and submodules still count as repos.</li>
+  <li><strong>Fail-closed routing.</strong> With <code>--role</code>, backend, model and effort resolve from <code>handoff-config.py</code>. No config is a hard error, never a silent default. The configured backend then selects the CLI, always; a per-job <code>--backend</code> that contradicts a named role is refused, naming the <code>handoff-config.py set</code> command that would actually change the routing. That is the guard against a job landing on a vendor the config never chose — and against the driver quietly re-deciding the meter mid-run.</li>
+  <li><strong>Stdin is closed (<code>&lt;/dev/null</code>).</strong> A long prompt can otherwise make the worker wait for more input, and a detached job's stdin never closes on its own, so the job would hang forever with no further events.</li>
+  <li><strong>Non-git targets get <code>--skip-git-repo-check</code></strong>, detected via <code>git rev-parse</code> rather than a <code>.git</code> directory test, so worktrees and submodules still count as repos. That flag is codex-only; a claude job never carries it.</li>
+  <li><strong>A claude worker gets a clean credential environment.</strong> The generated <code>run.sh</code> unsets every <code>ANTHROPIC_*</code> and <code>CLAUDE_CODE_*</code> variable with Bash prefix expansion before exec, so the child authenticates like a fresh terminal rather than inheriting the host’s injected provider URL and key.</li>
 </ul>
 
 <p>The five stages below each get one flow diagram: events down the spine, guards and consequences to the right, dashed edges for the paths that go backwards. The actor tag on each box is who acts; the label on each edge is what crosses.</p>
@@ -267,7 +268,7 @@
   <figcaption><strong>Stage 2.</strong> Two paths run down this phase and never meet: the prompt carries the work, config carries the routing. The red box is where a wrong meter gets caught.</figcaption>
 </figure>
 
-<p>This is the crossing where money is either saved or spent again. The receiving agent starts cold, and the flow refuses to solve that by letting it read the repository itself: the driver already holds the context, so it pays once to select the evidence, and the delegate spends its tokens on judgment instead of discovery.</p>
+<p>This is the crossing where money is either saved or spent again — and where the driver’s own context is either protected or squandered. The receiving agent starts cold, and the flow refuses to solve that by letting it read the repository itself: the driver already holds the context, so it pays once to select the evidence, and the delegate spends its tokens on judgment instead of discovery. What comes back is a result, not the transcript that produced it; that stays in the job directory.</p>
 
 <figure>
   <img src="diagrams/context-ladder.svg" alt="Left: a six-rung evidence ladder from why-forward context and the one-line task, through diff stat, check output tail, requested snippets and small whole files, down to a crossed-out rung for the whole repository. Right: five rule cards covering who gathers evidence, situation-specific shaping, worktree self-containment, dense replies, and state carried forward.">
@@ -284,7 +285,7 @@
 </figure>
 
 <ul>
-  <li><strong>The Delegation Packet</strong> (driver → Codex job) is prose, disciplined by convention: why-forward context, one-sentence task, acceptance as commands, constraints limited to genuine blockers, the checkpoint rule, and a fixed output rule — no optional commentary, at most three lines of lessons learned. The terse reviewer contract is presented as measured rather than folklore: 41% less reviewer output with no loss in judgment quality.</li>
+  <li><strong>The Delegation Packet</strong> (driver → delegated job) is prose, disciplined by convention: why-forward context, one-sentence task, acceptance as commands, constraints limited to genuine blockers, the checkpoint rule, and a fixed output rule — no optional commentary, at most three lines of lessons learned. The terse reviewer contract is presented as measured rather than folklore: 41% less reviewer output with no loss in judgment quality.</li>
   <li><strong>The E2E packets</strong> are the same shape with the "do not commit" constraint <em>replaced</em> by a commit-on-this-worktree-branch rule — they are the only packets that do. They also carry the specification inline, because a worktree has no <code>.handoff/</code> to read it from, and they name an approved local or ephemeral test target rather than letting the verifier guess one.</li>
   <li><strong>The Spec Review Packet</strong> (driver → <code>deep_reasoner</code>, Stage 1) is the one packet that <em>narrows</em> the template rather than widening it: read-only, findings only, no edit to any file. It carries the plan verbatim because the reviewer starts cold and must judge what it was given rather than go looking for the plan itself, and it asks for what is missing as well as what is wrong — plus a one-line "this is sound" when it is, rather than invented findings.</li>
   <li><strong>The Goal Packet</strong> (driver → user) is not a delegation at all but a decision artifact: the ask, the plan with <code>file:line</code> evidence, the gate's verdict, the open decisions only the user can settle, and an explicit statement of what confirming it does and does not authorize. It is sent before any branch, worktree, or goal file exists.</li>
@@ -292,15 +293,15 @@
 
 <h3>Where a delegation prompt is actually written</h3>
 
-<p>Nothing generates the driver-to-Codex prompt. The driver composes it in its own context from the delegation packet shape, writes it to a <code>mktemp</code> file, and passes that path to <code>delegate-codex.sh submit --prompt-file</code>; the script's only check is that the file exists.<span class="src"> scripts/delegate-codex.sh:221</span> So the packet contract on this crossing is authorship discipline, not validation — unlike the config resolution happening a few lines later in the same command.</p>
+<p>Nothing generates the delegation prompt. The driver composes it in its own context from the delegation packet shape, writes it to a <code>mktemp</code> file, and passes that path to <code>delegate-codex.sh submit --prompt-file</code>; the script's only check is that the file exists.<span class="src"> scripts/delegate-codex.sh:221</span> So the packet contract on this crossing is authorship discipline, not validation — unlike the config resolution happening a few lines later in the same command.</p>
 
-<p>From there the prompt becomes state. <code>submit</code> copies the temp file into the new job directory as <code>prompt.md</code>, and the generated <code>run.sh</code> reads it back with <code>cat</code> and passes it to <code>codex exec</code> as an argument, with stdin closed so a long prompt cannot leave the detached job waiting for more input.<span class="src"> scripts/delegate-codex.sh:276</span> The copy is never rewritten afterwards, which is what makes it usable as the audit record of what was asked rather than of what the driver remembers asking.</p>
+<p>From there the prompt becomes state. <code>submit</code> copies the temp file into the new job directory as <code>prompt.md</code>, and the generated <code>run.sh</code> reads it back with <code>cat</code> and passes it to the worker as an argument, with stdin closed so a long prompt cannot leave the detached job waiting for more input.<span class="src"> scripts/delegate-codex.sh:276</span> The copy is never rewritten afterwards, which is what makes it usable as the audit record of what was asked rather than of what the driver remembers asking.</p>
 
-<p>A fix round takes the same path at a smaller size. <code>resume</code> creates its own directory, <code>&lt;parent&gt;-r2</code>, and its <code>prompt.md</code> holds only the prioritized findings and the failed criteria, because the resumed Codex session already carries the original packet. What stays out of every one of these files is the routing: backend, model, and effort come from <code>handoff-config.py</code> through <code>--role</code> and land in <code>meta</code> and in the <code>run.sh</code> flags, so no wording in a prompt can move a job onto a different vendor.</p>
+<p>A fix round takes the same path at a smaller size. <code>resume</code> creates its own directory, <code>&lt;parent&gt;-r2</code>, and its <code>prompt.md</code> holds only the prioritized findings and the failed criteria, because the resumed worker session already carries the original packet. It reads the parent's <code>backend</code> and <code>role</code> out of <code>meta</code>, so a fix round lands on the same CLI with its provenance intact rather than as an anonymous entry. What stays out of every one of these files is the routing: backend, model, and effort come from <code>handoff-config.py</code> through <code>--role</code> and land in <code>meta</code> and in the <code>run.sh</code> flags, so no wording in a prompt can move a job onto a different vendor.</p>
 
 <h3>Worktree jobs</h3>
 
-<p><code>submit --worktree &lt;branch&gt; --base &lt;commit-ish&gt;</code> runs a job in its own Git worktree under <code>.handoff/worktrees/&lt;jobId&gt;</code>. Four rules make it usable, and each of them is a bug someone would otherwise hit. <code>--repo</code> is always the main repo, because a worktree passed there would fall through to the global config and run the wrong model. The base is resolved to an immutable SHA before the job directory exists, because a branch can advance between cutting the tree and reading the verdict, and then the verdict names a commit nobody tested. The worker commits on its own branch and does nothing else — no merge, no push, no rebase, no removing the tree. And the driver reviews, integrates, and calls <code>cleanup</code>, which is idempotent and refuses a worktree holding uncommitted changes rather than discarding work.</p>
+<p><code>submit --worktree &lt;branch&gt; --base &lt;commit-ish&gt;</code> runs a job in its own Git worktree under <code>.handoff/worktrees/&lt;jobId&gt;</code>, on either backend — the protocol is pure Git, so there is one implementation rather than one per vendor. Four rules make it usable, and each of them is a bug someone would otherwise hit. <code>--repo</code> is always the main repo, because a worktree passed there would fall through to the global config and run the wrong model. The base is resolved to an immutable SHA before the job directory exists, because a branch can advance between cutting the tree and reading the verdict, and then the verdict names a commit nobody tested. The worker commits on its own branch and does nothing else — no merge, no push, no rebase, no removing the tree. And the driver reviews, integrates, and calls <code>cleanup</code>, which is idempotent and refuses a worktree holding uncommitted changes rather than discarding work.</p>
 
 <p>The self-containment consequence is the one worth remembering: a worktree receives <em>tracked content only</em>, and <code>.handoff/</code> is gitignored. So no e2e job reads the goal file, and no e2e job writes it either — workers return artifact paths, and the driver writes them through <code>goal-sync.py</code>. An uncommitted user-supplied spec is either inlined into the packet or committed before the tree is cut; the driver picks, and it cannot be left implicit.</p>
 
@@ -309,9 +310,9 @@
 <table>
   <tr><th>Boundary</th><th>What is sent</th><th>What is deliberately not sent</th></tr>
   <tr>
-    <td>Driver → Codex job, delegation</td>
+    <td>Driver → delegated job</td>
     <td>Why-forward context, one-sentence task, acceptance as commands, scope paths, checkpoint rule</td>
-    <td>The backend, model, and effort — those resolve from config, not from prose</td>
+    <td>The backend, model, and effort — those resolve from config, not from prose, and the packet is identical whichever CLI receives it</td>
   </tr>
   <tr>
     <td>Driver → e2e worktree job</td>
@@ -324,8 +325,8 @@
     <td>Any authority to edit: not the plan, not the goal file, not the repo</td>
   </tr>
   <tr>
-    <td>Codex job → driver</td>
-    <td><code>result</code> reduces the stream to session id, last agent message, commands, usage</td>
+    <td>Delegated job → driver</td>
+    <td><code>result</code> reduces either backend's stream to the same four fields: session id, last agent message, commands, usage</td>
     <td>The full <code>log.jsonl</code>, which stays on disk for when it is actually needed</td>
   </tr>
   <tr>
@@ -375,7 +376,7 @@
 </figure>
 
 <div class="callout">
-  <p><strong>This is where the cost claim is earned.</strong> Moving execution to the cheaper meter only holds up if the cheap work is checked properly, so Stage 4 reads the complete diff rather than a sample, and reads it against the written criteria rather than against itself. Findings go back to the same Codex session through <code>resume</code>, carrying the prioritized findings and the failed criteria and nothing else, since the session still holds the original packet.</p>
+  <p><strong>This is where both claims are earned.</strong> Moving execution off the driver’s meter only holds up if the delegated work is checked properly — and keeping it off the driver’s context window only holds up if what comes back is enough to judge. So Stage 4 reads the complete diff rather than a sample, and reads it against the written criteria rather than against itself. Findings go back to the same worker session through <code>resume</code>, which reads the parent job’s backend from its <code>meta</code> so the round lands on the same CLI, carrying the prioritized findings and the failed criteria and nothing else, since the session still holds the original packet.</p>
 </div>
 
 <p>The review is against the acceptance column in <code>.handoff/goal.md</code> and each task's brief, never against the diff alone. The skill cites its reason: in the Superpowers 6 runs, diff-only reviewers caught none of five missing task briefs, because a reviewer holding only a diff redefines the spec as "consistent with what changed". So the question the gate asks is "does this diff satisfy that brief", not "is this diff self-consistent".</p>
@@ -403,11 +404,11 @@
   </tr>
 </table>
 
-<p>The split the verifier must respect is three-way. Scenario text and IDs, expected values, and the identity of what an assertion is about are <strong>frozen</strong>. Launch and runner scaffolding — start commands, base URL, waits, fixtures — is <strong>repairable</strong>, and every repaired file has to be named in <code>harness_edits</code>. Product code is <strong>forbidden</strong>. A semantic edit does not get disclosed and accepted; it invalidates the run, and the driver restarts from a clean state with a new recorded hash. Two limits are stated rather than papered over: the hash lock covers the <code>.feature</code> files only, because executable spec files legitimately hold repairable scaffolding, and the Codex worktree path is script-owned and lifecycle-tested while the Claude-backend path follows the same written protocol by hand — parity is not claimed.</p>
+<p>The split the verifier must respect is three-way. Scenario text and IDs, expected values, and the identity of what an assertion is about are <strong>frozen</strong>. Launch and runner scaffolding — start commands, base URL, waits, fixtures — is <strong>repairable</strong>, and every repaired file has to be named in <code>harness_edits</code>. Product code is <strong>forbidden</strong>. A semantic edit does not get disclosed and accepted; it invalidates the run, and the driver restarts from a clean state with a new recorded hash. One limit is stated rather than papered over: the hash lock covers the <code>.feature</code> files only, because executable spec files legitimately hold repairable scaffolding. The worktree path itself is no longer a limit — one script-owned code path serves both backends, and the lifecycle test runs its full set of assertions against each.</p>
 
 <h3>How disagreements are settled</h3>
 
-<p>Three instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan, and the attacker is the driver itself. The optional spec review hands that same plan to another agent for one informed read; its output is findings the driver rules on. The arbiter protocol solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> on their own backends, and neither packet may contain the other's answer or a leaning hint. Only the third one is blind, and the difference is not cosmetic: a hint that would merely bias a reviewer invalidates an arbitration. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test.</p>
+<p>Three instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan, and the attacker is the driver itself. The optional spec review hands that same plan to another agent for one informed read; its output is findings the driver rules on. The arbiter protocol solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> as real jobs on their own configured backends, and neither packet may contain the other's answer or a leaning hint. Only the third one is blind, and the difference is not cosmetic: a hint that would merely bias a reviewer invalidates an arbitration. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test.</p>
 
 <p>What happens after that is a fixed escalation, and every step names a decider:</p>
 
@@ -432,17 +433,19 @@
   <figcaption><strong>Stage 5.</strong> Every field with a measurement behind it comes from that measurement; the branch names what may not be claimed when nothing measured it.</figcaption>
 </figure>
 
-<p>Every non-trivial run ends with a fixed-schema receipt: <code>phase</code>, <code>claude_session</code>, <code>duration</code>, <code>codex_jobs</code>, <code>codex_job_durations</code>, <code>checks</code>, <code>anomalies</code>, <code>scope</code>, <code>config_source</code>, <code>roles_used</code>, and <code>receipt_schema_version: 4</code>. It is generated by <code>make-receipt.py</code>, which refuses to emit an invalid one, and can be re-checked later by <code>validate-receipt.py</code> against <code>docs/receipt-schema.json</code> — the same check CI runs, run on the run's own output.</p>
+<p>Every non-trivial run ends with a fixed-schema receipt: <code>phase</code>, <code>claude_session</code>, <code>duration</code>, <code>codex_jobs</code>, <code>codex_job_durations</code>, <code>cc_jobs</code>, <code>cc_job_durations</code>, <code>checks</code>, <code>anomalies</code>, <code>scope</code>, <code>config_source</code>, <code>roles_used</code>, and <code>receipt_schema_version: 5</code>. It is generated by <code>make-receipt.py</code>, which refuses to emit an invalid one, and can be re-checked later by <code>validate-receipt.py</code> against <code>docs/receipt-schema.json</code> — the same check CI runs, run on the run's own output.</p>
 
-<p>The v4 fields are the interesting part, because they are all derived rather than recalled. <code>duration</code> is wall clock from the <code>.handoff/session-start</code> marker, so a run that sat waiting on a permission prompt carries that wait in the number; with no marker and no explicit <code>--started-at</code>, the tool refuses to emit at all. <code>codex_job_durations</code> is measured the same way per job, from each <code>meta</code>'s <code>submitted_at</code> to the mtime of its <code>exit_code</code>, with jobs from an earlier run excluded and a job still going reading <code>running</code>. <code>codex_jobs</code> is a count of job directories including fix rounds, not a recollection. Each role's <code>verified</code> flag comes from the config file, and a role that is unverified still gets an entry with <code>verified: false</code> — it is never dropped to make the receipt look cleaner. In <code>roles_used</code>, an entry's <code>host</code> is the CLI that executed that role, unrelated to the runtime that loaded the skill.</p>
+<p>The measured fields are the interesting part, because they are all derived rather than recalled. <code>duration</code> is wall clock from the <code>.handoff/session-start</code> marker, so a run that sat waiting on a permission prompt carries that wait in the number; with no marker and no explicit <code>--started-at</code>, the tool refuses to emit at all. The per-job durations are measured the same way, from each <code>meta</code>'s <code>submitted_at</code> to the mtime of its <code>exit_code</code>, with jobs from an earlier run excluded and a job still going reading <code>running</code>. The two job counts are a count of job directories including fix rounds, not a recollection. Each role's <code>verified</code> flag comes from the config file, and a role that is unverified still gets an entry with <code>verified: false</code> — it is never dropped to make the receipt look cleaner. In <code>roles_used</code>, an entry's <code>host</code> is the CLI that executed that role, unrelated to the runtime that loaded the skill.</p>
 
-<p>What the schema <em>dropped</em> says as much as what it keeps. <code>direction</code> and <code>monitoring_level</code> were v2 fields describing a second flow and a fragile capability probe; both are gone with the machinery they described, and a receipt still carrying them fails validation, which is the intended signal to regenerate it.</p>
+<p>What v5 adds is a partition, not a new measurement. <code>codex_jobs</code>/<code>codex_job_durations</code> narrow to the codex-backed jobs and <code>cc_jobs</code>/<code>cc_job_durations</code> carry the claude-backed ones, split by each job <code>meta</code>'s own <code>backend=</code> line rather than by what the driver remembers submitting. A job directory with no such line predates backend dispatch and counts as codex. The point is that a run reporting four jobs on the Codex subscription has to have four jobs whose metadata says so — the receipt can no longer describe work as landing on a meter it never touched. <code>phase</code> gains <code>delegated implementation</code> for the same reason: <code>codex implementation</code> is a false name for a run whose work ran on Claude.</p>
+
+<p>What the schema <em>dropped</em> says as much as what it keeps. <code>direction</code> and <code>monitoring_level</code> were v2 fields describing a second flow and a fragile capability probe; both are gone with the machinery they described, and a receipt still carrying them fails validation, which is the intended signal to regenerate it. A v4 receipt, missing the two <code>cc_</code> fields, now fails for the same reason and with the same remedy.</p>
 
 <div class="callout alert">
-  <p>The closing instruction in <code>SKILL.md</code> is the one that holds the rest together: do not fabricate token savings. When telemetry is unavailable, report verifiable behavior instead — which tasks ran on the Codex subscription, how many jobs and fix rounds, that the full diff was reviewed against the acceptance criteria, and that the checks passed.</p>
+  <p>The closing instruction in <code>SKILL.md</code> is the one that holds the rest together: do not fabricate token savings. When telemetry is unavailable, report verifiable behavior instead — which tasks ran on which backend, how many jobs and fix rounds, that the full diff was reviewed against the acceptance criteria, and that the checks passed.</p>
 </div>
 
-<p>Then the run gets turned into input for the next one. The memory protocol draws its line explicitly: facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>, while the memory layers carry experience — which task types Codex handled well, which effort levels fitted, where rework happened. Instruction files are law; memory is what the next split decision learns from. What stays on disk is the cold-start payload: <code>.handoff/goal.md</code> with its final statuses and notes, <code>.handoff/jobs/</code> with the prompts, logs and session ids, and <code>.handoff/receipts/</code> and <code>.handoff/e2e/</code> with the run's evidence. A resumed session reads those, not the repository.</p>
+<p>Then the run gets turned into input for the next one. The memory protocol draws its line explicitly: facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>, while the memory layers carry experience — which task types each identity handled well, which effort levels fitted, where rework happened. Instruction files are law; memory is what the next split decision learns from. What stays on disk is the cold-start payload: <code>.handoff/goal.md</code> with its final statuses and notes, <code>.handoff/jobs/</code> with the prompts, logs and session ids, and <code>.handoff/receipts/</code> and <code>.handoff/e2e/</code> with the run's evidence. A resumed session reads those, not the repository.</p>
 
 <h2 id="drift">Drift control across the loop</h2>
 
@@ -472,8 +475,8 @@
   </tr>
   <tr>
     <td>Work lands on the wrong agent or the wrong meter</td>
-    <td><code>handoff-config.py</code> resolution; a <code>backend = claude</code> identity is refused by <code>delegate-codex.sh</code> with a pointer to the subagent</td>
-    <td>Fails closed</td>
+    <td>Routing comes from <code>handoff-config.py</code>, and the identity's configured backend selects the CLI; a per-job <code>--backend</code> contradicting a named role is refused, and swapping to another identity to change vendor is forbidden in the flow prose</td>
+    <td>Fails closed on the override; convention on the swap</td>
   </tr>
   <tr>
     <td>The delegate invents its own stopping points</td>
@@ -524,7 +527,7 @@
 <p>Things I noticed while reading that a maintainer might want to look at:</p>
 
 <ul>
-  <li><strong><code>resume</code> loses identity metadata.</strong> A resumed job's <code>meta</code> records <code>label=resume</code>, <code>model=inherit</code>, and no <code>role</code> or <code>backend</code>. Since Stage 5 builds <code>roles_used</code> from each job's <code>meta</code>, a run whose work happened mostly in fix rounds has thinner provenance than a clean first pass. Carrying the parent's role, model, and effort forward would cost two lines.<span class="src"> scripts/delegate-codex.sh:352</span></li>
+  <li><strong><code>resume</code> used to lose identity metadata</strong> — fixed in v3.5.0. A resumed job's <code>meta</code> recorded <code>label=resume</code>, <code>model=inherit</code>, and no <code>role</code> or <code>backend</code>, so a run whose work happened mostly in fix rounds had thinner <code>roles_used</code> provenance than a clean first pass. <code>resume</code> now carries the parent's <code>role</code> and <code>backend</code> forward, which it has to anyway: the backend is what tells it which CLI to resume on.</li>
   <li><strong>An empty session id is cached.</strong> <code>extract_session_id</code> pipes through <code>tee</code>, so a scan that finds nothing writes a newline into <code>session_id</code>. The <code>[ -s ... ]</code> guard then treats that file as populated and later calls return the empty value without rescanning a log that has since grown.<span class="src"> scripts/delegate-codex.sh:171, :175</span></li>
   <li><strong><code>status</code> exits 0 while a job is still RUNNING.</strong> Only the <code>--wait</code> timeout path returns non-zero, so a caller branching on exit status alone cannot distinguish "finished cleanly" from "still going". The printed <code>state:</code> line is the real signal, and callers have to parse it.<span class="src"> scripts/delegate-codex.sh:445</span></li>
   <li><strong>The adversarial gate is advisory in the way that matters.</strong> Nothing mechanically blocks a submit that skipped it, unlike the config resolution, the base-commit pin, the verdict validation, and the receipt validation, which all fail closed. Given that the gate is what defends the cost claim, it is the least enforced of the guards.</li>

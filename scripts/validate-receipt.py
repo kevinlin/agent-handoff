@@ -28,7 +28,7 @@ from pathlib import Path
 
 RECEIPT_HEADER = "[Handoff session receipt]"
 
-PHASES = {"planning", "codex implementation", "review", "final fix"}
+PHASES = {"planning", "codex implementation", "delegated implementation", "review", "final fix"}
 SCOPES = {"project", "global", "n/a"}
 CONFIG_SOURCES = {"session", "project", "global", "default", "n/a"}
 # The CLI that executed a role, not the runtime that loaded SKILL.md.
@@ -48,6 +48,8 @@ REQUIRED_FIELDS = [
     "anomalies",
     "codex_jobs",
     "codex_job_durations",
+    "cc_jobs",
+    "cc_job_durations",
     "scope",
     "config_source",
     "roles_used",
@@ -121,14 +123,16 @@ def validate(fields: dict[str, object]) -> list[str]:
     if not DURATION.fullmatch(as_text("duration")):
         failures.append(f"duration must look like '74min 05sec', got {as_text('duration')!r}")
 
-    if not re.fullmatch(r"\d+", as_text("codex_jobs")):
-        failures.append(f"codex_jobs must be an integer, got {as_text('codex_jobs')!r}")
+    for count_field in ("codex_jobs", "cc_jobs"):
+        if not re.fullmatch(r"\d+", as_text(count_field)):
+            failures.append(f"{count_field} must be an integer, got {as_text(count_field)!r}")
 
-    if not JOB_DURATIONS.fullmatch(as_text("codex_job_durations")):
-        failures.append(
-            "codex_job_durations must be 'none' or 'jobId=74min 05sec' entries joined by '; ', "
-            f"got {as_text('codex_job_durations')!r}"
-        )
+    for durations_field in ("codex_job_durations", "cc_job_durations"):
+        if not JOB_DURATIONS.fullmatch(as_text(durations_field)):
+            failures.append(
+                f"{durations_field} must be 'none' or 'jobId=74min 05sec' entries joined by '; ', "
+                f"got {as_text(durations_field)!r}"
+            )
 
     if as_text("scope") not in SCOPES:
         failures.append(f"scope must be one of {sorted(SCOPES)}, got {as_text('scope')!r}")
@@ -142,8 +146,8 @@ def validate(fields: dict[str, object]) -> list[str]:
         failures.append(f"roles_used is invalid: {error}")
 
     version_text = as_text("receipt_schema_version")
-    if version_text != "4":
-        failures.append(f"receipt_schema_version must be 4, got {version_text!r}")
+    if version_text != "5":
+        failures.append(f"receipt_schema_version must be 5, got {version_text!r}")
 
     for placeholder_field in ("phase", "claude_session", "checks", "anomalies"):
         value = as_text(placeholder_field)

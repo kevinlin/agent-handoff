@@ -18,18 +18,18 @@ When the criterion fires but the identities are unconfigured, **say so once**:
 
 then continue without them. Setup state does not get to quietly override the driver's judgment. It does not block the run either.
 
-An unconfigured identity passed to `delegate-codex.sh --role` hits the existing fail-closed error pointing at `/agent-handoff config`. There is no separate error path for these two.
+An unconfigured identity passed to `delegate-codex.sh --role` hits the existing fail-closed error pointing at `/agent-handoff config`. There is no separate error path for these two, and no separate one per backend.
 
 ## Worktree protocol
 
-Driver-owned, four rules, both backends:
+Driver-owned, four rules, identical on both backends:
 
 1. **Resolve routing against the main repo.** `--repo` is always the main repo. A worktree is a derived working directory, never a `--repo` value — passing one falls through to the global config and runs the wrong model.
 2. **Cut from an immutable commit SHA**, never a branch name. A branch can advance between cutting the worktree and reading the verdict, and then the verdict names a commit nobody tested.
 3. **The worker commits on its worktree branch.** It does not merge, push, rebase, or remove the worktree.
 4. **The driver reviews, integrates, and cleans up.**
 
-### Codex backend
+### The command, on either backend
 
 ```bash
 bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
@@ -39,7 +39,7 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 
 `--base` (default `HEAD`) is resolved to a SHA before the job directory exists, so an invalid base fails clean. The worktree lands at `<repo>/.handoff/worktrees/<jobId>`, and `meta` records `worktree=`, `branch=`, and `base_commit=`.
 
-A fix round inherits the tree: `resume` reads `worktree=` from the parent's `meta`, because `codex exec resume` takes its cwd from the shell and accepts no `-C`.
+A fix round inherits the tree: `resume` reads `worktree=` and `backend=` from the parent's `meta`, so it lands in the same tree on the same CLI. Neither `codex exec resume` nor `claude --resume` takes a `-C`; both get their cwd from the generated `run.sh`.
 
 Once a worktree is merged or abandoned:
 
@@ -49,18 +49,9 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" cleanup <jobId> --repo "$REPO"
 
 `cleanup` is idempotent and refuses a worktree holding uncommitted changes, reporting it rather than discarding work. `cancel` calls it and keeps the tree for inspection if it refuses.
 
-### Claude backend
+**One code path serves both backends.** The worktree protocol is pure Git and gains nothing from a per-backend implementation, so there is none: `tests/test_delegate_role.py` runs the whole lifecycle — create, record, immutable SHA pinning, invalid base refused before the job dir exists, worktree as cwd, idempotent `cleanup`, dirty-tree refusal, `resume` landing in the parent worktree — from one base class against both codex and claude. Do not hand-run `git worktree add` for a claude-backed row; that path is gone.
 
-The driver runs the same two Git commands itself, passes the worktree path to the subagent, and records `base_commit` in the goal row:
-
-```bash
-SHA0=$(git -C "$REPO" rev-parse --verify "$BASE^{commit}")
-git -C "$REPO" worktree add "$REPO/.handoff/worktrees/<task-id>" -b "e2e/<task-id>" "$SHA0"
-```
-
-The Task tool's `isolation: "worktree"` is **not** used: it provides no base pinning, no metadata, and no cleanup contract, so it cannot satisfy this protocol.
-
-**Parity is not claimed.** The Codex path is script-owned and covered by a lifecycle test. The Claude path follows the same written protocol but is driver-executed. They are not equally hardened.
+The Task tool's `isolation: "worktree"` is still **not** used: it provides no base pinning, no metadata, and no cleanup contract, so it cannot satisfy this protocol.
 
 ## Packet self-containment
 

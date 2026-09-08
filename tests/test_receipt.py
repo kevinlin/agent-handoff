@@ -29,10 +29,12 @@ def fields(**overrides) -> dict:
         "anomalies": "none",
         "codex_jobs": "2",
         "codex_job_durations": "none",
+        "cc_jobs": "1",
+        "cc_job_durations": "none",
         "scope": "project",
         "config_source": "project",
         "roles_used": "none",
-        "receipt_schema_version": "4",
+        "receipt_schema_version": "5",
     }
     base.update(overrides)
     return base
@@ -80,8 +82,12 @@ class ValidateReceiptTests(unittest.TestCase):
     def test_template_placeholder_fails(self):
         self.assert_one_failure("template placeholder", claude_session="<session id>")
 
-    def test_non_integer_codex_jobs_fails(self):
+    def test_non_integer_job_counts_fail(self):
         self.assert_one_failure("codex_jobs must be an integer", codex_jobs="two")
+        self.assert_one_failure("cc_jobs must be an integer", cc_jobs="two")
+
+    def test_delegated_implementation_is_a_phase(self):
+        self.assertEqual([], validate_receipt.validate(fields(phase="delegated implementation")))
 
     def test_malformed_roles_used_fails(self):
         self.assert_one_failure("roles_used is invalid", roles_used='[{"role": "arbiter"}]')
@@ -95,21 +101,31 @@ class ValidateReceiptTests(unittest.TestCase):
         self.assert_one_failure("unknown fields: direction", direction="claude")
 
     def test_old_schema_version_fails(self):
-        self.assert_one_failure("receipt_schema_version must be 4", receipt_schema_version="3")
+        self.assert_one_failure("receipt_schema_version must be 5", receipt_schema_version="4")
+
+    def test_a_v4_receipt_no_longer_validates(self):
+        v4 = fields(receipt_schema_version="4")
+        del v4["cc_jobs"]
+        del v4["cc_job_durations"]
+        failures = " ".join(validate_receipt.validate(v4))
+        self.assertIn("missing field: cc_jobs", failures)
+        self.assertIn("missing field: cc_job_durations", failures)
 
     def test_malformed_duration_fails(self):
         for bad in ("74 min", "74min 5sec", "74min 99sec", "a while"):
             self.assert_one_failure("duration must look like", duration=bad)
 
     def test_job_durations_accept_measured_entries_and_reject_junk(self):
-        self.assertEqual(
-            [],
-            validate_receipt.validate(
-                fields(codex_job_durations="job-a-t1=12min 04sec; job-a-t1-r2=running")
-            ),
-        )
-        self.assert_one_failure("codex_job_durations must be", codex_job_durations="job-a-t1")
-        self.assert_one_failure("codex_job_durations must be", codex_job_durations="job-a-t1=soon")
+        for field in ("codex_job_durations", "cc_job_durations"):
+            with self.subTest(field=field):
+                self.assertEqual(
+                    [],
+                    validate_receipt.validate(
+                        fields(**{field: "job-a-t1=12min 04sec; job-a-t1-r2=running"})
+                    ),
+                )
+                self.assert_one_failure(f"{field} must be", **{field: "job-a-t1"})
+                self.assert_one_failure(f"{field} must be", **{field: "job-a-t1=soon"})
 
     def test_block_is_extracted_from_surrounding_markdown(self):
         text = "# notes\n\n[Handoff session receipt]\n" + "\n".join(
@@ -125,7 +141,7 @@ def stamp(moment: datetime) -> str:
 
 RECEIPT_ARGS = (
     "--phase", "review", "--claude-session", "abc123",
-    "--checks", "unittest", "--codex-jobs", "1",
+    "--checks", "unittest", "--codex-jobs", "1", "--cc-jobs", "1",
     "--scope", "project", "--config-source", "project", "--roles-used", "[]",
 )
 
@@ -186,28 +202,48 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertNotIn("[Handoff session receipt]", made.stdout)
         self.assertIn("no session start recorded", made.stderr)
 
+    @staticmethod
+    def write_job(repo: Path, name: str, submitted: datetime,
+                  ended: datetime | None, backend: str | None = None) -> None:
+        job = repo / ".handoff" / "jobs" / name
+        job.mkdir(parents=True)
+        backend_line = f"backend={backend}\n" if backend else ""
+        (job / "meta").write_text(f"label=t\n{backend_line}submitted_at={stamp(submitted)}\n")
+        if ended is not None:
+            (job / "exit_code").write_text("0\n")
+            os.utime(job / "exit_code", (ended.timestamp(), ended.timestamp()))
+
     def test_job_durations_are_measured_from_job_state(self):
         repo = self.temp_repo()
         started = datetime.now(timezone.utc) - timedelta(hours=1)
 
-        def write_job(name: str, submitted: datetime, ended: datetime | None) -> None:
-            job = repo / ".handoff" / "jobs" / name
-            job.mkdir(parents=True)
-            (job / "meta").write_text(f"label=t\nsubmitted_at={stamp(submitted)}\n")
-            if ended is not None:
-                (job / "exit_code").write_text("0\n")
-                os.utime(job / "exit_code", (ended.timestamp(), ended.timestamp()))
-
-        write_job("job-earlier-run", started - timedelta(minutes=1), started)
-        write_job("job-a-t1", started + timedelta(minutes=1),
-                  started + timedelta(minutes=3, seconds=5))
-        write_job("job-a-t1-r2", started + timedelta(minutes=2), None)
+        self.write_job(repo, "job-earlier-run", started - timedelta(minutes=1), started)
+        self.write_job(repo, "job-a-t1", started + timedelta(minutes=1),
+                       started + timedelta(minutes=3, seconds=5))
+        self.write_job(repo, "job-a-t1-r2", started + timedelta(minutes=2), None)
 
         emitted = self.make_receipt_fields(repo, "--started-at", stamp(started))
         self.assertEqual(
             "job-a-t1=2min 05sec; job-a-t1-r2=running",
             emitted["codex_job_durations"],
         )
+        # A job dir with no backend= line predates backend dispatch: codex.
+        self.assertEqual("none", emitted["cc_job_durations"])
+
+    def test_mixed_backend_jobs_are_partitioned_by_their_meta(self):
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+
+        self.write_job(repo, "job-cx", started + timedelta(minutes=1),
+                       started + timedelta(minutes=2), backend="codex")
+        self.write_job(repo, "job-cc", started + timedelta(minutes=3),
+                       started + timedelta(minutes=5, seconds=30), backend="claude")
+        self.write_job(repo, "job-cc-r2", started + timedelta(minutes=6), None,
+                       backend="claude")
+
+        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started))
+        self.assertEqual("job-cx=1min 00sec", emitted["codex_job_durations"])
+        self.assertEqual("job-cc=2min 30sec; job-cc-r2=running", emitted["cc_job_durations"])
 
 
 if __name__ == "__main__":

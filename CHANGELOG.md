@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.5.0 (2026-09-08)
+
+### Breaking: a claude-backed identity is a real delegated job
+
+- feat: `delegate-codex.sh` dispatches on the identity's configured `backend` instead of fail-closing on `claude`. A claude-backed row now becomes a background job with the same jobId, `.handoff/jobs/` state, monitoring loop, fix-round `resume`, worktree lifecycle, and receipt evidence a codex-backed row already had. The name stays: one script, one job shape, one code path — which is what makes parity real rather than asserted. The script wraps `claude --print --output-format stream-json --verbose --permission-prompts none --permission-mode <acceptEdits|plan> --effort <e>`, and `result` parses the Claude event stream alongside the Codex one
+- fix: the real defect was a flow that re-decided the vendor per run. In a live run the driver hit a claude-backed `fast_worker`, was refused, and re-routed the work to `deep_reasoner` purely because that identity was Codex-backed — the split decision's capability judgment thrown away to buy a cheaper meter, with the swap hidden in a jobId. The mechanism was only half of it: `references/fable5-principles.md` had ranked the Claude subagent last and framed delegation as a cost move, which is the reasoning the driver quoted back
+- feat: a second reason to delegate is now stated everywhere the first one was. Handoff moves execution off the driver's meter **and** off its context window; a claude-backed job earns the second even where it moves no meter. The three-channel table becomes one delegation channel that runs on either backend per config, plus two in-process escape hatches, and the rule is written plainly: never swap an identity to move a job onto another vendor — change the config and say so
+- feat: `submit --backend codex|claude` for role-less ad-hoc jobs. One that contradicts a named role is refused; that guard replaces the old backend-is-claude fail-close. Efforts are validated per CLI rather than against one shared enum: codex keeps `minimal`-`ultra`, claude takes `low`-`max`
+- fix: `resume` reads the parent job's `backend` from its `meta` and lands on the same CLI, and carries the parent's `role` forward. A fix round used to lose its identity provenance, so a run whose work happened mostly in rework had thinner `roles_used` than a clean first pass
+- fix: a generated claude `run.sh` strips `ANTHROPIC_*` and `CLAUDE_CODE_*` with Bash prefix expansion before exec, mirroring `handoff_runtime.clean_claude_env()`, so a delegated worker authenticates like a fresh terminal instead of inheriting the host's injected credentials. A first prototype used a `sed` alternation and failed silently on macOS — BSD sed has no `\|` in a basic regular expression
+- feat: `tests/test_delegate_role.py` runs the whole worktree lifecycle against both backends from one base class: create, record `worktree`/`branch`/`base_commit`, immutable SHA pinning, invalid base refused before the job dir exists, worktree as cwd, idempotent `cleanup`, dirty-tree refusal, `resume` landing in the parent worktree. Monitoring parity (`status`/`result` returning the same shape) is asserted too, so the Phase 3 `/loop` claim is tested rather than assumed
+- **breaking**: receipt schema v5 adds `cc_jobs` and `cc_job_durations`; `codex_jobs` and `codex_job_durations` narrow to codex-backed jobs. `make-receipt.py` partitions the job directories by each `meta`'s `backend=` line (absent means codex, for job dirs written before this change), and `phase` gains `delegated implementation` — `codex implementation` is a false phase name for a run whose work ran on Claude. An existing v4 receipt fails `validate-receipt.py`; that is the intended signal to regenerate it
+
+`schema_version` stays `2`: no configuration change was needed, because `backend = "claude"` was always a valid value — it just had nowhere to go.
+
 ## v3.4.0 (2026-09-07)
 
 ### A second pair of eyes on the plan

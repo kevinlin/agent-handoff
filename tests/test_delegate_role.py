@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -11,20 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path("scripts/delegate-codex.sh")
 
 
-def make_env(root: Path, codex_body: str) -> dict[str, str]:
-    """A clean environment pointing HANDOFF_CODEX_BIN at a fake codex."""
+def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dict[str, str]:
+    """A clean environment pointing both HANDOFF_*_BIN at fake worker CLIs."""
 
-    fake_codex = root / "codex"
-    fake_codex.write_text(f"#!/usr/bin/env bash\n{codex_body}", encoding="utf-8")
-    fake_codex.chmod(0o755)
     env = os.environ.copy()
-    env.update(
-        {
-            "HOME": str(root / "home"),
-            "XDG_CONFIG_HOME": str(root / "xdg"),
-            "HANDOFF_CODEX_BIN": str(fake_codex),
-        }
-    )
+    env.update({"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "xdg")})
+    for name, body in (("codex", codex_body), ("claude", claude_body or codex_body)):
+        fake = root / name
+        fake.write_text(f"#!/usr/bin/env bash\n{body}", encoding="utf-8")
+        fake.chmod(0o755)
+        env[f"HANDOFF_{name.upper()}_BIN"] = str(fake)
     return env
 
 
@@ -81,6 +79,7 @@ class DelegateRoleTests(unittest.TestCase):
         *,
         include_deep_reasoner: bool = True,
         deep_reasoner_backend: str = "codex",
+        deep_reasoner_effort: str = "xhigh",
         include_arbiter: bool = False,
     ) -> str:
         deep_reasoner = ""
@@ -89,7 +88,7 @@ class DelegateRoleTests(unittest.TestCase):
                 "[hosts.claude_code.identities.deep_reasoner]\n"
                 f'backend = "{deep_reasoner_backend}"\n'
                 'model = "gpt-deep"\n'
-                'effort = "xhigh"\n\n'
+                f'effort = "{deep_reasoner_effort}"\n\n'
             )
         arbiter = ""
         if include_arbiter:
@@ -207,15 +206,52 @@ class DelegateRoleTests(unittest.TestCase):
                 self.assertEqual((0, ""), (result.returncode, result.stderr))
                 self.assertEqual(role, self.parsed(result.stdout)["role"])
 
-    def test_claude_backend_fails_with_spawn_guidance(self):
+    def test_claude_backend_is_delegated_on_its_own_backend(self):
         result, _ = self.run_submit(
-            self.config(deep_reasoner_backend="claude"),
+            self.config(deep_reasoner_backend="claude", deep_reasoner_effort="high"),
             "--role",
             "deep_reasoner",
         )
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = self.parsed(result.stdout)
+        self.assertEqual("claude", parsed["backend"])
+        self.assertEqual("config:project", parsed["backend_source"])
+        self.assertTrue(parsed["codex_bin"].endswith("/claude"), parsed["codex_bin"])
+        # --skip-git-repo-check is a codex flag; a claude job never carries it.
+        self.assertEqual("", parsed["skip_git_repo_check"])
+
+    def test_explicit_backend_contradicting_a_role_is_refused(self):
+        result, _ = self.run_submit(
+            self.config(deep_reasoner_backend="claude", deep_reasoner_effort="high"),
+            "--role",
+            "deep_reasoner",
+            "--backend",
+            "codex",
+        )
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("backend=claude", result.stderr)
-        self.assertIn("spawn the handoff-deep_reasoner subagent", result.stderr)
+        self.assertIn("contradicts identity deep_reasoner", result.stderr)
+        self.assertIn("handoff-config.py set --role deep_reasoner", result.stderr)
+
+    def test_backend_without_a_role_selects_the_cli(self):
+        result, _ = self.run_submit(None, "--backend", "claude")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = self.parsed(result.stdout)
+        self.assertEqual("claude", parsed["backend"])
+        self.assertEqual("explicit", parsed["backend_source"])
+        result, _ = self.run_submit(None, "--backend", "gemini")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid --backend: gemini", result.stderr)
+
+    def test_efforts_are_validated_per_cli(self):
+        for effort in ("low", "medium", "high", "xhigh", "max"):
+            with self.subTest(effort=effort):
+                result, _ = self.run_submit(None, "--backend", "claude", "--effort", effort)
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+        for effort in ("minimal", "ultra"):
+            with self.subTest(effort=effort):
+                result, _ = self.run_submit(None, "--backend", "claude", "--effort", effort)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(f"invalid --effort for claude: {effort}", result.stderr)
 
     def test_non_git_repo_appends_skip_git_repo_check(self):
         result, repo = self.run_submit(None)
@@ -234,7 +270,25 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("", parsed["skip_git_repo_check"])
 
 
-class WorktreeTests(unittest.TestCase):
+class BackendLifecycle:
+    """The whole job lifecycle, asserted identically against both backends.
+
+    Only the exec-line shape differs (codex passes -C, claude cd's), so the
+    subclasses below override BACKEND and WORKDIR_MARKER and nothing else.
+    Parity is what this class exists to prove, so nothing here is skipped
+    for one backend.
+    """
+
+    BACKEND = "codex"
+    WORKDIR_MARKER = '-C "$WORKDIR"'
+    # A terminal event stream in this backend's own shape.
+    LOG_LINES = (
+        '{"type":"thread.started","thread_id":"sess-fixture"}',
+        '{"type":"item.completed","item":{"type":"command_execution","command":"pytest -q"}}',
+        '{"type":"item.completed","item":{"type":"agent_message","text":"work done"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":7}}',
+    )
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -271,6 +325,8 @@ class WorktreeTests(unittest.TestCase):
             str(self.repo),
             "--prompt-file",
             str(self.prompt),
+            "--backend",
+            self.BACKEND,
             *arguments,
         )
 
@@ -279,15 +335,39 @@ class WorktreeTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         return result.stdout.strip()
 
+    def job_dir(self, job_id: str) -> Path:
+        return self.repo / ".handoff" / "jobs" / job_id
+
     def read_meta(self, job_id: str) -> dict[str, str]:
-        meta = self.repo / ".handoff" / "jobs" / job_id / "meta"
-        return parse_pairs(meta.read_text(encoding="utf-8"))
+        return parse_pairs((self.job_dir(job_id) / "meta").read_text(encoding="utf-8"))
 
     def cleanup(self, job_id: str):
         return self.delegate("cleanup", job_id, "--repo", str(self.repo))
 
     def worktree(self, job_id: str) -> Path:
         return self.repo / ".handoff" / "worktrees" / job_id
+
+    def finish(self, job_id: str) -> Path:
+        """Give a job a terminal state and a readable log in its own format.
+
+        The detached run.sh redirects into log.jsonl, so wait for the fake
+        worker to exit before writing the fixture — otherwise it truncates it.
+        """
+
+        job = self.job_dir(job_id)
+        for _ in range(200):
+            if (job / "exit_code").is_file():
+                break
+            time.sleep(0.05)
+        self.assertTrue((job / "exit_code").is_file(), "fake worker never exited")
+        (job / "log.jsonl").write_text("\n".join(self.LOG_LINES) + "\n", encoding="utf-8")
+        (job / "session_id").unlink(missing_ok=True)
+        return job
+
+    def test_submit_records_the_backend_that_will_execute_it(self):
+        meta = self.read_meta(self.submit())
+        self.assertEqual(self.BACKEND, meta["backend"])
+        self.assertEqual("explicit", meta["backend_source"])
 
     def test_worktree_is_created_and_recorded_with_a_base_sha(self):
         job_id = self.submit("--worktree", "e2e/T1")
@@ -314,11 +394,9 @@ class WorktreeTests(unittest.TestCase):
 
     def test_run_script_uses_the_worktree_as_working_directory(self):
         job_id = self.submit("--worktree", "e2e/T4")
-        run_sh = (self.repo / ".handoff" / "jobs" / job_id / "run.sh").read_text(
-            encoding="utf-8"
-        )
+        run_sh = (self.job_dir(job_id) / "run.sh").read_text(encoding="utf-8")
         self.assertIn(str(self.worktree(job_id)), run_sh)
-        self.assertIn('-C "$WORKDIR"', run_sh)
+        self.assertIn(self.WORKDIR_MARKER, run_sh)
 
     def test_cleanup_removes_a_clean_worktree_and_is_idempotent(self):
         job_id = self.submit("--worktree", "e2e/T5")
@@ -342,23 +420,64 @@ class WorktreeTests(unittest.TestCase):
         self.assertNotIn("worktree", meta)
         self.assertNotIn("base_commit", meta)
 
-    def test_resume_lands_in_the_parent_worktree(self):
+    def test_resume_lands_in_the_parent_worktree_on_the_parent_backend(self):
         job_id = self.submit("--worktree", "e2e/T7")
-        job = self.repo / ".handoff" / "jobs" / job_id
-        # Seed the cached session id and a terminal state so resume proceeds
-        # without a real Codex log.
-        (job / "session_id").write_text("sess-123", encoding="utf-8")
-        (job / "exit_code").write_text("0\n", encoding="utf-8")
+        self.finish(job_id)
         result = self.delegate(
             "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
         )
         self.assertEqual(0, result.returncode, result.stderr)
         child = result.stdout.strip()
-        self.assertEqual(str(self.worktree(job_id)), self.read_meta(child)["worktree"])
-        run_sh = (self.repo / ".handoff" / "jobs" / child / "run.sh").read_text(
-            encoding="utf-8"
-        )
+        meta = self.read_meta(child)
+        self.assertEqual(str(self.worktree(job_id)), meta["worktree"])
+        # The fix round never re-decides the vendor, and keeps its provenance.
+        self.assertEqual(self.BACKEND, meta["backend"])
+        self.assertEqual(self.read_meta(job_id)["role"], meta["role"])
+        run_sh = (self.job_dir(child) / "run.sh").read_text(encoding="utf-8")
         self.assertIn(str(self.worktree(job_id)), run_sh)
+
+    def test_status_and_result_report_the_same_shape(self):
+        """What Phase 3's /loop reads is backend-agnostic — asserted, not assumed."""
+
+        job_id = self.submit()
+        self.finish(job_id)
+
+        status = self.delegate("status", job_id, "--repo", str(self.repo))
+        self.assertEqual(0, status.returncode, status.stderr)
+        self.assertEqual(
+            ["job", "state", "last_event", "log"],
+            [line.split(":", 1)[0] for line in status.stdout.strip().splitlines()],
+        )
+        self.assertIn("state: DONE", status.stdout)
+
+        result = self.delegate("result", job_id, "--repo", str(self.repo), "--json")
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            {"session_id", "agent_message", "commands", "usage"}, set(payload)
+        )
+        self.assertEqual("sess-fixture", payload["session_id"])
+        self.assertEqual("work done", payload["agent_message"])
+        self.assertEqual(["pytest -q"], payload["commands"])
+        self.assertTrue(payload["usage"])
+
+
+class CodexWorktreeTests(BackendLifecycle, unittest.TestCase):
+    pass
+
+
+class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
+    BACKEND = "claude"
+    # `claude` has no -C; the run script cd's into the worktree instead.
+    WORKDIR_MARKER = 'cd "$WORKDIR"'
+    LOG_LINES = (
+        '{"type":"system","subtype":"init","session_id":"sess-fixture"}',
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},'
+        '{"type":"tool_use","name":"Bash","input":{"command":"pytest -q"}}]},'
+        '"session_id":"sess-fixture"}',
+        '{"type":"result","subtype":"success","result":"work done",'
+        '"usage":{"input_tokens":11,"output_tokens":7},"session_id":"sess-fixture"}',
+    )
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ The first-run proof pass. Triggered by `/agent-handoff tryout` after `/agent-han
 
 ## The three micro-tasks
 
-Fixed content, independent of the target repo's state. Run them through each identity's configured backend (subagent spawn for `backend=claude`, `delegate-codex.sh --role <identity>` for `backend=codex`):
+Fixed content, independent of the target repo's state. Run each through `delegate-codex.sh submit --role <identity>`; the identity's configured backend picks the CLI, and the row reports whichever one ran:
 
 1. **fast_worker — mechanical**: "Sort the keys of this JSON object alphabetically at every nesting level and return only the formatted result: `{"b":{"z":1,"a":{"c":3}},"a":[2,1],"c":"x"}`" Pass = returns exactly the correctly sorted, valid JSON, nothing else.
 2. **deep_reasoner — reasoning**: "A CLI tool stores per-project config. A is one dotfile per project in the repo (committed); B is one central file in the user's home keyed by project path. Name the decisive tradeoff and pick one for a tool whose users frequently rename and move project directories. Conclusion first, then at most three sentences of reasoning." Pass = takes a clear position and the reasoning addresses the directory-move consequence (B's key breaks on move / A travels with the repo).

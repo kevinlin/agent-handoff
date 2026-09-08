@@ -39,7 +39,7 @@
   <rect x="358.0" y="104" width="11" height="11" rx="3" fill="#2563eb" opacity="0.85"/>
   <text x="375.0" y="114" class="leg">handoff-config.py</text>
   <rect x="503.0" y="104" width="11" height="11" rx="3" fill="#059669" opacity="0.85"/>
-  <text x="520.0" y="114" class="leg">codex exec</text>
+  <text x="520.0" y="114" class="leg">worker CLI</text>
   <line x1="346" y1="246" x2="346" y2="285" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
   <line x1="596" y1="348" x2="641" y2="348" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <line x1="346" y1="403" x2="346" y2="442" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
@@ -94,9 +94,9 @@
   <text x="670" y="630" class="pill" fill="#2563eb">handoff-config.py</text>
   <text x="662" y="656" class="ntitle">Fail-closed, both ways</text>
   <text x="662" y="674" class="warn">no Handoff config → hard error, never a default model</text>
-  <text x="662" y="689" class="warn">backend = claude → refused, with a pointer to spawn</text>
-  <text x="662" y="704" class="warn">the handoff-&lt;identity&gt; subagent instead</text>
-  <text x="662" y="719" class="note">the guard against a job landing on the wrong meter</text>
+  <text x="662" y="689" class="note">the identity's backend selects the CLI: codex or claude</text>
+  <text x="662" y="704" class="warn">--backend contradicting a named role → refused</text>
+  <text x="662" y="719" class="note">the guard against a job landing on a vendor not configured</text>
   <path d="M 596 835 H 622 V 841 H 641" fill="none" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <rect x="648" y="778" width="500" height="126" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
   <rect x="662" y="789" width="138.4" height="18" rx="6" fill="#d97706" opacity="0.10"/>
@@ -115,10 +115,10 @@
   <text x="110" y="876" class="note">meta — role, backend, model, effort, and each value's source</text>
   <rect x="96" y="935" width="500" height="111" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
   <rect x="110" y="946" width="88" height="18" rx="6" fill="#059669" opacity="0.10"/>
-  <text x="118" y="959" class="pill" fill="#059669">codex exec</text>
-  <text x="110" y="985" class="ntitle">nohup codex exec --json, detached</text>
+  <text x="118" y="959" class="pill" fill="#059669">worker CLI</text>
+  <text x="110" y="985" class="ntitle">nohup the worker, detached, JSON stream</text>
   <text x="110" y="1003" class="note">stdin &lt;/dev/null, so a long prompt cannot leave it waiting</text>
-  <text x="110" y="1018" class="note">--skip-git-repo-check when git rev-parse says non-repo</text>
+  <text x="110" y="1018" class="note">codex exec --json, or claude --output-format stream-json</text>
   <text x="110" y="1033" class="note">log.jsonl and stderr.log start filling immediately</text>
   <rect x="96" y="1092" width="500" height="96" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
   <rect x="110" y="1103" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>

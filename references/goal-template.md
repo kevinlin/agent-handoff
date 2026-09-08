@@ -54,11 +54,11 @@ E2E rows are optional: add them only when the Phase 1 criterion fires and the id
 
 Rows the driver keeps for itself — the split decision, cross-task integration, final acceptance — take identity `-`: they run inline in the driving session and never spawn or delegate.
 
-At execution time, resolve the identity's config (`handoff-config.py resolve`): `backend = codex` → submit through `delegate-codex.sh --role <identity>` (Codex subscription meter); `backend = claude` → spawn the `handoff-<identity>` subagent (Claude API meter). The same identity can point at either vendor — that mapping lives in `.handoff/config.toml`, not in this table.
+At execution time every delegated row takes the same path: `delegate-codex.sh submit --role <identity>`. The identity's configured `backend` decides which CLI runs it and therefore which meter bills — `codex` on the Codex subscription, `claude` on the Claude meter — and nothing else about the job changes. The same identity can point at either vendor; that mapping lives in `.handoff/config.toml`, not in this table, and it is never re-decided per run to chase a cheaper meter.
 
 Rules:
 
-- One row per task; `jobId` comes from `delegate-codex.sh submit` (rows whose identity resolves to a claude backend keep `-`).
+- One row per task; `jobId` comes from `delegate-codex.sh submit`. Every delegated row gets one, on either backend. Only identity `-` rows, which the driver keeps inline, stay at `-`.
 - `acceptance` must be verifiable (a command to run, a behavior to observe), not a vibe. It is what Phase 4 reviews against.
 - `depends` is a comma-separated list of task ids that must reach `done` before this row is submitted, or `-`. The `/loop` monitor reads it; a row with unmet dependencies is not submitted.
 - The `/loop` monitoring prompt reads this file first, so keep statuses current — stale rows cause duplicate delegation.

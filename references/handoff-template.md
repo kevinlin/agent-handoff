@@ -1,10 +1,10 @@
 # Agent Handoff Packet Templates
 
-Three packets, all bounded: the delegation packet Claude sends to a Codex job, the spec review packet it sends to `deep_reasoner` during planning, and the Goal Packet it sends to the user for authorization. Cite evidence; do not paste the whole repo.
+Three packets, all bounded: the delegation packet the driver sends to a delegated job, the spec review packet it sends to `deep_reasoner` during planning, and the Goal Packet it sends to the user for authorization. Cite evidence; do not paste the whole repo.
 
-## Claude → Codex Delegation Packet
+## Handoff Delegation Packet
 
-Use this packet when Claude Code delegates a task to Codex via `delegate-codex.sh submit`. It follows `references/fable5-principles.md`: why-forward opening, one-sentence task, verifiable acceptance, only genuine constraints, fixed output discipline.
+Use this packet when Claude Code delegates a task via `delegate-codex.sh submit`, whichever backend the row's identity is configured for — the packet is identical, because routing comes from config and never from the prose. It follows `references/fable5-principles.md`: why-forward opening, one-sentence task, verifiable acceptance, only genuine constraints, fixed output discipline.
 
 ```markdown
 # Handoff Delegation
@@ -18,7 +18,7 @@ I'm working on [the larger task] for [who it's for]. They need
 
 ## Acceptance
 - [Verifiable condition, e.g. `npm test` passes, all call sites migrated]
-- [Check command Codex must run before finishing]
+- [Check command the worker must run before finishing]
 
 ## Constraints
 - Only touch: [paths in scope]. Do not touch: [paths out of scope].
@@ -42,7 +42,7 @@ Delegation packet rules:
 
 ## Spec Review Packet (Phase 1, optional)
 
-Use this packet when `deep_reasoner` reviews the plan before it reaches the user — automatically when its config carries `auto_review_spec = true`, or on request. It runs once per run. Send it through the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`, or the `handoff-deep-reasoner` subagent when the backend is `claude`.
+Use this packet when `deep_reasoner` reviews the plan before it reaches the user — automatically when its config carries `auto_review_spec = true`, or on request. It runs once per run. Send it as a read-only job on the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; the job, the jobId, and the receipt entry are the same either way.
 
 The spec goes in the packet verbatim. The reviewer starts cold and must not go looking for the plan itself; what it is given is what it judges.
 
@@ -90,7 +90,7 @@ Spec review rules:
 
 ## Goal Packet (Plan→Goal→PR→Verification, `references/goal-to-pr.md`)
 
-Use this packet to present a Stage 1 plan for authorization before writing `.handoff/goal.md` and starting Stage 3. It is a decision artifact for the user, not a delegation packet for Codex.
+Use this packet to present a Stage 1 plan for authorization before writing `.handoff/goal.md` and starting Stage 3. It is a decision artifact for the user, not a delegation packet for a worker.
 
 ```markdown
 # Handoff Goal Packet

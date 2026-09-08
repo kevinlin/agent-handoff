@@ -4,6 +4,8 @@ Handoff uses one TOML configuration shape at project and global scope. The write
 
 An identity is the complete routing choice `backend + model + effort`. Tasks select one of `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`; the identity's `backend` determines which CLI executes it.
 
+Both backend values are fully supported execution channels for delegated jobs. `backend = "claude"` is not a subagent-only marker: `delegate-codex.sh --role <identity>` runs a claude-backed identity as a background job with the same jobId, job state, monitoring, fix-round `resume`, and receipt evidence a codex-backed one gets. A per-job `--backend` contradicting a configured identity is refused — moving work onto another vendor is a change to this file, not a per-run override.
+
 The first three are core and always configured. `e2e_specifier` and `e2e_verifier` are optional: setup writes them only when it runs with `--with-e2e`, and a config carrying just the three core identities is complete. `schema_version` stays `2` — adding identity names does not change the document shape.
 
 `deep_reasoner` carries one extra field the others do not: `auto_review_spec`, the toggle for the optional Phase 1 spec review. It is a responsibility switch, not a routing value — changing it never invalidates a verification, and absent means off.
@@ -71,9 +73,9 @@ always_on_host_rules = false
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
 | `hosts.claude_code` | table | per configured identity | The owned namespace. The `hosts.*` nesting is retained so configs written by earlier versions keep loading. |
 | `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. |
-| `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI: `claude` or `codex`. |
+| `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude` or `codex`. Both are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
 | `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. |
-| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. |
+| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal`-`ultra`, claude takes `low`-`max`. |
 | `hosts.claude_code.identities.deep_reasoner.auto_review_spec` | boolean | no | Whether `deep_reasoner` reviews the plan once during Phase 1 planning, before it reaches the user. Absent means off. Rejected on any other identity. |
 | `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |

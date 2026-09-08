@@ -66,7 +66,7 @@
   <text x="110" y="360" class="note">each job's meta — role · model · effort + the source of each</text>
   <text x="110" y="375" class="note">handoff-config.py resolve — scope · config_source · verified</text>
   <text x="110" y="390" class="note">.handoff/session-start → duration, wall clock including waits</text>
-  <text x="110" y="405" class="note">each job’s submitted_at + exit_code mtime → codex_job_durations</text>
+  <text x="110" y="405" class="note">each job’s submitted_at + exit_code mtime → both duration lists</text>
   <rect x="648" y="292" width="500" height="126" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
   <rect x="662" y="303" width="59.2" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="670" y="316" class="pill" fill="#2563eb">probes</text>
@@ -79,8 +79,8 @@
   <rect x="110" y="475" width="124" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="118" y="488" class="pill" fill="#2563eb">make-receipt.py</text>
   <text x="110" y="514" class="ntitle">make-receipt.py --save</text>
-  <text x="110" y="532" class="note">duration · codex_jobs · codex_job_durations · roles_used</text>
-  <text x="110" y="547" class="note">schema v4; a v3 receipt fails, the signal to regenerate it</text>
+  <text x="110" y="532" class="note">duration · codex_jobs + cc_jobs, split by each job's backend</text>
+  <text x="110" y="547" class="note">schema v5; a v4 receipt fails, the signal to regenerate it</text>
   <text x="110" y="562" class="note">refuses to emit an invalid receipt at all</text>
   <rect x="96" y="621" width="500" height="96" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
   <rect x="110" y="632" width="152.8" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
@@ -105,6 +105,6 @@
   <text x="110" y="1033" class="note">a resumed session reads these, not the repository</text>
   <rect x="92" y="1052" width="1056" height="84" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
   <text x="110" y="1078" class="fhead">The closing rule</text>
-  <text x="110" y="1098" class="note">Do not fabricate token savings. With no telemetry, report verifiable behavior instead: which tasks ran on the</text>
-  <text x="110" y="1118" class="note">Codex subscription, how many jobs and fix rounds, that the full diff was reviewed against acceptance, checks passed.</text>
+  <text x="110" y="1098" class="note">Do not fabricate token savings. With no telemetry, report verifiable behavior instead: which tasks ran on which</text>
+  <text x="110" y="1118" class="note">backend, how many jobs and fix rounds, that the full diff was reviewed against acceptance, checks passed.</text>
 </svg>

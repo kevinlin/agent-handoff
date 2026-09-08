@@ -1,13 +1,15 @@
 # Agent Handoff Flow
 
-Use this flow when the user asks Claude to split work with Codex ("Handoff", "delegate this to codex", "let codex do it", "run codex in the background"). Claude Code is the driver: it plans, delegates quota-pressure work to Codex (subscription billing), monitors the background jobs, and quality-gates everything before accepting it. The goal is saving Claude API spend without lowering quality — the full-review gate in Phase 4 is what makes that claim honest.
+Use this flow when the user asks Claude to split work with another agent ("Handoff", "delegate this to codex", "let codex do it", "run codex in the background"). Claude Code is the driver: it plans, delegates the work its split assigns to an identity, monitors the background jobs, and quality-gates everything before accepting it. Delegation buys two things — execution on a subscription meter instead of the driver's, and a driver context window kept clear of execution history — and the full-review gate in Phase 4 is what keeps either claim honest.
+
+Which CLI runs a delegated job is decided by the identity's configured `backend`, always. A claude-backed identity is a real background job with the same jobId, monitoring loop, fix-round `resume`, worktree lifecycle, and receipt evidence a codex-backed one gets. Never send a task to a different identity to move it onto another vendor or meter; that is a config change, not a routing decision (see `references/fable5-principles.md`).
 
 All helper scripts live in `$HANDOFF_DIR` (see Tool Location in `SKILL.md`). Job state lives under `<repo>/.handoff/jobs/`.
 
 ## Phase 0 — Preflight
 
 - Stamp the start: `python3 "$HANDOFF_DIR/scripts/make-receipt.py" --start --repo "$REPO"` writes `<repo>/.handoff/session-start`, the clock the Phase 5 receipt measures against. `/agent-handoff resume` re-enters mid-flow and skips this phase, so a resumed run keeps the start it already had.
-- Confirm the Codex CLI: `codex --version`. If missing, stop and tell the user this flow needs the Codex CLI installed and authenticated.
+- Confirm the worker CLIs the config actually uses: `codex --version` for any codex-backed identity, `claude --version` for any claude-backed one. If one is missing, stop and tell the user which identities cannot run until it is installed and authenticated.
 - Check the target repo's `AGENTS.md` for the line `DO NOT send optional commentary`. If absent, ask the user once whether to append it (it reduces Codex filler output and keeps its replies dense). Never edit the user's repo files silently.
 - Run `git status --short` and note pre-existing dirt so Codex's diff can be isolated later.
 
@@ -18,7 +20,7 @@ All helper scripts live in `$HANDOFF_DIR` (see Tool Location in `SKILL.md`). Job
   - `fast_worker` for mechanical, spec-complete work (refactors, test writing, wide read-only scans, doc generation, boilerplate, batch migrations) — the bulk of delegable work.
   - `deep_reasoner` for ambiguous, wrong-premise-is-expensive work (a hard diagnosis, a config change whose wrong variant silently breaks things).
   - identity `-` for what the driver keeps inline: architecture, the split decision itself, cross-task integration, security/correctness-critical paths, final acceptance. Never route these to a cheaper identity to save money, and never burn the driver's seat on mechanical work.
-  Which CLI executes and which meter bills follows from the identity's configured `backend` (`/agent-handoff config`), not from a separate per-task choice. Two escape hatches remain for edge cases: a one-shot Codex subagent (e.g. a rescue agent) for a stuck step needing a second diagnosis with no durable state, and a raw Task-tool subagent when no Handoff identity fits — billing notes for both in `references/fable5-principles.md`.
+  Which CLI executes and which meter bills follows from the identity's configured `backend` (`/agent-handoff config`), not from a separate per-task choice, and not from a preference about cost formed while delegating. Two escape hatches remain for edge cases: a one-shot Codex subagent (e.g. a rescue agent) for a stuck step needing a second diagnosis with no durable state, and a raw Task-tool subagent when no Handoff identity fits — billing notes for both in `references/fable5-principles.md`.
 - Adversarial gate: attack your own split before acting on it. Answer three questions in writing: does each delegated task really not need the expensive tier, does the integration cost of the split boundary eat the savings, and does each row's identity match the work's actual stakes (with a reason it is not a more expensive one). A row that survives all three gets delegated; anything else gets its identity corrected, merged into a neighbour, or kept inline. Fix the split first, then delegate.
 - Acceptance coverage: add `e2e_specifier` and `e2e_verifier` rows when the change **alters user-observable behaviour at a real interface** (UI, API surface, mobile screen). Skip them for internal refactors, docs, config, and pure library work. When the criterion fires but the identities are unconfigured, say so once — "this change is user-observable; `/agent-handoff config --with-e2e` would add acceptance coverage" — then continue without them. Full protocol, both packets, and the worktree rules: `references/e2e-gauntlet.md`.
 - Spec review (optional, once): when `deep_reasoner` carries `auto_review_spec = true` in its config, or the user asks for a second pair of eyes, give the plan one independent read before the user sees it. Build the Spec Review Packet from `references/handoff-template.md` and send it through the identity's configured backend:
@@ -29,13 +31,15 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
   --role deep_reasoner --read-only
 ```
 
-  A `backend = claude` identity is refused by that tool by design: spawn `handoff-deep-reasoner` instead (Sub Agent Routing below). Then assess the findings yourself, fold in the ones that hold, and record the outcome in the goal file's `## Spec Review` block before the plan (or the Goal Packet) goes to the user.
+  `--read-only` becomes `-s read-only` on codex and `--permission-mode plan` on claude, so the review is a real job with a jobId on either backend. Then assess the findings yourself, fold in the ones that hold, and record the outcome in the goal file's `## Spec Review` block before the plan (or the Goal Packet) goes to the user.
 
   Three rules make this safe to leave on. It fires **at most once per run**: a non-empty `## Spec Review` block means the automatic review is spent, so an adjusted plan, a thin review, and a resumed session all fail to re-trigger it, and only an explicit user request produces another. The reviewer is **read-only** — it returns prioritized findings and never edits the spec, the goal file, or product code, and its findings are input to your judgment rather than a verdict you apply unread. And it is **not blind**: the plan under review is your own answer, so the arbiter's contamination rule does not apply here. When `deep_reasoner` resolves to the driver's own vendor the review still runs, and the receipt notes `same-vendor` exactly as the arbiter protocol does.
 
 ## Sub Agent Routing
 
-This lookup applies **only to identities whose configured `backend` is `claude`** — an identity with `backend = codex` never enters it: that work goes through `delegate-codex.sh` (Phase 2), and spawning a Task subagent for it would silently swap in the wrong vendor and meter. For a claude-backend identity, resolve *which* agent definition to spawn with this three-level lookup, in order:
+This lookup applies **only when you are spawning an in-session subagent** — one of the two escape hatches in `references/fable5-principles.md`, or a step the user asked to run inline. It is not the delegated-job path: a task row with an identity goes through `delegate-codex.sh --role <identity>` (Phase 2) on whichever backend that identity is configured for, claude included. Spawning a subagent instead of delegating loses the jobId, the durable job state, the monitoring loop, the bounded fix round, and the receipt evidence.
+
+When you do spawn one, resolve *which* agent definition with this three-level lookup, in order:
 
 1. **`handoff-*` namespaced agent** — if `/agent-handoff config` has generated `handoff-deep-reasoner` / `handoff-fast-worker` / `handoff-arbiter` (project or global scope; check `python3 "$HANDOFF_DIR/scripts/handoff-config.py" resolve` for the configured identity, or just try spawning the namespaced agent), use it. Its model/effort came from the user's own setup choice.
 2. **The user's own similarly-named agent** — if no `handoff-*` agent exists but the user has their own `deep-reasoner.md` / `fast-worker.md` (or an agent whose description clearly matches the identity), use it as-is. Never rename, edit, or treat it as if it were handoff-managed.
@@ -47,7 +51,7 @@ A repo with no `/agent-handoff config` run yet simply falls through to level 3 e
 
 For contentious or high-stakes calls — the driver judges the answer disputable, or the user says "arbitrate" / "this is contested" / "second opinion" — do not settle for one solver's answer:
 
-1. Send the **same problem, verbatim** to both `deep_reasoner` and `arbiter`, each through its own configured backend (subagent spawn or `delegate-codex.sh --role arbiter`).
+1. Send the **same problem, verbatim** to both `deep_reasoner` and `arbiter`, each as a real job on its own configured backend: `delegate-codex.sh submit --role deep_reasoner` and `--role arbiter`. Both solvers get a jobId and appear in the receipt, whichever CLI executes them.
 2. **Contamination rule**: neither packet may contain the other solver's answer, conclusion, or any leaning hint ("X thinks A, verify it" is already contaminated). Blind means blind — a contaminated run silently produces fake agreement and must be rerun, not patched.
 3. Compare the two answers. Agreement → adopt, note dual-verified. Disagreement → the driver rules, and records the point of divergence plus the ruling's reasoning in the receipt (both solvers appear in `roles_used`; the divergence goes in the report/Notes).
 4. The blind check is strongest when arbiter and deep_reasoner run on different vendors (the wizard's default presets guarantee this); if the config has them same-vendor, the protocol still runs but the receipt notes `same-vendor` so the weaker independence is visible.
@@ -56,7 +60,7 @@ This is distinct from the Phase 1 gate: that gate attacks a plan you already hav
 
 ## Phase 2 — Delegate
 
-- Build each Codex prompt from the "Claude → Codex Delegation Packet" in `references/handoff-template.md`: why-forward context, one-sentence task, verifiable acceptance criteria, scope constraints, and the fixed output rules (no optional commentary; lessons learned at the end).
+- Build each worker prompt from the "Handoff Delegation Packet" in `references/handoff-template.md`: why-forward context, one-sentence task, verifiable acceptance criteria, scope constraints, and the fixed output rules (no optional commentary; lessons learned at the end).
 - Submit as a background job, passing the row's identity so backend, model, and effort resolve from `/agent-handoff config`'s config (explicit `--model`/`--effort` still wins per field if a specific task genuinely needs an override):
 
 ```bash
@@ -67,7 +71,9 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
   --role <identity>
 ```
 
-The tool fail-closes on both misconfigurations: no Handoff config yet → clear error (run `/agent-handoff config` first, or fall back to an explicit `--effort` for this one job and note it in `Notes`); identity configured with `backend = claude` → refusal with a pointer to spawn the `handoff-<identity>` subagent instead. That is the guard against silently running a claude-backend identity on the wrong vendor and the wrong meter.
+The identity's `backend` picks the CLI: `codex` runs `codex exec --json`, `claude` runs `claude --print --output-format stream-json`. Everything downstream — jobId, `.handoff/jobs/<jobId>/` state, the Phase 3 loop, the Phase 4 `resume` fix round, worktrees, receipt evidence — is the same on either.
+
+Two guards stay closed. No Handoff config yet → a clear error (run `/agent-handoff config` first, or fall back to an explicit `--effort` for this one job and note it in `Notes`). And a `--backend` that contradicts a named role → refused, because moving a job onto another vendor is a config change the user should see, not a per-job override. Efforts are per CLI, so an effort valid for codex (`minimal`, `ultra`) is refused on claude and vice versa.
 
 - Use `--read-only` for scan/review jobs that must not modify the repo.
 - Record the returned jobId in the goal file's task row. Independent tasks can be submitted in parallel.
@@ -86,7 +92,7 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 - Short single job (expected under ~5 minutes): block on it — `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" status <jobId> --repo "$REPO" --wait --timeout 300`.
 - Long or multiple jobs: set up the built-in `/loop` skill at a 5-minute interval with a prompt like: read `.handoff/goal.md`, run `delegate-codex.sh status` for every running jobId (tail the job's `log.jsonl` for the last event), update task statuses in the goal file, and when no job is left running, stop the loop and continue with Phase 4.
 - The loop reads each row's `depends` column and does not submit a row whose dependencies have not reached `done`. An `e2e_verifier` row waits on both the specifier row and the implementation row: it needs the tests in its tree, not just the feature.
-- A job stuck with no new JSONL events for two consecutive ticks, or a `status` of FAILED, is a monitoring anomaly: cancel it, read `stderr.log`, and either resubmit with a corrected prompt or take the task back into Claude. Record the anomaly for the receipt.
+- A job stuck with no new JSONL events for two consecutive ticks, or a `status` of FAILED, is a monitoring anomaly: cancel it, read `stderr.log`, and either resubmit with a corrected prompt or take the task back into the driver. Record the anomaly for the receipt. `status` and `result` read the same job state on either backend, so nothing here changes with the CLI.
 
 ## Phase 4 — Full Review Gate
 
@@ -102,14 +108,14 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
   6. Once a worktree is merged or abandoned, `delegate-codex.sh cleanup <jobId> --repo "$REPO"`.
 
   `main` is reached only after a PASS plus the driver's final review, which keeps merge inside the existing hard-stop rule.
-- Findings? Send one bounded fix round back to the same Codex session:
+- Findings? Send one bounded fix round back to the same worker session — `resume` reads the parent job's backend from its `meta` and lands on the same CLI, in the same worktree:
 
 ```bash
 bash "$HANDOFF_DIR/scripts/delegate-codex.sh" resume <jobId> \
   --repo "$REPO" --prompt-file <fix-notes>
 ```
 
-- Maximum two fix rounds per task. Still failing after that: take the task back and finish it in Claude; note the takeback in the goal file and receipt. Optionally run the gstack `/codex` review on the final combined diff as an independent third-party gate.
+- Maximum two fix rounds per task. Still failing after that: take the task back and finish it in the driving session; note the takeback in the goal file and receipt. Optionally run the gstack `/codex` review on the final combined diff as an independent third-party gate.
 
 ## Phase 4.5 — Delivery (opt-in, `references/goal-to-pr.md`)
 
@@ -122,6 +128,6 @@ Only runs when the user asked for the full "full protocol / PR delivery / goal m
 ## Phase 5 — Wrap Up
 
 - Mark tasks done in `.handoff/goal.md`; stop any remaining `/loop`.
-- Emit the Handoff Session Receipt with `codex_jobs: <count>` (fix rounds included); `claude_session` is the current session. Pass `--repo "$REPO"` so `duration` and `codex_job_durations` are measured from the start marker and the job directories; neither is ever typed from recall. Set `scope` and `config_source` from `handoff-config.py resolve` (or `handoff-setup.py --status`), and build `roles_used` from the roles this run actually invoked: each `delegate-codex.sh` job's `meta` file has `role`/`model`/`effort`/`model_source`/`effort_source`, and `handoff-config.py resolve` has each role's `verified`/`verified_at`. List a role even when `verified` is `false` — never guess it true.
-- E2E roles and a spec-review job appear in `roles_used` like any other role when the run used them; `receipt_schema_version` stays `4`.
-- Run the memory protocol in `references/memory-protocol.md`: what got delegated, how Codex performed per task type, rework rounds, and effort fit — so the next split decision starts smarter.
+- Emit the Handoff Session Receipt with the delegated jobs split by the backend that executed them: `--codex-jobs <count>` and `--cc-jobs <count>`, fix rounds included in both. Count them from each job's `meta` `backend=` line, not from recall; a job directory with no `backend=` line predates backend dispatch and is codex. `claude_session` is the current session. Pass `--repo "$REPO"` so `duration`, `codex_job_durations`, and `cc_job_durations` are measured from the start marker and the job directories; none is ever typed from recall. Set `scope` and `config_source` from `handoff-config.py resolve` (or `handoff-setup.py --status`), and build `roles_used` from the roles this run actually invoked: each job's `meta` has `role`/`backend`/`model`/`effort`/`model_source`/`effort_source`, and `handoff-config.py resolve` has each role's `verified`/`verified_at`. A resumed job carries its parent's `role` and `backend`, so a fix round is not an anonymous entry. List a role even when `verified` is `false` — never guess it true.
+- E2E roles and a spec-review job appear in `roles_used` like any other role when the run used them; `receipt_schema_version` is `5`. Use `phase: delegated implementation` when the run's delegated work was not all codex-backed.
+- Run the memory protocol in `references/memory-protocol.md`: what got delegated, how each identity performed per task type, rework rounds, and effort fit — so the next split decision starts smarter.

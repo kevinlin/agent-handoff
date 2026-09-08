@@ -408,5 +408,90 @@
       "Write auto_review_spec into the config as a side effect of one requested review.",
       "Repeat the review automatically later in the same run."
     ]
+  },
+  {
+    "id": "claude-backend-delegates-as-a-real-job",
+    "prompt": "Agent handoff: split this refactor and delegate it. (fast_worker is configured with backend = claude in this repo.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Submit the fast_worker row through delegate-codex.sh --role fast_worker exactly as a codex-backed row would be submitted.",
+      "Report the returned jobId and write it into the goal file's task row; a claude-backed row is never left at '-'.",
+      "Monitor it with delegate-codex.sh status and collect it with result, the same way as any other job.",
+      "Say that the identity's configured backend picked the CLI, and that the job's meta records backend=claude."
+    ],
+    "must_not": [
+      "Spawn a handoff-fast-worker subagent instead of delegating, losing the jobId, the job state, the monitoring loop, and the receipt evidence.",
+      "Claim delegate-codex.sh refuses a claude-backed identity.",
+      "Pass --backend codex to move the job onto the other vendor.",
+      "Report the work as delegated with no jobId behind it."
+    ]
+  },
+  {
+    "id": "identity-never-swapped-to-change-vendor",
+    "prompt": "Agent handoff: delegate this migration to fast_worker. Keep my Claude spend down. (fast_worker is backend = claude; deep_reasoner is backend = codex.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Delegate to fast_worker on its configured claude backend, because the split decision picked that identity for the capability the work needs.",
+      "Say plainly that this run's work does not move onto the Codex subscription, and why: the identity's backend says claude.",
+      "Offer the config change as the fix — /agent-handoff config, or handoff-config.py set --role fast_worker --backend codex — and ask before making it.",
+      "Note that the job still keeps the execution history out of the driver's context window even where it moves no meter."
+    ],
+    "must_not": [
+      "Send the work to deep_reasoner, or any other identity, because that one happens to be Codex-backed.",
+      "Rewrite .handoff/config.toml to change a backend without asking the user first.",
+      "Present a vendor swap as a routing decision rather than a configuration change.",
+      "Silently drop the task to a cheaper identity and report it as delegated as planned."
+    ]
+  },
+  {
+    "id": "fix-round-resumes-on-the-parent-backend",
+    "prompt": "The delegated job came back with two acceptance criteria unmet. Send it one fix round. (That job ran on a claude-backed identity.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Use delegate-codex.sh resume <jobId> with a prompt file holding only the prioritized findings and the criteria that failed.",
+      "Let resume read the parent job's backend from its meta so the fix round lands on the same CLI and the same worker session.",
+      "Expect the child job to inherit the parent's worktree and role, so roles_used keeps its provenance across the fix round.",
+      "Cap the task at two fix rounds, then take it back into the driving session and record the takeback."
+    ],
+    "must_not": [
+      "Resubmit the task from zero as a fresh job instead of resuming the session.",
+      "Move the fix round onto the other backend because it is cheaper or faster.",
+      "Resend the whole delegation packet, which the resumed session already holds.",
+      "Report a role entry with no backend, model, or effort behind it."
+    ]
+  },
+  {
+    "id": "e2e-worktree-identical-on-either-backend",
+    "prompt": "Agent handoff: add the e2e rows for this API change and run them. (e2e_specifier is backend = claude; the implementation row ran on codex.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Submit the e2e_specifier row with delegate-codex.sh submit --worktree e2e/<task-id> --base <sha>, the same command a codex-backed row uses.",
+      "Keep --repo pointed at the main repo, never at a worktree path, on either backend.",
+      "Expect the job's meta to record worktree, branch, and base_commit, and expect cleanup to refuse a worktree holding uncommitted changes.",
+      "Inline the frozen goal excerpt and the spec into the packet, because a worktree carries tracked content only."
+    ],
+    "must_not": [
+      "Run git worktree add by hand for the claude-backed row because the script is described as codex-only.",
+      "Use the Task tool's worktree isolation, which pins no base and offers no cleanup contract.",
+      "Say the two backends follow the same protocol but are not equally hardened.",
+      "Cut the worktree from a branch name rather than an immutable commit SHA."
+    ]
+  },
+  {
+    "id": "receipt-splits-jobs-by-backend",
+    "prompt": "The jobs are done. Sign them off and give me the receipt. (Two ran on codex, one on claude.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Generate the receipt with make-receipt.py --codex-jobs 2 --cc-jobs 1, counted from each job meta's backend= line under .handoff/jobs/.",
+      "Let make-receipt.py measure codex_job_durations and cc_job_durations from the job directories rather than typing either from recall.",
+      "Use phase: delegated implementation when the run's delegated work was not all codex-backed.",
+      "Emit receipt_schema_version: 5 and re-check the written receipt with validate-receipt.py."
+    ],
+    "must_not": [
+      "Report all three jobs under codex_jobs, so the receipt claims subscription work that never happened.",
+      "Count the same job in both codex_jobs and cc_jobs.",
+      "Hand-type the receipt block instead of generating it.",
+      "Emit receipt_schema_version: 4, which no longer validates."
+    ]
   }
 ]

@@ -59,19 +59,23 @@ This is measured, not folklore: a terse reviewer contract cut reviewer output by
 
 ## Delegate Execution, Don't Downshift the Planner
 
-Saving planner spend means moving execution onto the subscription meter (Codex), not making the planner do quality-critical work with a cheaper model. Right-sizing is the default lean, never a hard rule: architecture, the split decision itself, cross-module integration, security/correctness paths, and final acceptance stay with the planner even though it is the expensive seat.
+Delegation pays twice, and either payoff alone justifies it. It moves execution onto a subscription meter instead of the planner's. And it keeps the driver's context window clear of execution history it will never need again: a background job's transcript stays in its own job directory, so what comes back is a result rather than a thousand lines of tool output. A claude-backed job earns the second payoff even where it moves no meter at all.
 
-Three execution channels, in order of preference for delegable work:
+Neither payoff is a reason to make the planner do quality-critical work with a cheaper model. Right-sizing is the default lean, never a hard rule: architecture, the split decision itself, cross-module integration, security/correctness paths, and final acceptance stay with the planner even though it is the expensive seat.
 
-| Channel | Billing | Shape | Use when |
-|---|---|---|---|
-| Handoff `delegate-codex.sh` | Codex subscription | out-of-process background job, durable state, loop monitoring, resume rework, receipt | a real unit of delegated work: runs while you continue, gets full-reviewed, may need fix rounds |
-| Codex subagent (one-shot, e.g. a rescue/second-opinion agent) | Codex subscription | in-process, blocking, no durable state | stuck and want a second diagnosis, or a throwaway assist |
-| Claude subagent (Task tool, cheaper Claude tier) | Claude API metered | in-process, isolated context, returns a summary | the step genuinely needs Claude-grade reasoning at a lower tier and the metered spend is acceptable |
+One channel carries delegated work; the other two are escape hatches:
 
-Picking *which* Claude subagent to spawn is a separate, three-level lookup — see "Sub Agent Routing" in `references/claude-driven.md`: a `handoff-*` namespaced agent configured via `/agent-handoff config` first, the user's own similarly-named agent second, the generic `Task` tool last. This is about which agent definition answers the call, not which channel bills for it.
+| Channel | Shape | Use when |
+|---|---|---|
+| Handoff job — `delegate-codex.sh --role <identity>` | out-of-process background job on the identity's configured backend, durable state, loop monitoring, resume rework, receipt evidence | a real unit of delegated work: runs while you continue, gets full-reviewed, may need fix rounds |
+| One-shot Codex subagent | in-process, blocking, no jobId, no durable state | a stuck step wanting a second diagnosis, or a throwaway assist |
+| Raw Task-tool subagent | in-process, isolated context, returns a summary | no Handoff identity fits the work at all |
 
-Only the Codex channels move the whole meter to the subscription; a cheaper-Claude subagent still bills the API. A subagent is a single-call primitive; the Handoff job is an orchestration layer (submit → monitor → review → rework → receipt → memory) — pick by whether the work needs that lifecycle, not by habit.
+The Handoff job runs on whichever CLI the identity's `backend` names. Which meter it bills follows from that, and so does whether a given run saves subscription quota — but the job shape, the monitoring loop, the bounded fix round, and the receipt evidence are identical on either backend. A subagent is a single-call primitive; the Handoff job is an orchestration layer (submit, monitor, review, rework, receipt, memory). Pick by whether the work needs that lifecycle, not by which meter you would prefer.
+
+**Never swap an identity to move a job onto another vendor.** If `fast_worker` is claude-backed and you would rather its work ran on Codex, that is a configuration change — `/agent-handoff config`, or `handoff-config.py set --role fast_worker --backend codex` — and you say so. It is not a quiet re-route to `deep_reasoner` because that identity happens to be Codex-backed. The split decision picked an identity for the capability the work needs; re-routing to buy a cheaper meter throws that judgment away and hides the swap in a jobId. `delegate-codex.sh` refuses a `--backend` contradicting a named role for the same reason. When the configured identity is genuinely wrong for the work, say so and ask.
+
+Picking *which* subagent definition to spawn, once you are in one of the escape hatches, is a separate three-level lookup — see "Sub Agent Routing" in `references/claude-driven.md`. It answers which agent definition takes an in-session call, and has nothing to do with the delegated-job path.
 
 ## Don't Throttle the Planner's Thinking
 
