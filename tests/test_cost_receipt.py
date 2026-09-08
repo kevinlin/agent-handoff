@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -404,6 +405,36 @@ class MarkdownTests(unittest.TestCase):
         out = rcr.render_markdown(self.payload(rows=rows))
         self.assertIn("11", out)
         self.assertNotIn("curl", out)
+
+
+TEMPLATE = ROOT / "assets" / "cost-receipt.html"
+
+
+class TemplateTests(unittest.TestCase):
+    def setUp(self):
+        self.html = TEMPLATE.read_text(encoding="utf-8")
+
+    def test_template_has_a_payload_slot(self):
+        self.assertIn('<script id="handoff-payload" type="application/json">', self.html)
+
+    def test_template_is_self_contained(self):
+        for banned in ("http://", "https://cdn", "<link rel=\"stylesheet\""):
+            self.assertNotIn(banned, self.html)
+
+    def test_template_supports_both_themes(self):
+        self.assertIn("light-dark(", self.html)
+
+    def test_page_never_uses_inner_html(self):
+        self.assertNotIn("innerHTML", self.html)
+
+    def test_closing_script_in_a_value_cannot_break_out_of_the_slot(self):
+        hostile = 'x </script><img src=x onerror=alert(1)>'
+        out = rcr.inject(self.html, {"claude_session": hostile})
+        self.assertNotIn("</script><img", out)
+        match = re.search(
+            r'<script id="handoff-payload" type="application/json">(.*?)</script>',
+            out, re.S)
+        self.assertEqual(json.loads(match.group(1))["claude_session"], hostile)
 
 
 if __name__ == "__main__":
