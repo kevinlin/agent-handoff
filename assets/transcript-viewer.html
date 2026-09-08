@@ -41,6 +41,13 @@
     --accent-soft:     light-dark(#e7eaff, #232946);
     --accent-soft-line:light-dark(#c9d0f7, #38406b);
     --accent-soft-ink: light-dark(#41497f, #c3caf5);
+    /* Status tints, kept tonal so the ok/bad ink stays above 4.5:1 on them. */
+    --ok-soft:  light-dark(#e2f2e8, #1b2d22);
+    /* Darker than --ok, which only clears 4.5:1 against --card, not the tint. */
+    --ok-ink:   light-dark(#256240, #5fbe84);
+    --ok-line:  light-dark(#bcdfc8, #2f5a3f);
+    --bad-soft: light-dark(#fbe6e0, #32201c);
+    --bad-line: light-dark(#f0c5b8, #5e3229);
     --shadow-card: 0 1px 2px rgb(0 0 0 / .04), 0 6px 18px rgb(0 0 0 / .05);
     --radius-card: 16px;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -74,9 +81,26 @@
     box-shadow:var(--shadow-card); }
   #header dl { display:grid; grid-template-columns:auto minmax(0,1fr);
     gap:.15rem .75rem; margin:0; font-size:.85rem; }
-  #header dt { color:var(--muted); }
+  /* Field labels share the bubble role-label treatment, so a label never
+     competes with the value beside it. */
+  #header dt { color:var(--muted); font:11px/1.6 var(--mono);
+    text-transform:uppercase; letter-spacing:.06em; }
   #header dd { margin:0; padding-inline-end:1.5rem; overflow-wrap:anywhere;
     font-variant-numeric:tabular-nums; }
+  /* Values are styled by nature: machine strings in mono, clock values in the
+     body face, unknowns in muted italic, and flags as pills. */
+  #header dd.mono { font-family:var(--mono); font-size:.8rem; }
+  #header dd.absent { color:var(--muted); font-style:italic; }
+  .pill { display:inline-flex; align-items:center; padding:.05rem .5rem;
+    border:1px solid var(--line); border-radius:999px; background:var(--bg);
+    font:11px var(--mono); text-transform:uppercase; letter-spacing:.06em; }
+  /* The state word is inside the pill, so colour is reinforcement, never the
+     only carrier. */
+  .pill.ok   { color:var(--ok-ink); background:var(--ok-soft); border-color:var(--ok-line); }
+  .pill.bad  { color:var(--bad); background:var(--bad-soft); border-color:var(--bad-line); }
+  .pill.live { color:var(--accent-soft-ink); background:var(--accent-soft);
+    border-color:var(--accent-soft-line); }
+  .pill.off  { color:var(--muted); }
   /* Twelve stacked pairs is a tall ribbon on a wide screen. Pairs flow
      left-to-right, so the same grid just gains columns. */
   @media (min-width:62rem) {
@@ -494,13 +518,32 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     return isNaN(d) ? null : d.toLocaleString();
   }
 
-  function definition(list, term, value) {
+  // The phrases the header prints when the job's own files do not record a
+  // field. Styled as unknowns rather than as values.
+  const ABSENT = new Set(['not recorded', 'inherited from parent',
+                          'no timestamps in this log']);
+  const STATE_TONE = { DONE: 'ok', FAILED: 'bad', RUNNING: 'live',
+                       CANCELLED: 'off' };
+
+  function definition(list, term, value, kind) {
     if (value == null || value === '') return;
     const dt = document.createElement('dt');
     dt.textContent = term;                    // untrusted: textContent only
     const dd = document.createElement('dd');
-    dd.textContent = value;
+    if (value instanceof Node) {
+      dd.append(value);
+    } else {
+      dd.className = ABSENT.has(value) ? 'absent' : (kind || '');
+      dd.textContent = value;
+    }
     list.append(dt, dd);
+  }
+
+  function pill(text, tone) {
+    const span = document.createElement('span');
+    span.className = 'pill ' + (tone || 'off');
+    span.textContent = text;                  // untrusted: textContent only
+    return span;
   }
 
   function renderHeader(payload) {
@@ -509,17 +552,18 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     const meta = payload.meta || {};
     const list = document.createElement('dl');
 
-    definition(list, 'job', payload.job_id);
-    definition(list, 'label', meta.label);
+    definition(list, 'job', payload.job_id, 'mono');
+    definition(list, 'label', meta.label, 'mono');
     // A resumed job records neither backend nor role, and model=inherit.
-    definition(list, 'role', meta.role || (payload.parent_job_id ? 'not recorded' : null));
-    definition(list, 'backend', meta.backend || (payload.parent_job_id ? 'not recorded' : null));
+    definition(list, 'role', meta.role || (payload.parent_job_id ? 'not recorded' : null), 'mono');
+    definition(list, 'backend', meta.backend || (payload.parent_job_id ? 'not recorded' : null), 'mono');
     definition(list, 'model',
-      meta.model === 'inherit' ? 'inherited from parent' : meta.model);
-    definition(list, 'effort', meta.effort);
-    definition(list, 'read only', meta.read_only);
-    definition(list, 'parent', payload.parent_job_id);
-    definition(list, 'state', payload.state);
+      meta.model === 'inherit' ? 'inherited from parent' : meta.model, 'mono');
+    definition(list, 'effort', meta.effort, 'mono');
+    definition(list, 'read only', meta.read_only && pill(meta.read_only, 'off'));
+    definition(list, 'parent', payload.parent_job_id, 'mono');
+    definition(list, 'state',
+      payload.state && pill(payload.state, STATE_TONE[payload.state]));
 
     const started = localTime(meta.submitted_at);
     const ended = localTime(payload.exit_code_mtime);
