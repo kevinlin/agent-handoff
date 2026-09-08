@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.6.1 (2026-09-09)
+
+### Read what a finished run consumed
+
+- feat: `/agent-handoff cost-receipt [<receipt-file>]` reads a saved Handoff Session Receipt together with the job logs it indexes and writes a markdown and an HTML page to `.handoff/cost-receipts/`. Until now the receipt counted jobs and timed them while the token counters sat unread in each job's `log.jsonl`. The selector is optional; omitted or `last` means the newest saved receipt, picked by the stamp in its filename rather than by mtime, so copying a receipt does not reorder the set
+- feat: every number is measured. Codex jobs contribute token counters and no cost figure, because that work runs on a subscription and the Codex CLI emits none; claude jobs contribute the CLI's own `total_cost_usd`, quoted unrounded and labelled CLI-reported. No price table is applied to anything
+- feat: two summary figures — what ran on a Codex subscription, and what ran outside the driver session. Codex jobs are in both populations by design, the page says so, and no line adds them. No saving, avoided cost, or context-saved figure appears anywhere; the tests refuse the words
+- feat: a missing measurement prints `unknown` and a measured zero prints `0`, because those are different facts. A summary column with an unmeasured job prints a floor and the count of jobs that were measured, rather than a total that reads as complete
+- feat: the driver row is scoped to the run's interval, derived from the receipt's stamp and its `duration`. A session that hosted two runs yields two different rows, and a transcript that keeps growing does not change an already-rendered receipt. Input with no derivable end is labelled unscoped instead of silently totalling the whole session
+- fix: a job with no `exit_code` is FAILED, never RUNNING — a worker that died without writing one leaves no exit code behind. `handoff_runtime.job_state()` is now the one implementation, shared with `render-transcript.py` along with the payload-injection helpers
+- feat: the receipt file is parsed fail-closed — one block, no duplicate keys, schema version 5, job ids confined to the jobs directory, and per-backend counts agreeing with both the entries and each job's own recorded backend. The HTML export is enumerated, so a denial contributes a count and never its command string
+
 ## v3.6.0 (2026-09-08)
 
 ### Read a delegated job instead of grepping its log

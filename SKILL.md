@@ -1,8 +1,8 @@
 ---
 name: agent-handoff
-version: 3.6.0
+version: 3.6.1
 description: |
-  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex or a second Claude Code), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
+  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex or a second Claude Code), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "/agent-handoff cost-receipt" or "cost receipt" (renders a session receipt and its job state as a measured cost report), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
 
 # Agent Handoff
@@ -44,6 +44,30 @@ matches — a label and its `-r2` resume round, for instance — the script list
 candidates and exits without guessing; pass one of the printed names.
 
 This renders and opens a page. It does not delegate anything and starts no job.
+
+## Cost Receipt
+
+On `/agent-handoff cost-receipt [<receipt-file>]`, or when the user asks what a
+handoff run cost or consumed, render it and open it:
+
+```bash
+python3 "$HANDOFF_DIR/scripts/render-cost-receipt.py" [<receipt-file>] --repo "$REPO"
+```
+
+The selector is optional; omitted or `last` means the newest saved receipt under
+`.handoff/receipts/`. It writes a markdown and an HTML page to
+`.handoff/cost-receipts/`.
+
+A bare request for "the receipt" is the Handoff Session Receipt above, not this.
+Only "cost receipt", or an explicit question about what the run consumed, routes
+here.
+
+Every number is measured: codex jobs carry token counters and no cost figure,
+because that work runs on a subscription; claude jobs carry the CLI's own
+`total_cost_usd`, quoted unrounded and labelled CLI-reported. The two summary
+figures overlap by design and are never added. Do not report a saving, an
+avoided cost, or context kept out of the driver — no counter establishes any of
+them. This renders a page; it delegates nothing and starts no job.
 
 ## Routing Rules
 
