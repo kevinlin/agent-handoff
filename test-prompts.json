@@ -15,7 +15,8 @@
       "Claim exact token savings without telemetry.",
       "Report a role as verified when the config says otherwise, or omit an unverified role to make the receipt look cleaner.",
       "Omit checks or monitoring anomalies from the final receipt.",
-      "Estimate, round, or recall the session duration instead of measuring it."
+      "Estimate, round, or recall the session duration instead of measuring it.",
+      "render a cost receipt instead of the Handoff Session Receipt"
     ]
   },
   {
@@ -115,7 +116,8 @@
     "must_not": [
       "Mark a task done based on the job's own summary instead of repo evidence.",
       "Fabricate token savings or hide rework rounds from the receipt.",
-      "Exceed two fix rounds without taking the task back."
+      "Exceed two fix rounds without taking the task back.",
+      "render a cost receipt instead of the Handoff Session Receipt"
     ]
   },
   {
@@ -491,7 +493,8 @@
       "Report all three jobs under codex_jobs, so the receipt claims subscription work that never happened.",
       "Count the same job in both codex_jobs and cc_jobs.",
       "Hand-type the receipt block instead of generating it.",
-      "Emit receipt_schema_version: 4, which no longer validates."
+      "Emit receipt_schema_version: 4, which no longer validates.",
+      "render a cost receipt instead of the Handoff Session Receipt"
     ]
   },
   {
@@ -536,6 +539,21 @@
       "claim the worker's checks passed on the strength of its own summary",
       "treat exit code 0 as evidence that the acceptance checks ran",
       "switch the task to a codex identity to avoid the permission question"
+    ]
+  },
+  {
+    "id": "cost-receipt-renders-not-delegates",
+    "prompt": "/agent-handoff cost-receipt",
+    "should_trigger": true,
+    "expected_behavior": [
+      "run scripts/render-cost-receipt.py against the newest saved receipt",
+      "report both summary figures and state that codex jobs appear in both",
+      "label the claude cost as CLI-reported"
+    ],
+    "must_not": [
+      "delegate a job or start a background worker",
+      "report a savings, avoided-cost, or context-saved figure",
+      "estimate a cost for codex jobs or for the driver session"
     ]
   }
 ]

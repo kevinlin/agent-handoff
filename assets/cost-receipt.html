@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Handoff Cost Receipt</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg:     light-dark(#fbfbfa, #16161a);
+  --fg:     light-dark(#1a1a19, #e8e8e6);
+  --muted:  light-dark(#6b6b68, #9a9a96);
+  --line:   light-dark(#e3e3e0, #2c2c31);
+  --card:   light-dark(#ffffff, #1e1e23);
+  --accent: light-dark(#4a5cd6, #8b9aff);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / .04), 0 6px 18px rgb(0 0 0 / .05);
+  --radius-card: 16px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --gutter: clamp(1rem, 3vw, 2.5rem);
+}
+body { margin:0; background:var(--bg); color:var(--fg);
+  font:14px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+main { max-width:72rem; margin:0 auto; padding:1.5rem var(--gutter) 6rem; }
+.card { border:1px solid var(--line); border-radius:var(--radius-card);
+  background:var(--card); padding:1rem 1.25rem; margin-bottom:1.25rem;
+  box-shadow:var(--shadow-card); }
+.scroll { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font:13px/1.5 var(--mono); }
+th, td { text-align:right; padding:.4rem .6rem; border-bottom:1px solid var(--line);
+  white-space:nowrap; }
+th:first-child, td:first-child { text-align:left; }
+th { color:var(--muted); font-weight:500; }
+.note { color:var(--muted); font-size:12px; }
+.figure { font:600 20px/1.2 var(--mono); color:var(--accent); }
+h1 { font-size:20px; margin:0 0 .25rem; }
+h2 { font-size:15px; margin:0 0 .75rem; color:var(--muted); }
+dt { color:var(--muted); font:11px var(--mono); }
+dd { margin:0 0 .5rem; font:13px var(--mono); }
+</style>
+</head>
+<body>
+<main id="root"></main>
+<script id="handoff-payload" type="application/json">{}</script>
+<script>
+const data = JSON.parse(document.getElementById("handoff-payload").textContent);
+const LABELS = {input:"Input", cache_read:"Cache read", cache_write:"Cache write",
+                output:"Output", reasoning:"Reasoning"};
+const el = (tag, text, cls) => {
+  const node = document.createElement(tag);
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  if (cls) node.className = cls;
+  return node;
+};
+const num = (v) => v === null || v === undefined ? "unknown" : v.toLocaleString();
+const figureCell = (c) => c.value === null ? "unknown"
+  : (c.complete ? num(c.value) : `\u2265 ${num(c.value)} (${c.measured} of ${c.total})`);
+const jobCount = (n) => `${n} ${n === 1 ? "job" : "jobs"}`;
+// "unknown" claims a reading was attempted and failed; a run with no
+// claude-backed job had nothing to read.
+const costNote = (fig) => !fig.cost_applicable
+  ? "There were no claude-backed jobs in this run, so there is no CLI-reported cost."
+  : `CLI-reported cost of the claude-backed jobs: ${fig.cost_usd === null ? "unknown"
+      : fig.cost_usd + (fig.cost_complete ? "" : " (partial)")}`;
+
+function table(headers, rows) {
+  const wrap = el("div", null, "scroll");
+  const t = el("table");
+  const thead = el("thead"), hr = el("tr");
+  headers.forEach(h => hr.appendChild(el("th", h)));
+  thead.appendChild(hr); t.appendChild(thead);
+  const tb = el("tbody");
+  rows.forEach(r => {
+    const tr = el("tr");
+    r.forEach(cell => tr.appendChild(el("td", cell)));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb); wrap.appendChild(t);
+  return wrap;
+}
+
+function render() {
+  const root = document.getElementById("root");
+  const counters = data.counters;
+  const head = el("section", null, "card");
+  head.appendChild(el("h1", "Handoff Cost Receipt"));
+  const dl = el("dl");
+  const meta = [["session", data.claude_session], ["run duration", data.duration],
+    ["interval", data.interval ? `${data.interval[0]} to ${data.interval[1]}`
+                               : "not derivable from this input"],
+    ["generated", data.generated_at]];
+  meta.forEach(([k, v]) => { dl.appendChild(el("dt", k)); dl.appendChild(el("dd", v)); });
+  head.appendChild(dl);
+  root.appendChild(head);
+
+  [["Ran on a Codex subscription", data.summary.codex_subscription, false],
+   ["Ran outside the driver session", data.summary.outside_driver, true]
+  ].forEach(([title, fig, withCost]) => {
+    const card = el("section", null, "card");
+    card.appendChild(el("h2", `${title} \u00b7 ${jobCount(fig.jobs)}`));
+    card.appendChild(el("p", withCost
+      ? costNote(fig)
+      : "No cost figure: the Codex CLI emits none.", "note"));
+    card.appendChild(table(counters.map(c => LABELS[c]),
+      [counters.map(c => figureCell(fig.usage[c]))]));
+    root.appendChild(card);
+  });
+
+  const overlap = el("section", null, "card");
+  overlap.appendChild(el("p", "Codex jobs are counted in both figures above. They are "
+    + "not addends, and no difference between them is a saving.", "note"));
+  if (data.summary.denials !== null) {
+    overlap.appendChild(el("p", `Permission denials across claude-backed jobs: `
+      + `${data.summary.denials}. A denied tool call does not move a job's exit code.`,
+      "note"));
+  }
+  root.appendChild(overlap);
+
+  const jobs = el("section", null, "card");
+  jobs.appendChild(el("h2", "Delegated jobs"));
+  jobs.appendChild(table(
+    ["Job", "Role", "Backend", "Model", "State", ...counters.map(c => LABELS[c]),
+     "CLI-reported cost"],
+    data.jobs.map(j => [j.job_id, j.role || "-", j.backend, j.model, j.state.toLowerCase(),
+      ...counters.map(c => num(j.usage[c])),
+      j.backend === "codex" ? "n/a - subscription"
+        : (j.cost_usd === null ? "unknown" : String(j.cost_usd))])));
+  root.appendChild(jobs);
+
+  const driver = el("section", null, "card");
+  driver.appendChild(el("h2", "Driver session"));
+  driver.appendChild(el("p", `State: ${data.driver.state}. Models: `
+    + `${data.driver.models.join(", ") || "unknown"}. CLI-reported cost: unknown, `
+    + "the driver transcript carries no cost field.", "note"));
+  driver.appendChild(table(counters.map(c => LABELS[c]),
+    [counters.map(c => num(data.driver.usage[c]))]));
+  root.appendChild(driver);
+
+  const method = el("section", null, "card");
+  method.appendChild(el("h2", "Method"));
+  method.appendChild(el("p", "Every number above was read from these files. Nothing is "
+    + "estimated, and no price table is applied.", "note"));
+  const ul = el("ul");
+  data.sources.forEach(s => ul.appendChild(el("li", s)));
+  method.appendChild(ul);
+  root.appendChild(method);
+}
+render();
+</script>
+</body>
+</html>

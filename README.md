@@ -5,7 +5,7 @@
 > Claude Code decides, Codex executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.6.0](https://img.shields.io/badge/version-3.6.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.6.1](https://img.shields.io/badge/version-3.6.1-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -69,7 +69,7 @@ This is an archived fault chain from the v2.0.1 bounded planner. That component 
 | Same-session resume | Exact `claude-fable-5` / `xhigh`; valid eight-section plan | `$0.382695` | Proved recovery without changing models |
 | Final fresh candidate | Exact model/session, return code 0, matching packet/runner hashes | `$0.45282` | Became the final Judge and PR evidence |
 
-These dollar values are costs returned by Claude CLI for the individual real planning runs, not a measured end-to-end token-savings rate. When a failed attempt has no final result event, the cost stays `unknown`. The [v2.0.0 failure-baseline receipt](examples/v2.0.0-conversation-cost-receipt.md) and [v2.0.1 complete conversation cost receipt](examples/v2.0.1-conversation-cost-receipt.md) record each identity's actual tasks, model, effort, and per-run cost (both are schema v2 archives). See [`docs/releases/v2.0.1.md`](docs/releases/v2.0.1.md) and [`docs/showcase-cost-model.md`](docs/showcase-cost-model.md) for the evidence boundary.
+These dollar values are costs returned by Claude CLI for the individual real planning runs, not a measured end-to-end token-savings rate. When a failed attempt has no final result event, the cost stays `unknown`. The [v2.0.0 failure-baseline receipt](examples/v2.0.0-conversation-cost-receipt.md) and [v2.0.1 complete conversation cost receipt](examples/v2.0.1-conversation-cost-receipt.md) record each identity's actual tasks, model, effort, and per-run cost (both are schema v2 archives, superseded by the generated [v3.6.1 cost receipt](examples/v3.6.1-conversation-cost-receipt.md), which is read from measured job telemetry). See [`docs/releases/v2.0.1.md`](docs/releases/v2.0.1.md) and [`docs/showcase-cost-model.md`](docs/showcase-cost-model.md) for the evidence boundary.
 
 ## Use It
 
@@ -207,6 +207,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - A full-review gate: the complete diff is read against the acceptance criteria in `.handoff/goal.md` — not a sample, and not Codex's own summary. At most two fix rounds per task, then the task comes back to Claude.
 - A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs` and `cc_jobs` with their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
 - A readable transcript of any delegated job: `/agent-handoff transcript` renders that job's `log.jsonl` into one self-contained HTML page and opens it, so what the worker actually did is readable without grepping JSONL. It reads both event formats (Codex envelopes and Claude `stream-json`), and dropping a `log.jsonl` onto the same page renders a job from any repo.
+- A cost receipt of a finished run: `/agent-handoff cost-receipt` reads a saved Session Receipt and the job logs it indexes, and writes a markdown and an HTML page via `scripts/render-cost-receipt.py` and `assets/cost-receipt.html`. Every number is measured — codex jobs carry token counters and no cost figure, claude jobs carry the CLI's own `total_cost_usd` unrounded — and no saving is computed.
 - A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
 - Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
 - An optional second pair of eyes on the plan (`--spec-review`): before a plan reaches you, `deep_reasoner` reads it once on its own model and reports what it would change. Read-only, once per run, and the driver still rules — it closes the gap where the agent that wrote the plan is the only one that judged it.
