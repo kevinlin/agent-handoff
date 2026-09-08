@@ -5,7 +5,7 @@
 > Claude Code decides, Codex executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.5.0](https://img.shields.io/badge/version-3.5.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.6.0](https://img.shields.io/badge/version-3.6.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -214,6 +214,7 @@ SKILL.md                                Runtime instructions for Claude Code
 README.md                               Project entrypoint
 install.sh                              Local installer for ~/.claude/skills/agent-handoff
 test-prompts.json                       Trigger and behavior regression prompts
+assets/transcript-viewer.html           Self-contained transcript viewer; also reads a dropped log.jsonl
 docs/showcase-cost-model.md             Showcase cost-pressure model and real token capture fields
 docs/receipt-schema.json                JSON schema for the Handoff Session Receipt (handoff.receipt.v5)
 docs/config-schema.md                   Handoff config schema v2: identity matrix, precedence, concurrency, TOML subset
@@ -247,6 +248,7 @@ scripts/handoff_runtime.py              Shared Claude child-process environment 
 scripts/handoff-setup.py                Setup wizard engine: --preview/--apply/--rollback/--smoke/--status/--interactive
 scripts/handoff-setup-ui.py             Localhost single-page setup UI: full model matrix, exact preview, confirmed apply
 scripts/goal-sync.py                    Hash-checked .handoff/goal.md read/write: concurrent writes abort instead of silently losing updates
+scripts/render-transcript.py            Renders a job's log.jsonl into the viewer and opens it
 tests/test_handoff_config.py            Config engine unit tests (round-trip / lock / precedence chain)
 tests/test_handoff_setup.py             Setup engine unit tests (idempotence / overwrite refusal / managed block / rollback)
 tests/test_handoff_setup_ui.py          Local UI state, preview binding, and write-gate unit tests

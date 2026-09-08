@@ -23,6 +23,9 @@ jobs:
       - name: Unit suite
         run: python3 -m unittest discover -s tests
 
+      - name: Viewer tests
+        run: node --test tests/test_transcript_viewer.mjs
+
       - name: Receipt contract
         run: |
           python3 scripts/run-test-prompts.py

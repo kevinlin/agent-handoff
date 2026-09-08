@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"th-1"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"i1","type":"command_execution","command":"ls","status":"in_progress"}}
+NOT JSON AT ALL
+{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"ls","aggregated_output":"a\nb","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"# Done\n\nAll **good**."}}
+{"type":"item.completed","item":{"id":"i3","type":"web_search","query":"trunc...","action":{"type":"search","queries":["full one","full two"]}}}
+{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2}}
+{"type":"item.started","item":{"id":"i4","type":"command_e

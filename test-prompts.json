@@ -493,5 +493,33 @@
       "Hand-type the receipt block instead of generating it.",
       "Emit receipt_schema_version: 4, which no longer validates."
     ]
+  },
+  {
+    "id": "transcript-renders-not-delegates",
+    "prompt": "/agent-handoff transcript last",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Run scripts/render-transcript.py against the newest job in .handoff/jobs and open the generated HTML page.",
+      "Treat the omitted selector as the newest job, without asking which one.",
+      "Do not plan, split, or submit any job."
+    ],
+    "must_not": [
+      "delegate-codex.sh submit",
+      "goal.md",
+      "Handoff Session Receipt"
+    ]
+  },
+  {
+    "id": "transcript-natural-language",
+    "prompt": "Show me the conversation history of the last job",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Recognize this as the transcript command and render the newest job's log.jsonl.",
+      "Open the rendered page rather than summarizing the job from its result."
+    ],
+    "must_not": [
+      "delegate-codex.sh submit",
+      "codex exec"
+    ]
   }
 ]

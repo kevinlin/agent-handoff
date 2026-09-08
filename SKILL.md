@@ -1,8 +1,8 @@
 ---
 name: agent-handoff
-version: 3.5.0
+version: 3.6.0
 description: |
-  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex or a second Claude Code), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
+  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex or a second Claude Code), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and Codex to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
 
 # Agent Handoff
@@ -28,6 +28,22 @@ On `/agent-handoff config`, or when a Handoff flow needs an identity with no con
 ## Tool Location
 
 The helper scripts referenced below live in this skill's install directory (the directory containing this SKILL.md), not in the target repo. Resolve it once as `$HANDOFF_DIR` — you know it from wherever this file was loaded; otherwise probe `~/.claude/skills/agent-handoff` or the local clone. All scripts accept running from any cwd; repo-dependent ones take `--repo`.
+
+## Transcript
+
+On `/agent-handoff transcript [<pid|jobId|folder>]`, or when the user asks to see
+a job's transcript or conversation history, render it and open it:
+
+```bash
+python3 "$HANDOFF_DIR/scripts/render-transcript.py" [<selector>] --repo "$REPO"
+```
+
+The selector is optional; omitted or `last` means the newest job. A folder path,
+an exact jobId, a pid, and a remembered label all resolve. When more than one job
+matches — a label and its `-r2` resume round, for instance — the script lists the
+candidates and exits without guessing; pass one of the printed names.
+
+This renders and opens a page. It does not delegate anything and starts no job.
 
 ## Routing Rules
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.6.0 (2026-09-08)
+
+### Read a delegated job instead of grepping its log
+
+- feat: `/agent-handoff transcript [<pid|jobId|folder>]` renders a job's `log.jsonl` as one self-contained HTML page and opens it. Until now the only way to see what a delegated worker actually did was to read raw JSONL — the monitoring loop tails it, `result` summarizes it, and neither shows the conversation. The selector is optional; omitted or `last` means the newest job, and a folder path, an exact jobId, a pid, or a remembered label all resolve. When more than one job matches — a label and its `-r2` resume round is the common case — the script prints the candidates and exits rather than guessing, because silently opening the wrong round is worse than a second command
+- feat: `assets/transcript-viewer.html` is the whole viewer: vendored marked v15.0.12, the normalizer, the escaping boundary, and the renderer in one file with no network access. It reads both log formats the skill produces — Codex `item.started`/`item.completed` envelopes and Claude `stream-json` assistant/user events — folding each started/completed pair and each `tool_use`/`tool_result` pair into one row at the first event's position. A failed edit renders as an error rather than a completed file change, and an unrecognized event keeps a row carrying its source object instead of vanishing
+- feat: dropping a `log.jsonl` onto the same page renders it, so a log from any repo is readable without running the script. All parsing lives in the page's JavaScript for exactly that reason: one parser, not a second one in Python that drifts
+- feat: `scripts/render-transcript.py` stays thin — resolve, read, inject, write to `<repo>/.handoff/transcripts/<jobId>.html`, open. A malformed interior line shows up as an `unparsed` row; a truncated final line from a live job is reported as a partial log rather than as a broken row
+- fix: log content is untrusted input. Every string reaches the DOM through `textContent` except agent and reasoning text, which goes through marked — and marked passes raw HTML through by design, so three renderer overrides escape emitted HTML and reject any link or image scheme outside `https`, `http`, `mailto`, and `#`. `tests/test_transcript_viewer.mjs` asserts the emitted markup against a tag and attribute allowlist rather than scanning for `onerror`, which an escaped payload would trip falsely
+- feat: the JS tests extract the shipped page's own script blocks and run them in node, so there is no second copy to drift. They run in CI beside the Python suite
+
 ## v3.5.0 (2026-09-08)
 
 ### Breaking: a claude-backed identity is a real delegated job

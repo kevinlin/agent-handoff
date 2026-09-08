@@ -1,0 +1,2 @@
+{"type":"item.completed","item":{"id":"x1","type":"agent_message","text":"raw: <img src=x onerror=alert(1)>\n\n<svg onload=alert(1)></svg>\n\n[click](javascript:alert(1))\n\n![pic](javascript:alert(1))\n\n[ok](https://example.com \"a \\\" quote\")\n\nprose <div> and Vec<T>\n\ntext </script><img src=y onerror=alert(2)> more"}}
+{"type":"item.completed","item":{"id":"x2","type":"command_execution","command":"cat evil.html","aggregated_output":"<img src=x onerror=alert(3)><script>alert(4)</script>","exit_code":0,"status":"completed"}}
