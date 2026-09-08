@@ -18,7 +18,8 @@ set -euo pipefail
 #   pid          background worker pid
 #   exit_code    written when the worker finishes
 #   session_id   worker thread/session id, extracted from log.jsonl
-#   meta         label, backend, effort, mode, parent job, timestamps
+#   meta         label, backend, effort, mode, permission mode, parent job,
+#                timestamps
 
 usage() {
   cat <<'USAGE'
@@ -40,9 +41,10 @@ Usage:
   delegate-codex.sh list    --repo <path>
 
 Defaults: --backend codex, --effort high (Handoff default for delegated
-work), read-write sandbox per the user's codex config. Use --read-only for
-review/adversarial jobs that must not touch the repo; it maps to `-s read-only`
-on codex and `--permission-mode plan` on claude.
+work), read-write sandbox per the user's codex config, and permission checks
+bypassed on a claude worker. Use --read-only for review/adversarial jobs that
+must not touch the repo; it maps to `-s read-only` on codex and
+`--permission-mode plan` on claude.
 
 --role resolves backend, model, and effort from Handoff config, and the
 identity's backend decides which CLI executes the job — always. --backend is
@@ -65,7 +67,16 @@ app-bundled CLI is preferred when present so app-only models use a compatible
 client; otherwise PATH is used.
 
 HANDOFF_CLAUDE_PERMISSION_MODE overrides a claude worker's default
-`acceptEdits`. A read-only job stays `plan` regardless.
+`bypassPermissions` with any mode the claude CLI takes:
+acceptEdits|auto|bypassPermissions|manual|dontAsk|plan. A read-only job stays
+`plan` regardless.
+
+Why bypass is the default: a background `--print` job has no approval surface.
+Nobody can answer a permission prompt, so every mode that prompts denies
+instead, and the worker cannot run the acceptance checks its own packet asks
+for. What bounds a delegated worker is its worktree and its packet, not an
+allowlist nothing can answer. `status` and `result` report any denial that does
+happen, because a blocked check still leaves exit 0 behind.
 
 Exit codes: status prints RUNNING/DONE/FAILED/CANCELLED; `status --wait`
 returns non-zero on timeout or failure so callers can branch on it.
@@ -73,6 +84,7 @@ USAGE
 }
 
 JOBS_SUBDIR=".handoff/jobs"
+PERMISSION_MODE=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() {
@@ -151,6 +163,30 @@ validate_effort() {
     claude) case "$2" in low|medium|high|xhigh|max) ;; *) die "invalid --effort for claude: $2" ;; esac ;;
     *) case "$2" in minimal|low|medium|high|xhigh|max|ultra) ;; *) die "invalid --effort: $2" ;; esac ;;
   esac
+}
+
+resolve_claude_permission_mode() {
+  # Sets PERMISSION_MODE for a claude worker. A background `--print` job has no
+  # approval surface: nobody can answer a permission prompt, so any mode that
+  # prompts denies instead and the worker cannot run its own acceptance checks.
+  # The env var is validated before --read-only overrides it, so a typo is
+  # caught even on a job that would have ignored the value.
+  local read_only="$1"
+  PERMISSION_MODE="${HANDOFF_CLAUDE_PERMISSION_MODE:-bypassPermissions}"
+  case "$PERMISSION_MODE" in
+    acceptEdits|auto|bypassPermissions|manual|dontAsk|plan) ;;
+    *) die "invalid HANDOFF_CLAUDE_PERMISSION_MODE: $PERMISSION_MODE (accepts acceptEdits|auto|bypassPermissions|manual|dontAsk|plan)" ;;
+  esac
+  [ "$read_only" = "true" ] && PERMISSION_MODE="plan"
+  return 0
+}
+
+warn_permission_bypass() {
+  [ "$PERMISSION_MODE" = "bypassPermissions" ] || return 0
+  echo "WARN $1 is a claude worker running with permission checks bypassed." >&2
+  echo "     A background job has no approval surface, so this is what lets it run its own" >&2
+  echo "     acceptance checks — and it can run any command the packet leads it to." >&2
+  echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits to restore prompting instead." >&2
 }
 
 make_job_id() {
@@ -293,14 +329,16 @@ cmd_submit() {
   if [ "$BACKEND_EXPLICIT" = "true" ] && [ -z "$ROLE" ]; then BACKEND_SOURCE="explicit"; fi
   validate_effort "$BACKEND" "$EFFORT"
   resolve_worker_bin "$BACKEND"
+  PERMISSION_MODE=""
+  [ "$BACKEND" = "claude" ] && resolve_claude_permission_mode "$READ_ONLY"
 
   LABEL="$(echo "$LABEL" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//;s/-$//')"
   if [ "$DRY_RUN" = "true" ]; then
     local SKIP_GIT_REPO_CHECK=""
     [ "$BACKEND" = "codex" ] && { is_git_repo "$REPO" || SKIP_GIT_REPO_CHECK="--skip-git-repo-check"; }
-    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\n' \
+    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\npermission_mode=%s\n' \
       "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "${MODEL:-default}" "$EFFORT" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK" "$PERMISSION_MODE"
     return 0
   fi
   local JOB_ID
@@ -319,9 +357,9 @@ cmd_submit() {
   fi
 
   {
-    printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=%s\nbackend_source=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=fresh\n' \
+    printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=%s\nbackend_source=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\nsubmitted_at=%s\nmode=fresh\n' \
       "$LABEL" "$EFFORT" "${MODEL:-default}" "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$(now_utc)"
   } >"$JOB/meta"
 
   if [ -n "$WORKTREE_BRANCH" ]; then
@@ -330,6 +368,7 @@ cmd_submit() {
   fi
 
   write_run_script "$JOB" "$EFFORT" "$MODEL" "$READ_ONLY" ""
+  warn_permission_bypass "$JOB_ID"
   launch_job "$JOB"
   echo "$JOB_ID"
 }
@@ -382,6 +421,8 @@ cmd_resume() {
   else
     resolve_worker_bin "$BACKEND"
   fi
+  PERMISSION_MODE=""
+  [ "$BACKEND" = "claude" ] && resolve_claude_permission_mode "$READ_ONLY"
   local ROUND=2
   case "$PARENT_ID" in *-r[0-9]*) ROUND=$(( ${PARENT_ID##*-r} + 1 )) ;; esac
   local JOB_ID="${PARENT_ID%-r[0-9]*}-r${ROUND}"
@@ -392,9 +433,9 @@ cmd_resume() {
   printf '%s' "$SESSION_ID" >"$JOB/session_id"
 
   {
-    printf 'label=resume\neffort=%s\nmodel=inherit\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
+    printf 'label=resume\neffort=%s\nmodel=inherit\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
       "${EFFORT:-high}" "${PARENT_ROLE:-none}" "$BACKEND" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$(now_utc)" "$PARENT_ID"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$(now_utc)" "$PARENT_ID"
   } >"$JOB/meta"
 
   if [ "$PARENT_WORKDIR" != "$REPO" ]; then
@@ -403,6 +444,7 @@ cmd_resume() {
 
   WORKDIR="$PARENT_WORKDIR"
   write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID"
+  warn_permission_bypass "$JOB_ID"
   launch_job "$JOB"
   echo "$JOB_ID"
 }
@@ -421,7 +463,7 @@ write_run_script() {
     # job's stdin is never closed on its own, so without this the job hangs
     # forever with no further JSONL events.
     if [ "$BACKEND" = "claude" ]; then
-      write_claude_exec_line "$effort" "$model" "$read_only" "$session_id"
+      write_claude_exec_line "$effort" "$model" "$session_id"
     elif [ -n "$session_id" ]; then
       # `codex exec resume` accepts no -C/-s flags: cwd comes from the shell,
       # sandbox and effort go through -c config overrides.
@@ -444,7 +486,7 @@ write_run_script() {
 }
 
 write_claude_exec_line() {
-  local effort="$1" model="$2" read_only="$3" session_id="$4"
+  local effort="$1" model="$2" session_id="$3"
   # Credential boundary: a nested Claude Code host injects provider URLs and
   # credentials that would override the user's normal first-party CLI login.
   # Mirrors handoff_runtime.clean_claude_env(). Bash prefix expansion is exact
@@ -454,12 +496,11 @@ write_claude_exec_line() {
   echo 'export CLAUDECODE=""'
   # `claude` takes its cwd from the shell; it has no -C.
   echo 'cd "$WORKDIR"'
-  local mode="${HANDOFF_CLAUDE_PERMISSION_MODE:-acceptEdits}"
-  # ponytail: acceptEdits lets the worker edit files, but its Bash calls still
-  # follow the user's own settings.json allowlist, so a worker may be unable to
-  # run its own acceptance check. HANDOFF_CLAUDE_PERMISSION_MODE is the escape.
-  [ "$read_only" = "true" ] && mode="plan"
-  local args="--print --output-format stream-json --verbose --permission-prompts none --permission-mode $mode --effort $effort"
+  # PERMISSION_MODE comes from resolve_claude_permission_mode, which validates
+  # it. --permission-prompts none stays: under bypassPermissions nothing prompts
+  # so it is inert, and under a dialled-down mode it keeps the job from hanging
+  # on a prompt nobody is there to answer.
+  local args="--print --output-format stream-json --verbose --permission-prompts none --permission-mode $PERMISSION_MODE --effort $effort"
   if [ -n "$session_id" ]; then
     args="$args --resume $session_id"
   elif [ -n "$model" ]; then
@@ -509,6 +550,12 @@ except Exception: print("")' 2>/dev/null || true)"
   echo "state: $state"
   echo "last_event: ${last_event:-none}"
   echo "log: $JOB/log.jsonl"
+  # Reported only when non-zero: status is polled in a loop, so a clean job
+  # stays quiet. A blocked check does not move the exit code, so this is the
+  # only signal the monitor gets that the worker could not verify its work.
+  local denied=0
+  [ -s "$JOB/log.jsonl" ] && denied="$(grep -c '"subtype":"permission_denied"' "$JOB/log.jsonl" || true)"
+  [ "${denied:-0}" -gt 0 ] && echo "permission_denied: $denied (worker blocked; its self-report is not evidence)"
   if [ "$state" = "RUNNING" ] && [ "$WAIT" = "true" ]; then
     echo "note: timed out after ${TIMEOUT}s while still running"
     return 2
@@ -534,7 +581,7 @@ cmd_result() {
 import json, sys
 
 log_path, sid_path, as_json = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
-messages, commands, reasoning, usage = [], [], [], {}
+messages, commands, reasoning, usage, denied = [], [], [], {}, []
 try:
     with open(log_path, encoding="utf-8") as fh:
         for line in fh:
@@ -546,6 +593,11 @@ try:
             except json.JSONDecodeError:
                 continue
             etype = event.get("type", "")
+            if etype == "system" and event.get("subtype") == "permission_denied":
+                # A denied tool call still leaves exit 0 behind, so without this
+                # the driver reads a blocked acceptance check as a passed one.
+                denied.append(event.get("tool_name") or "unknown")
+                continue
             item = event.get("item") or {}
             itype = item.get("type") or item.get("item_type") or ""
             if etype == "item.completed":
@@ -585,6 +637,8 @@ if as_json:
         "session_id": session_id,
         "agent_message": messages[-1] if messages else "",
         "commands": [c for c in commands if c],
+        "permission_denied": len(denied),
+        "denied_tools": sorted(set(denied)),
         "usage": usage,
     }, ensure_ascii=False))
 else:
@@ -593,6 +647,14 @@ else:
         print(f"usage: {json.dumps(usage)}")
     if commands:
         print(f"commands_run: {len(commands)}")
+    # Always printed, including the zero: the driver needs positive evidence
+    # that nothing was blocked, not merely the absence of a warning.
+    print(f"permission_denied: {len(denied)}"
+          + (f" ({', '.join(sorted(set(denied)))})" if denied else ""))
+    if denied:
+        print("WARNING: the worker was blocked from actions it attempted, so it could not")
+        print("verify its own work. Treat this job as failed whatever its exit code says,")
+        print("and re-run the blocked checks yourself before accepting the diff.")
     print("--- agent message ---")
     print(messages[-1] if messages else "(no agent_message found — check stderr.log)")
 PY

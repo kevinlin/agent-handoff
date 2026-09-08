@@ -171,7 +171,7 @@
 <header>
   <h1>Agent Handoff: how the agent handoff works</h1>
   <p class="lede">Agent Handoff splits coding work between a driving Claude Code session and a delegated worker CLI, moving execution off the driver’s meter <em>and</em> off its context window without lowering the quality bar. Everything interesting in it is in the handoff: what crosses between the two agents, what is enforced at the boundary, and what evidence survives afterwards.</p>
-  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.5.0 · reviewed 2026-09-08</p>
+  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.6.0 · reviewed 2026-09-08</p>
 </header>
 
 <h2 id="shape">The shape of the thing</h2>
@@ -206,19 +206,21 @@
   <tr><th>File</th><th>What it carries</th></tr>
   <tr><td><code>prompt.md</code></td><td>The exact prompt sent, kept as the audit record of what was asked</td></tr>
   <tr><td><code>run.sh</code></td><td>The command actually executed, including sandbox and effort overrides</td></tr>
-  <tr><td><code>log.jsonl</code></td><td>The event stream; <code>result</code> reduces it to session id, last agent message, commands, usage</td></tr>
+  <tr><td><code>log.jsonl</code></td><td>The event stream; <code>result</code> reduces it to session id, last agent message, commands, usage, and the count of tool calls the worker was denied</td></tr>
   <tr><td><code>stderr.log</code></td><td>Tokens, warnings, auth errors; the first thing to read on a FAILED job</td></tr>
   <tr><td><code>pid</code> / <code>exit_code</code> / <code>cancelled</code></td><td>The three inputs to <code>job_state</code>: RUNNING, DONE, FAILED, CANCELLED</td></tr>
   <tr><td><code>session_id</code></td><td>Extracted from the stream; the handle that makes <code>resume</code> possible</td></tr>
-  <tr><td><code>meta</code></td><td>Label, role, backend, model, effort, and the <em>source</em> of each of backend, model and effort (config vs explicit vs parent), plus <code>submitted_at</code> and, for a worktree job, <code>worktree</code> / <code>branch</code> / <code>base_commit</code></td></tr>
+  <tr><td><code>meta</code></td><td>Label, role, backend, model, effort, and the <em>source</em> of each of backend, model and effort (config vs explicit vs parent), plus <code>submitted_at</code>, <code>permission_mode</code> for a claude job, and, for a worktree job, <code>worktree</code> / <code>branch</code> / <code>base_commit</code></td></tr>
 </table>
 
-<p>Three of its behaviours are worth calling out because they encode failures someone clearly hit:</p>
+<p>Five of its behaviours are worth calling out because they encode failures someone clearly hit:</p>
 
 <ul>
   <li><strong>Fail-closed routing.</strong> With <code>--role</code>, backend, model and effort resolve from <code>handoff-config.py</code>. No config is a hard error, never a silent default. The configured backend then selects the CLI, always; a per-job <code>--backend</code> that contradicts a named role is refused, naming the <code>handoff-config.py set</code> command that would actually change the routing. That is the guard against a job landing on a vendor the config never chose — and against the driver quietly re-deciding the meter mid-run.</li>
   <li><strong>Stdin is closed (<code>&lt;/dev/null</code>).</strong> A long prompt can otherwise make the worker wait for more input, and a detached job's stdin never closes on its own, so the job would hang forever with no further events.</li>
   <li><strong>Non-git targets get <code>--skip-git-repo-check</code></strong>, detected via <code>git rev-parse</code> rather than a <code>.git</code> directory test, so worktrees and submodules still count as repos. That flag is codex-only; a claude job never carries it.</li>
+  <li><strong>The two backends are contained by different primitives, and only one of them permits.</strong> A codex worker runs under the sandbox from the user’s own codex config: <code>-s</code> <em>permits</em> a class of operations while bounding writes. A claude worker has no such flag, only permission modes — and a background <code>--print</code> job has nobody to answer a prompt, so any mode that prompts denies instead. v3.5.0 shipped <code>acceptEdits</code>, which auto-approves edits and nothing else; the first real run of that path wrote every file correctly and was blocked from <code>curl</code>, its test runner, and the repo’s own check script, then exited 0 reporting that all gates passed. Since v3.5.1 a claude worker runs with permission checks bypassed, <code>submit</code> warns on stderr, and <code>status</code>/<code>result</code> carry a <code>permission_denied</code> count — because a denied tool call never moves the exit code, so without that count a blocked check is indistinguishable from a passed one.</li>
+
   <li><strong>A claude worker gets a clean credential environment.</strong> The generated <code>run.sh</code> unsets every <code>ANTHROPIC_*</code> and <code>CLAUDE_CODE_*</code> variable with Bash prefix expansion before exec, so the child authenticates like a fresh terminal rather than inheriting the host’s injected provider URL and key.</li>
 </ul>
 

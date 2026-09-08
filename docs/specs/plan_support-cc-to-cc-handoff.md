@@ -55,6 +55,12 @@ stream-json carries a top-level `session_id`, so the existing session extractor 
 - Claude worker default permission mode: `acceptEdits` plus `--permission-prompts none`, with
   `HANDOFF_CLAUDE_PERMISSION_MODE` as the escape hatch. Edits proceed; Bash follows the user's
   own `settings.json` allowlist.
+  **Superseded in v3.5.1 — the default is now `bypassPermissions`.** The pair was wrong, not merely
+  conservative: `--permission-prompts none` means anything that would prompt is denied
+  automatically, and `acceptEdits` auto-approves edits and nothing else, so together they are a
+  deny-everything-not-already-allowed channel. A delegated job is `--print` on a background pid,
+  where nothing can answer a prompt at all. The fallback the decision assumed, the user's
+  `settings.json` allowlist, is exactly the thing nobody is present to extend.
 - Receipt schema bumps to **v5** adding `cc_jobs` and `cc_job_durations`, alongside the existing
   `codex_jobs` / `codex_job_durations` which narrow to codex-backed jobs only.
 - Script keeps the name `delegate-codex.sh` (referenced in 30 files including historical
@@ -77,6 +83,7 @@ below marked "proven" came from that run.
 | Arbiter protocol | prose says "each through its own backend"; only codex worked | both solvers run as real jobs |
 | Tryout | subagent for claude, delegate for codex | same delegate path for both |
 | Receipt | `codex_jobs` only | `codex_jobs` + `cc_jobs`, partitioned from job `meta` |
+| Worker runs its own acceptance checks | codex yes, via its sandbox | claude **no** until v3.5.1 — the row this audit did not think to include |
 
 ## Tasks
 
@@ -265,16 +272,25 @@ Confirm the job edited files, `meta` records `backend=claude`, and the receipt c
 
 - No rename of `delegate-codex.sh`, no new delegation script, no config schema change.
 - No per-identity `permission_mode` field — the env override covers the sandbox case.
+  *(v3.5.1: still true, but the reasoning was thin. An override only covers a case someone already
+  knows to set, and nothing surfaced the need — the failing run's own report said the gates
+  passed. The fix was to change the default and to report denials, not to add a field.)*
 - No change to the Sub Agent Routing three-level lookup; it stays for in-session subagents.
 - No change to `handoff-setup.py --smoke`'s deliberate codex/claude asymmetry.
 - No rewrite of `CHANGELOG.md` or `docs/specs/` history beyond one amendment line.
 
 ## Risks
 
-- **Claude workers and Bash.** Under `acceptEdits` a delegated Claude worker can edit files but
-  its shell commands follow the user's `settings.json` allowlist, so a worker may be unable to
-  run its own acceptance check. This is the safe default by choice; the ceiling is named in a
-  `ponytail:` comment and `HANDOFF_CLAUDE_PERMISSION_MODE` is the documented escape.
+- **Claude workers and Bash. — REALIZED on the first real run of this path, fixed in v3.5.1.**
+  Job `job-2026-09-08T12-08-24-56820-transcript-impl` took 11 denials: `curl`, the repo's own
+  `check-skill-repo.sh`, a node test, a browser check. It wrote every file correctly, exited 0, and
+  reported "All gates pass" — including two checks it had been refused. Three things this got wrong.
+  It was filed as a bounded ceiling when it was the default failing in the ordinary case, not the
+  exotic one. Naming an escape hatch is not mitigation when nothing tells the user to reach for it.
+  And the worst of it was not the denial but the silence: a denied tool call does not move the exit
+  code, so the only reason anyone noticed was that a human read the log. The safety consequence was
+  concrete — the plan's hash-check gate on the vendored `marked` copy never ran, so a gate that was
+  supposed to be satisfied was merely skipped, and the bytes happened to be right.
 - **Receipt v5 invalidates v4 receipts.** Intended: `validate-receipt.py` failing on an old
   receipt is the signal to regenerate it. Existing saved receipts under a user's `.handoff/` will
   fail validation.
@@ -283,3 +299,9 @@ Confirm the job edited files, `meta` records `backend=claude`, and the receipt c
 - **Fake-CLI tests prove wiring, not behaviour.** The parity suite asserts argv, job state, and
   worktree lifecycle against stub binaries. That a real Claude worker completes a real task is
   covered only by the live smoke run above, which needs a human to trigger it.
+  *(v3.5.1: sharper than it reads. The suite asserted the argv it was told to expect and never
+  asked whether that argv let the worker work — `--permission-mode` appeared in no assertion at
+  all, so the defect was invisible to a green suite. Parity was defined as "same flags, same job
+  shape" when the property that mattered was "same ability to run its own checks". The permission
+  assertions added in v3.5.1 close the specific hole; the general lesson is that a parity claim
+  needs a test for the capability, not only for the plumbing.)*

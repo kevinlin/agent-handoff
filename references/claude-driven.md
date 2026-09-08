@@ -73,6 +73,8 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 
 The identity's `backend` picks the CLI: `codex` runs `codex exec --json`, `claude` runs `claude --print --output-format stream-json`. Everything downstream — jobId, `.handoff/jobs/<jobId>/` state, the Phase 3 loop, the Phase 4 `resume` fix round, worktrees, receipt evidence — is the same on either.
 
+A claude worker runs with its permission checks bypassed, and `submit` says so on stderr. That is deliberate: a background `--print` job has no approval surface, so any mode that prompts denies instead, and a worker that cannot run `curl`, a test runner, or a repo check cannot verify its own work — it will report success it never earned. What bounds the worker is its worktree and the scope constraints in its packet, not an allowlist nobody can answer. Tell the user this before the first claude-backed delegation of a run, in one line, and pass `HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits` if they would rather trade the worker's self-verification for prompting. Codex workers are unaffected: they are bounded by the sandbox in the user's own codex config.
+
 Two guards stay closed. No Handoff config yet → a clear error (run `/agent-handoff config` first, or fall back to an explicit `--effort` for this one job and note it in `Notes`). And a `--backend` that contradicts a named role → refused, because moving a job onto another vendor is a config change the user should see, not a per-job override. Efforts are per CLI, so an effort valid for codex (`minimal`, `ultra`) is refused on claude and vice versa.
 
 - Use `--read-only` for scan/review jobs that must not modify the repo.
@@ -92,11 +94,13 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 - Short single job (expected under ~5 minutes): block on it — `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" status <jobId> --repo "$REPO" --wait --timeout 300`.
 - Long or multiple jobs: set up the built-in `/loop` skill at a 5-minute interval with a prompt like: read `.handoff/goal.md`, run `delegate-codex.sh status` for every running jobId (tail the job's `log.jsonl` for the last event), update task statuses in the goal file, and when no job is left running, stop the loop and continue with Phase 4.
 - The loop reads each row's `depends` column and does not submit a row whose dependencies have not reached `done`. An `e2e_verifier` row waits on both the specifier row and the implementation row: it needs the tests in its tree, not just the feature.
+- `status` and `result` report `permission_denied` when a worker was blocked. Treat any non-zero count as a failed job whatever its exit code says: a denied tool call does not move the exit code, so the worker ran to completion having skipped checks it believed it had run. Re-run the blocked commands yourself before accepting anything, and record it as an anomaly.
 - A job stuck with no new JSONL events for two consecutive ticks, or a `status` of FAILED, is a monitoring anomaly: cancel it, read `stderr.log`, and either resubmit with a corrected prompt or take the task back into the driver. Record the anomaly for the receipt. `status` and `result` read the same job state on either backend, so nothing here changes with the CLI.
 
 ## Phase 4 — Full Review Gate
 
 - Collect each finished job: `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" result <jobId> --repo "$REPO"`.
+- Check `permission_denied` in the `result` output first. A worker that was blocked could not run its own acceptance checks, so its report of them is worthless — run them yourself and judge the diff on that, never on the worker's summary.
 - Claude reviews the complete diff itself — `git diff` (scoped to the files the job touched), plus the fastest relevant check. This is a full review by default, not a sample. Do not accept work you have not read.
 - Review against the acceptance criteria in `.handoff/goal.md`, not against the diff alone. A reviewer given only the diff confidently redefines the spec as "internally consistent with what changed" and misses tasks that were never done — in Superpowers 6, diff-only reviewers caught 0 of 5 missing task briefs. Re-read each task's brief, then ask "does this diff satisfy that brief," not just "is this diff self-consistent."
 - When the run carries e2e rows, sequence them before the fix-round step:

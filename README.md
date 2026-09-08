@@ -258,7 +258,7 @@ tests/test_goal_sync.py                 goal.md concurrency unit tests (stale-ha
 
 ## Safety
 
-- Background jobs use the read-write sandbox from your own codex config, or `--permission-mode acceptEdits` on a claude worker (`HANDOFF_CLAUDE_PERMISSION_MODE` overrides it); pass `--read-only` for scan and review jobs on either.
+- Background jobs use the read-write sandbox from your own codex config, or bypassed permission checks on a claude worker; pass `--read-only` for scan and review jobs on either. A background job has no approval surface, so a claude worker that had to ask would instead be refused and could not run the checks its own task asks for; `submit` warns, `HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits` restores prompting, and `status`/`result` report any denial that happens so a blocked check cannot pass as a green one.
 - Delegating is not handing over control: architecture, the split decision, cross-task integration, security- and correctness-critical paths, and final acceptance all stay with the driving session.
 - Never accept a diff you have not read, and never mark a task done because a worker said it finished.
 - Do not change repo visibility, tag releases, publish to registries, or announce externally without explicit permission.

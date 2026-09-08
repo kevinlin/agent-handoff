@@ -17,6 +17,7 @@ def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dic
     """A clean environment pointing both HANDOFF_*_BIN at fake worker CLIs."""
 
     env = os.environ.copy()
+    env.pop("HANDOFF_CLAUDE_PERMISSION_MODE", None)
     env.update({"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "xdg")})
     for name, body in (("codex", codex_body), ("claude", claude_body or codex_body)):
         fake = root / name
@@ -164,6 +165,8 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("default", parsed["model"])
         self.assertEqual("high", parsed["effort"])
         self.assertEqual("default", parsed["effort_source"])
+        # A codex worker is bounded by its own sandbox config, not by a mode.
+        self.assertEqual("", parsed["permission_mode"])
 
     def test_gpt_5_6_efforts_are_accepted_and_unknown_ones_refused(self):
         for effort in ("minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
@@ -219,6 +222,7 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertTrue(parsed["codex_bin"].endswith("/claude"), parsed["codex_bin"])
         # --skip-git-repo-check is a codex flag; a claude job never carries it.
         self.assertEqual("", parsed["skip_git_repo_check"])
+        self.assertEqual("bypassPermissions", parsed["permission_mode"])
 
     def test_explicit_backend_contradicting_a_role_is_refused(self):
         result, _ = self.run_submit(
@@ -281,6 +285,13 @@ class BackendLifecycle:
 
     BACKEND = "codex"
     WORKDIR_MARKER = '-C "$WORKDIR"'
+    # What this backend's worker runs under; codex is sandboxed by its own
+    # config instead, so it records none.
+    PERMISSION_MODE = ""
+    DENIED_LINE = (
+        '{"type":"system","subtype":"permission_denied","tool_name":"Bash",'
+        '"decision_reason":"no approval surface in this session"}'
+    )
     # A terminal event stream in this backend's own shape.
     LOG_LINES = (
         '{"type":"thread.started","thread_id":"sess-fixture"}',
@@ -306,6 +317,38 @@ class BackendLifecycle:
         self.prompt.write_text("test prompt\n", encoding="utf-8")
         # Exits immediately, so the launched job finishes without doing work.
         self.env = make_env(self.root, "exit 0\n")
+        # Registered after the temp dir, so it runs before it: a detached job
+        # still writing into its own directory races the tree removal.
+        self.addCleanup(self.await_jobs)
+
+    def await_exit(self, job: Path):
+        """Wait for a launched job to settle.
+
+        exit_code is the last thing run.sh writes, but its shell stays alive for
+        a moment after — long enough to race the temp-tree removal in teardown,
+        which is how this surfaced. Wait for the process too, not just the file.
+        """
+
+        settled = False
+        for _ in range(200):
+            if (job / "exit_code").is_file():
+                settled = True
+                break
+            time.sleep(0.05)
+        pid_file = job / "pid"
+        if settled and pid_file.is_file():
+            pid = int(pid_file.read_text(encoding="utf-8").strip() or 0)
+            for _ in range(200):
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    break
+                time.sleep(0.05)
+        return settled
+
+    def await_jobs(self):
+        for job in (self.repo / ".handoff" / "jobs").glob("job-*"):
+            self.await_exit(job)
 
     def git(self, *arguments: str) -> str:
         return subprocess.run(
@@ -355,11 +398,7 @@ class BackendLifecycle:
         """
 
         job = self.job_dir(job_id)
-        for _ in range(200):
-            if (job / "exit_code").is_file():
-                break
-            time.sleep(0.05)
-        self.assertTrue((job / "exit_code").is_file(), "fake worker never exited")
+        self.assertTrue(self.await_exit(job), "fake worker never exited")
         (job / "log.jsonl").write_text("\n".join(self.LOG_LINES) + "\n", encoding="utf-8")
         (job / "session_id").unlink(missing_ok=True)
         return job
@@ -454,12 +493,55 @@ class BackendLifecycle:
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(
-            {"session_id", "agent_message", "commands", "usage"}, set(payload)
+            {
+                "session_id",
+                "agent_message",
+                "commands",
+                "permission_denied",
+                "denied_tools",
+                "usage",
+            },
+            set(payload),
         )
+        self.assertEqual(0, payload["permission_denied"])
         self.assertEqual("sess-fixture", payload["session_id"])
         self.assertEqual("work done", payload["agent_message"])
         self.assertEqual(["pytest -q"], payload["commands"])
         self.assertTrue(payload["usage"])
+
+
+    def test_meta_records_the_permission_mode_the_worker_runs_under(self):
+        meta = self.read_meta(self.submit())
+        self.assertEqual(self.PERMISSION_MODE, meta.get("permission_mode", ""))
+
+    def test_result_reports_denials_that_the_exit_code_hides(self):
+        """A blocked check still leaves exit 0, so the count is the only signal.
+
+        This is the v3.5.1 defect in miniature: a worker that could not run its
+        own acceptance checks reported success, and nothing downstream noticed.
+        """
+
+        job_id = self.submit()
+        job = self.finish(job_id)
+        job.joinpath("log.jsonl").write_text(
+            "\n".join((self.DENIED_LINE, *self.LOG_LINES, self.DENIED_LINE)) + "\n",
+            encoding="utf-8",
+        )
+
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual(2, payload["permission_denied"])
+        self.assertEqual(["Bash"], payload["denied_tools"])
+        # A denial is not worker output and must not be read as any.
+        self.assertEqual("work done", payload["agent_message"])
+
+        text = self.delegate("result", job_id, "--repo", str(self.repo))
+        self.assertIn("permission_denied: 2 (Bash)", text.stdout)
+        self.assertIn("verify its own work", text.stdout)
+
+        status = self.delegate("status", job_id, "--repo", str(self.repo))
+        self.assertIn("permission_denied: 2", status.stdout)
 
 
 class CodexWorktreeTests(BackendLifecycle, unittest.TestCase):
@@ -470,6 +552,7 @@ class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
     BACKEND = "claude"
     # `claude` has no -C; the run script cd's into the worktree instead.
     WORKDIR_MARKER = 'cd "$WORKDIR"'
+    PERMISSION_MODE = "bypassPermissions"
     LOG_LINES = (
         '{"type":"system","subtype":"init","session_id":"sess-fixture"}',
         '{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},'
@@ -478,6 +561,76 @@ class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
         '{"type":"result","subtype":"success","result":"work done",'
         '"usage":{"input_tokens":11,"output_tokens":7},"session_id":"sess-fixture"}',
     )
+
+    def exec_line(self, job_id: str) -> str:
+        return (self.job_dir(job_id) / "run.sh").read_text(encoding="utf-8")
+
+    def test_worker_runs_with_permission_checks_bypassed_by_default(self):
+        """The v3.5.1 fix, asserted.
+
+        A background `--print` job has no approval surface, so every mode that
+        prompts denies instead — which is what stopped a v3.5.0 worker from
+        running the acceptance checks its own packet asked for.
+        """
+
+        run_sh = self.exec_line(self.submit())
+        self.assertIn("--permission-mode bypassPermissions", run_sh)
+        # Inert under bypass, but it keeps a dialled-down job from hanging on a
+        # prompt nobody is there to answer.
+        self.assertIn("--permission-prompts none", run_sh)
+
+    def test_submit_warns_that_the_worker_is_unsupervised(self):
+        result = self.submit_raw()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("permission checks bypassed", result.stderr)
+        self.assertIn("HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits", result.stderr)
+        # The warning goes to stderr; stdout stays exactly the jobId, which is
+        # what the driver captures.
+        self.assertRegex(result.stdout.strip(), r"^job-[\w.:-]+$")
+
+    def test_the_override_dials_the_worker_back_down(self):
+        self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "acceptEdits"
+        result = self.submit_raw()
+        job_id = result.stdout.strip()
+        self.assertIn("--permission-mode acceptEdits", self.exec_line(job_id))
+        self.assertEqual("acceptEdits", self.read_meta(job_id)["permission_mode"])
+        # Nothing is being bypassed, so there is nothing to warn about.
+        self.assertNotIn("permission checks bypassed", result.stderr)
+
+    def test_read_only_stays_plan_and_beats_the_override(self):
+        self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "bypassPermissions"
+        job_id = self.submit("--read-only")
+        self.assertIn("--permission-mode plan", self.exec_line(job_id))
+        self.assertEqual("plan", self.read_meta(job_id)["permission_mode"])
+
+    def test_an_unknown_override_is_refused_before_the_job_exists(self):
+        """The value is spliced into the generated run.sh, so it is validated."""
+
+        self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "plan; touch pwned"
+        result = self.submit_raw()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid HANDOFF_CLAUDE_PERMISSION_MODE", result.stderr)
+        self.assertFalse(any((self.repo / ".handoff" / "jobs").glob("job-*")))
+        self.assertFalse((self.repo / "pwned").exists())
+
+    def test_a_read_only_job_still_validates_the_override(self):
+        """--read-only wins, but a typo must not be swallowed on the way."""
+
+        self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "byPassPermissions"
+        result = self.submit_raw("--read-only")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid HANDOFF_CLAUDE_PERMISSION_MODE", result.stderr)
+
+    def test_a_fix_round_keeps_the_parent_permission_mode(self):
+        job_id = self.submit()
+        self.finish(job_id)
+        result = self.delegate(
+            "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        child = result.stdout.strip()
+        self.assertEqual("bypassPermissions", self.read_meta(child)["permission_mode"])
+        self.assertIn("--permission-mode bypassPermissions", self.exec_line(child))
 
 
 if __name__ == "__main__":

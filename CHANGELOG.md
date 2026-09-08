@@ -11,6 +11,19 @@
 - fix: log content is untrusted input. Every string reaches the DOM through `textContent` except agent and reasoning text, which goes through marked — and marked passes raw HTML through by design, so three renderer overrides escape emitted HTML and reject any link or image scheme outside `https`, `http`, `mailto`, and `#`. `tests/test_transcript_viewer.mjs` asserts the emitted markup against a tag and attribute allowlist rather than scanning for `onerror`, which an escaped payload would trip falsely
 - feat: the JS tests extract the shipped page's own script blocks and run them in node, so there is no second copy to drift. They run in CI beside the Python suite
 
+## v3.5.1 (2026-09-08)
+
+### A delegated Claude worker can run its own checks
+
+- fix: a claude-backed job runs with `--permission-mode bypassPermissions`. v3.5.0 shipped `acceptEdits` alongside `--permission-prompts none`, and that pair denies nearly everything: `--permission-prompts none` means anything that would prompt is refused automatically, and `acceptEdits` pre-approves file edits and nothing else. So every Bash call outside the user's `settings.json` allowlist reached a prompt with nobody there to answer it, and so did every MCP tool and every Skill. The first real run of the path took 11 denials, among them `curl`, the repo's own `check-skill-repo.sh`, and a node test. It wrote all its files correctly, exited 0, and reported that all gates had passed
+- fix: the two backends were never held by the same kind of thing, which is what the v3.5.0 parity claim missed. `-s read-only` is a sandbox: it grants a codex worker the right to run commands and bounds what they may write. A permission mode grants nothing on its own, and a background `--print` job has no approval surface, so any mode that prompts denies instead. What holds a delegated claude worker is its worktree and the scope constraints in its packet
+- feat: `status` and `result` report `permission_denied`, counted from the worker's own event stream, and `result --json` carries the count with the tools involved. A denied tool call leaves the exit code alone, so a blocked acceptance check used to be indistinguishable from a passed one. The flow prose now treats any non-zero count as a failed job whatever the exit code says, and re-runs the blocked commands in the driving session
+- feat: `submit` warns on stderr when a claude worker starts with its checks bypassed, and `meta` records `permission_mode` for the audit trail; stdout stays exactly the jobId. `HANDOFF_CLAUDE_PERMISSION_MODE` takes any mode the claude CLI accepts and restores prompting for anyone who would rather trade the worker's self-verification for it. `--read-only` still pins `plan`
+- fix: `HANDOFF_CLAUDE_PERMISSION_MODE` is validated before it reaches the generated `run.sh`. It was read unquoted and spliced into the exec line, so a value carrying a shell metacharacter would have run — every other input in that script is `%q`-quoted or `case`-checked
+- test: the claude parity suite asserted argv, job state and the worktree lifecycle, and never asserted a permission flag, so a green suite said nothing about whether the worker could work. It now covers the default mode, the override, the read-only pin, a refused junk override, the mode in `meta` and on a fix round, and denial reporting on both backends
+
+Worth naming: the denied `curl` meant the transcript viewer's hash check on its vendored `marked` copy never ran. The bytes were correct, so the gate was skipped rather than failed — which is what a silent denial produces, and why the count now travels with the job.
+
 ## v3.5.0 (2026-09-08)
 
 ### Breaking: a claude-backed identity is a real delegated job
