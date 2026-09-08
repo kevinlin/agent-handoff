@@ -11,7 +11,7 @@
 
 **Claude Code plans, splits, and signs off. A worker CLI does the work as a background job — Codex on its own subscription, or a second Claude Code. What you save is the driver's quota and its context window; what you keep is the quality gate.**
 
-[Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
+[Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [How The Flow Runs](#how-the-flow-runs) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
 
 </div>
 
@@ -46,7 +46,7 @@ Before first real use, say `/agent-handoff config`. Handoff opens a local single
 <a href="assets/config-switch-demo.mp4">
 <img src="assets/config-switch-demo.gif" alt="Handoff configuration page demo switching operating mode and each identity's CLI, model, and reasoning effort" width="720" />
 </a>
-<p><a href="assets/config-switch-demo.mp4">Open the complete 7-second MP4</a></p>
+<p><a href="assets/config-switch-demo.mp4">Open the full-resolution MP4</a> — one pass through the page: work mode, each role's CLI, model and effort, the two optional add-ons, then the exact diff.</p>
 </div>
 
 ## Showcase
@@ -96,6 +96,16 @@ Or open it directly from the repository:
 ```bash
 bash install.sh --config --repo /path/to/project
 ```
+
+## How The Flow Runs
+
+<div align="center">
+<a href="docs/user-guide/diagrams/flow-overview.svg">
+<img src="docs/user-guide/diagrams/flow-overview.svg" alt="The five Handoff phases: plan and split, delegate, monitor, full review, wrap up" width="820" />
+</a>
+</div>
+
+Each phase has its own diagram in [`docs/user-guide/diagrams/`](docs/user-guide/diagrams/): the [plan and split gate](docs/user-guide/diagrams/phase1-plan-split.svg), [delegation](docs/user-guide/diagrams/phase2-delegate.svg), [the monitor loop](docs/user-guide/diagrams/phase3-monitor.svg), [the review gate](docs/user-guide/diagrams/phase4-review-gate.svg), and [wrap up](docs/user-guide/diagrams/phase5-wrap-up.svg), plus [packet anatomy](docs/user-guide/diagrams/handoff-packet-anatomy.svg), [the evidence ladder](docs/user-guide/diagrams/context-ladder.svg), and [the goal-drift loop](docs/user-guide/diagrams/feedback-loop.svg). The prose they illustrate is [`references/claude-driven.md`](references/claude-driven.md).
 
 ## Cost Pressure Model
 
@@ -160,6 +170,12 @@ Codex (background jobs):
 
 One channel carries delegated work: the Handoff background job (`delegate-codex.sh --role <identity>`, with durable state, loop monitoring, and resume rework). It runs on whichever CLI the identity's `backend` names — Codex, or a second Claude Code — and everything about the job is identical either way. In-process subagents are the two escape hatches, for a stuck-step assist or work no identity fits. Quality-critical steps stay in the driving session even though it is the expensive seat.
 
+<div align="center">
+<a href="docs/user-guide/diagrams/handoff-packet-anatomy.svg">
+<img src="docs/user-guide/diagrams/handoff-packet-anatomy.svg" alt="The four named packets: delegation, spec review, e2e, and the user-facing goal packet" width="820" />
+</a>
+</div>
+
 Routing is never re-decided per run. Moving a task onto a different vendor is a config change you can see, not a swap to whichever identity happens to be cheaper — `delegate-codex.sh` refuses a per-job `--backend` that contradicts the identity's configuration.
 
 Every split passes an adversarial gate first, answering three questions in writing: does this task really not need the expensive tier, will the integration cost of the boundary eat the saving, and does each row's identity match its actual stakes. A row that fails any of them gets its identity corrected, merged into a neighbour, or kept in Claude's hands.
@@ -177,6 +193,8 @@ The Codex jobs finished; sign them off and give me the receipt.
 /agent-handoff resume the last task from .handoff/ state.
 /agent-handoff config
 /agent-handoff tryout
+/agent-handoff transcript
+Show me the transcript of that Codex job.
 Run the full handoff protocol and deliver a PR.
 This conclusion is contested — have the arbiter blind-solve it before we decide.
 ```
@@ -188,6 +206,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - Durable background jobs on either backend: `scripts/delegate-codex.sh` wraps `codex exec --json` and `claude --print --output-format stream-json` as jobs you can status, resume, and cancel, with state under `<repo>/.handoff/jobs/`. One code path, one job shape, one lifecycle test run against both.
 - A full-review gate: the complete diff is read against the acceptance criteria in `.handoff/goal.md` — not a sample, and not Codex's own summary. At most two fix rounds per task, then the task comes back to Claude.
 - A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs` and `cc_jobs` with their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
+- A readable transcript of any delegated job: `/agent-handoff transcript` renders that job's `log.jsonl` into one self-contained HTML page and opens it, so what the worker actually did is readable without grepping JSONL. It reads both event formats (Codex envelopes and Claude `stream-json`), and dropping a `log.jsonl` onto the same page renders a job from any repo.
 - A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
 - Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
 - An optional second pair of eyes on the plan (`--spec-review`): before a plan reaches you, `deep_reasoner` reads it once on its own model and reports what it would change. Read-only, once per run, and the driver still rules — it closes the gap where the agent that wrote the plan is the only one that judged it.
@@ -206,55 +225,6 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - A first-run setup wizard (`/agent-handoff config`): balanced/quality/cost presets remain editable per identity; `.handoff/config.toml` is the single source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list; post-install verification uses a tool-free fresh Claude session plus the Codex delegate dry-run chain.
 - Handoff Session Receipt v5: `scope`/`config_source`/`roles_used` prove which backend, model, and effort actually ran a role, not just "it was delegated," and the two job counts are partitioned by the CLI that executed them.
 - An opt-in full protocol (`references/goal-to-pr.md`): Plan→Goal→PR→Verification, running unattended up through merge-ready + preview verified; merge, production, tags, force-push, deletion, destructive migration, and external publish each still need their own explicit imperative.
-
-## File Map
-
-```text
-SKILL.md                                Runtime instructions for Claude Code
-README.md                               Project entrypoint
-install.sh                              Local installer for ~/.claude/skills/agent-handoff
-test-prompts.json                       Trigger and behavior regression prompts
-assets/transcript-viewer.html           Self-contained transcript viewer; also reads a dropped log.jsonl
-docs/showcase-cost-model.md             Showcase cost-pressure model and real token capture fields
-docs/receipt-schema.json                JSON schema for the Handoff Session Receipt (handoff.receipt.v5)
-docs/config-schema.md                   Handoff config schema v2: identity matrix, precedence, concurrency, TOML subset
-docs/verdict-schema.json                JSON schema for the e2e verdict artifact (handoff.verdict.v1)
-examples/session-receipt.md             Receipt example (schema v5, validated in CI)
-examples/v2.0.0-conversation-cost-receipt.md
-                                        Identity, model, effort, and cost receipt for the v2.0.0 failure baseline
-examples/v2.0.1-conversation-cost-receipt.md
-                                        Real task, model, effort, and cost receipt for the three core identities
-examples/showcase-cost-ledger.json      Cost-pressure ledger for the three operating modes
-references/handoff-template.md          Delegation packet, spec review packet, and user-facing Goal Packet templates
-references/darwin-ratchet.md            Validation-gated improvement rules
-references/e2e-gauntlet.md              Optional e2e acceptance roles: worktree protocol, both packets, verdict contract
-references/claude-driven.md             The five-phase flow (adversarial split gate and blind arbitration included)
-references/setup.md                     `/agent-handoff config` first-run setup wizard: identity matrix (cross-vendor identities)
-references/tryout.md                    `/agent-handoff tryout` identity tryout: one micro-task per identity, report proving the models are live
-references/goal-to-pr.md                Opt-in full protocol: Plan→Goal→PR→Verification, hard-stop list, imperative authorization
-references/goal-template.md             Template for .handoff/goal.md (task table + checkpoint rule)
-references/fable5-principles.md         Shared frontier-model prompting rules (why-forward, effort, checkpoint, resume)
-references/memory-protocol.md           Wrap-up memory protocol (claude-mem / mem0 / auto-memory / rollout)
-scripts/showcase-cost-ledger.py         Rebuilds the showcase cost-pressure ledger
-scripts/check-skill-repo.sh             Publish readiness smoke check
-scripts/english-only-scan.py            Fails if any tracked file contains CJK text
-scripts/make-receipt.py                 Generates a pre-validated receipt, can persist to .handoff/
-scripts/validate-receipt.py             Validates Handoff Session Receipt fields and values
-scripts/validate-verdict.py             Validates an e2e verdict artifact, including its cross-field rules
-scripts/run-test-prompts.py             Static validation of the regression prompts
-scripts/delegate-codex.sh               Background-job primitive for both backends: submit / status / result / resume / cancel / cleanup
-scripts/handoff-config.py               Config engine: TOML-subset parsing, deterministic writes, locking (schema v2)
-scripts/handoff_runtime.py              Shared Claude child-process environment boundary for first-party OAuth
-scripts/handoff-setup.py                Setup wizard engine: --preview/--apply/--rollback/--smoke/--status/--interactive
-scripts/handoff-setup-ui.py             Localhost single-page setup UI: full model matrix, exact preview, confirmed apply
-scripts/goal-sync.py                    Hash-checked .handoff/goal.md read/write: concurrent writes abort instead of silently losing updates
-scripts/render-transcript.py            Renders a job's log.jsonl into the viewer and opens it
-tests/test_handoff_config.py            Config engine unit tests (round-trip / lock / precedence chain)
-tests/test_handoff_setup.py             Setup engine unit tests (idempotence / overwrite refusal / managed block / rollback)
-tests/test_handoff_setup_ui.py          Local UI state, preview binding, and write-gate unit tests
-tests/test_delegate_role.py             Unit tests for --role injection, the override chain, and backend parity
-tests/test_goal_sync.py                 goal.md concurrency unit tests (stale-hash writes rejected, no silent lost update)
-```
 
 ## Safety
 
