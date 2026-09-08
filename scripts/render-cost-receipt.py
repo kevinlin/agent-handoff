@@ -103,6 +103,117 @@ def load_receipt(text: str, repo: Path) -> dict:
     return {"fields": fields, "jobs": jobs}
 
 
+COUNTERS = ("input", "cache_read", "cache_write", "output", "reasoning")
+
+CODEX_FIELDS = {
+    "input": "input_tokens",
+    "cache_read": "cached_input_tokens",
+    "cache_write": "cache_write_input_tokens",
+    "output": "output_tokens",
+    "reasoning": "reasoning_output_tokens",
+}
+CLAUDE_FIELDS = {
+    "input": "input_tokens",
+    "cache_read": "cache_read_input_tokens",
+    "cache_write": "cache_creation_input_tokens",
+    "output": "output_tokens",
+}
+
+
+def read_events(job_dir: Path) -> list[dict]:
+    """Every parseable JSONL line. A truncated tail is skipped, not fatal:
+    a killed worker leaves a half-written line and its earlier events still count."""
+    log = job_dir / "log.jsonl"
+    if not log.is_file():
+        return []
+    events = []
+    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            events.append(json.loads(line))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return events
+
+
+def _blank_usage() -> dict:
+    return {counter: None for counter in COUNTERS}
+
+
+def _add(total: dict, counter: str, value) -> None:
+    """Accumulate, keeping None distinct from a measured zero."""
+    if not isinstance(value, int):
+        return
+    total[counter] = value if total[counter] is None else total[counter] + value
+
+
+def fold_usage(events: list[dict], backend: str) -> dict:
+    usage = _blank_usage()
+    cost_usd = None
+    denials = None
+    models: list[str] = []
+    seen_terminal = 0
+
+    if backend == "codex":
+        for event in events:
+            if event.get("type") not in ("turn.completed", "turn.failed"):
+                continue
+            raw = event.get("usage") or {}
+            seen_terminal += 1
+            for counter, field in CODEX_FIELDS.items():
+                _add(usage, counter, raw.get(field))
+    else:
+        # Only the last result is authoritative; an earlier one is a repeat.
+        for event in events:
+            if event.get("type") != "result":
+                continue
+            seen_terminal += 1
+            usage = _blank_usage()
+            raw = event.get("usage") or {}
+            for counter, field in CLAUDE_FIELDS.items():
+                _add(usage, counter, raw.get(field))
+            details = raw.get("output_tokens_details") or {}
+            _add(usage, "reasoning", details.get("thinking_tokens"))
+            cost = event.get("total_cost_usd")
+            cost_usd = cost if isinstance(cost, (int, float)) else None
+            # modelUsage names the models; its numbers duplicate `usage`.
+            models = sorted(event.get("modelUsage") or {})
+            denials = len(event.get("permission_denials") or [])
+
+    return {"usage": usage, "cost_usd": cost_usd, "denials": denials,
+            "models": models, "repeated": seen_terminal > 1}
+
+
+def resolve_model(repo: Path, job_id: str, seen: set[str] | None = None) -> str:
+    """A resumed job writes model=inherit; walk `parent=` to the origin."""
+    seen = seen or set()
+    if job_id in seen:
+        return "inherit (unresolved)"
+    seen.add(job_id)
+    meta = read_meta(repo / ".handoff" / "jobs" / job_id)
+    model = meta.get("model", "unknown")
+    if model != "inherit":
+        return model
+    parent = meta.get("parent")
+    if not parent or not (repo / ".handoff" / "jobs" / parent).is_dir():
+        return "inherit (unresolved)"
+    return resolve_model(repo, parent, seen)
+
+
+def job_row(repo: Path, job: dict) -> dict:
+    job_dir = repo / ".handoff" / "jobs" / job["job_id"]
+    meta = read_meta(job_dir)
+    folded = fold_usage(read_events(job_dir), job["backend"])
+    return {
+        "job_id": job["job_id"],
+        "label": meta.get("label", ""),
+        "role": meta.get("role", ""),
+        "backend": job["backend"],
+        "model": resolve_model(repo, job["job_id"]),
+        "state": job_state(job_dir),
+        **folded,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("receipt", nargs="?", default=None)
