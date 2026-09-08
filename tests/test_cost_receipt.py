@@ -348,5 +348,63 @@ class SummaryTests(unittest.TestCase):
         self.assertIsNone(rcr.summarize([row("a", "codex", 1)])["denials"])
 
 
+class MarkdownTests(unittest.TestCase):
+    def payload(self, rows=None, driver=None):
+        rows = rows if rows is not None else [
+            row("job-a", "codex", 779279), row("job-b", "claude", 160, cost=6.633623999999999)]
+        driver = driver or {"state": "measured", "usage": {c: None for c in rcr.COUNTERS},
+                            "models": ["claude-opus-5"], "cost_usd": None}
+        return rcr.build_payload(
+            {"fields": {"claude_session": "sid-1", "duration": "11min 01sec"}},
+            rows, driver, None, ["/x/.handoff/jobs/job-a/log.jsonl"])
+
+    def test_both_figures_are_present_with_their_labels(self):
+        out = rcr.render_markdown(self.payload())
+        self.assertIn("Ran on a Codex subscription", out)
+        self.assertIn("Ran outside the driver session", out)
+
+    def test_cost_is_unrounded(self):
+        self.assertIn("6.633623999999999", rcr.render_markdown(self.payload()))
+
+    def test_cost_is_labelled_cli_reported(self):
+        self.assertIn("CLI-reported cost", rcr.render_markdown(self.payload()))
+
+    def test_no_savings_language_anywhere(self):
+        out = rcr.render_markdown(self.payload()).lower()
+        for banned in ("saved", "savings", "avoided", "cheaper", "instead of"):
+            self.assertNotIn(banned, out)
+
+    def test_the_overlap_is_stated(self):
+        self.assertIn("not addends", rcr.render_markdown(self.payload()))
+
+    def test_no_line_equals_the_sum_of_the_two_figures(self):
+        out = rcr.render_markdown(self.payload())
+        self.assertNotIn(str(779279 + 779279 + 160), out)
+
+    def test_incomplete_column_renders_a_floor(self):
+        rows = [row("job-a", "codex", 100), row("job-b", "codex", None, state="RUNNING")]
+        self.assertIn("≥ 100", rcr.render_markdown(self.payload(rows=rows)))
+
+    def test_unscoped_driver_row_is_labelled(self):
+        driver = {"state": "unscoped", "usage": {c: None for c in rcr.COUNTERS},
+                  "models": [], "cost_usd": None}
+        self.assertIn("unscoped", rcr.render_markdown(self.payload(driver=driver)))
+
+    def test_pipe_in_a_label_is_escaped(self):
+        self.assertEqual(rcr.md_cell("a|b"), "a\\|b")
+
+    def test_none_renders_as_unknown(self):
+        self.assertEqual(rcr.md_cell(None), "unknown")
+
+    def test_measured_zero_renders_as_zero(self):
+        self.assertEqual(rcr.md_cell(0), "0")
+
+    def test_denial_command_strings_never_reach_the_output(self):
+        rows = [row("job-b", "claude", 1, denials=11)]
+        out = rcr.render_markdown(self.payload(rows=rows))
+        self.assertIn("11", out)
+        self.assertNotIn("curl", out)
+
+
 if __name__ == "__main__":
     unittest.main()

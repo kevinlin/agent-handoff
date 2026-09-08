@@ -316,6 +316,121 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
+COUNTER_LABELS = {"input": "Input", "cache_read": "Cache read",
+                  "cache_write": "Cache write", "output": "Output",
+                  "reasoning": "Reasoning"}
+
+DRIVER_NOTE = {
+    "measured": "scoped to this run's interval",
+    "unscoped": "unscoped: whole-session total, may include work outside this run",
+    "unavailable": "transcript not found",
+}
+
+
+def md_cell(value) -> str:
+    """Table cell text. None is an absent measurement, never a zero."""
+    if value is None:
+        return "unknown"
+    if isinstance(value, int):
+        return f"{value:,}"
+    text = str(value).replace("|", "\\|").replace("\n", " ")
+    return text or "-"
+
+
+def _figure_cell(column: dict) -> str:
+    if column["value"] is None:
+        return "unknown"
+    body = f"{column['value']:,}"
+    if column["complete"]:
+        return body
+    return f"≥ {body} ({column['measured']} of {column['total']} jobs measured)"
+
+
+def build_payload(receipt: dict, rows: list[dict], driver: dict,
+                  interval, sources: list[str]) -> dict:
+    fields = receipt["fields"]
+    return {
+        "claude_session": fields.get("claude_session", "none"),
+        "duration": fields.get("duration", "unknown"),
+        "interval": ([interval[0].isoformat(), interval[1].isoformat()]
+                     if interval else None),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        # Enumerated export: no denial command strings, no prompt text.
+        "jobs": [{"job_id": r["job_id"], "label": r["label"], "role": r["role"],
+                  "backend": r["backend"], "model": r["model"], "state": r["state"],
+                  "usage": r["usage"], "cost_usd": r["cost_usd"],
+                  "denials": r["denials"], "repeated": r["repeated"]}
+                 for r in rows],
+        "driver": driver,
+        "summary": summarize(rows),
+        "sources": sources,
+        "counters": list(COUNTERS),
+    }
+
+
+def render_markdown(payload: dict) -> str:
+    summary = payload["summary"]
+    out = ["# Handoff Cost Receipt", ""]
+    out.append(f"- Session: `{payload['claude_session']}`")
+    out.append(f"- Run duration: {payload['duration']}")
+    out.append("- Interval: " + (
+        f"{payload['interval'][0]} to {payload['interval'][1]}"
+        if payload["interval"] else "not derivable from this input"))
+    out.append(f"- Generated: {payload['generated_at']}")
+    out += ["", "## Summary", ""]
+
+    codex, outside = summary["codex_subscription"], summary["outside_driver"]
+    out.append(f"**Ran on a Codex subscription** ({codex['jobs']} jobs). "
+               "No cost figure: the Codex CLI emits none.")
+    out.append("")
+    out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")
+    out.append("|" + "---|" * len(COUNTERS))
+    out.append("| " + " | ".join(_figure_cell(codex["usage"][c]) for c in COUNTERS) + " |")
+    out.append("")
+    cost = ("unknown" if outside["cost_usd"] is None
+            else repr(outside["cost_usd"]) + ("" if outside["cost_complete"] else " (partial)"))
+    out.append(f"**Ran outside the driver session** ({outside['jobs']} jobs). "
+               f"CLI-reported cost of the claude-backed jobs: {cost}.")
+    out.append("")
+    out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")
+    out.append("|" + "---|" * len(COUNTERS))
+    out.append("| " + " | ".join(_figure_cell(outside["usage"][c]) for c in COUNTERS) + " |")
+    out += ["",
+            "Codex jobs are counted in both figures. They are **not addends**, and "
+            "no difference between them is a saving.",
+            ""]
+    if summary["denials"] is not None:
+        out += [f"Permission denials across claude-backed jobs: **{summary['denials']}**. "
+                "A denied tool call does not move a job's exit code.", ""]
+
+    out += ["## Delegated jobs", "",
+            "| Job | Role | Backend | Model | State | "
+            + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " | CLI-reported cost |",
+            "|---|---|---|---|---|" + "---|" * (len(COUNTERS) + 1)]
+    for job in payload["jobs"]:
+        counters = " | ".join(md_cell(job["usage"][c]) for c in COUNTERS)
+        cost_cell = "n/a - subscription" if job["backend"] == "codex" else (
+            repr(job["cost_usd"]) if job["cost_usd"] is not None else "unknown")
+        out.append(f"| `{md_cell(job['job_id'])}` | {md_cell(job['role'])} | "
+                   f"{job['backend']} | {md_cell(job['model'])} | "
+                   f"{job['state'].lower()} | {counters} | {cost_cell} |")
+
+    driver = payload["driver"]
+    out += ["", "## Driver session", "",
+            f"State: {driver['state']} - {DRIVER_NOTE[driver['state']]}.",
+            f"Models: {', '.join(driver['models']) or 'unknown'}. "
+            "CLI-reported cost: unknown, the driver transcript carries no cost field.",
+            "",
+            "| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |",
+            "|" + "---|" * len(COUNTERS),
+            "| " + " | ".join(md_cell(driver["usage"][c]) for c in COUNTERS) + " |",
+            "", "## Method", "",
+            "Every number above was read from these files. Nothing is estimated, "
+            "and no price table is applied.", ""]
+    out += [f"- `{source}`" for source in payload["sources"]]
+    return "\n".join(out) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("receipt", nargs="?", default=None)
