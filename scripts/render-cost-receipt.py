@@ -9,9 +9,11 @@ run interval. Nothing is estimated, and no saving is computed.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -212,6 +214,73 @@ def job_row(repo: Path, job: dict) -> dict:
         "state": job_state(job_dir),
         **folded,
     }
+
+
+DURATION = re.compile(r"^(\d+)min ([0-5]\d)sec$")
+RECEIPT_STAMP = re.compile(r"^receipt-(\d{8}T\d{6}Z)\.md$")
+DEFAULT_PROJECTS = Path.home() / ".claude" / "projects"
+
+
+def parse_duration(value: str) -> int:
+    match = DURATION.match(value.strip())
+    if not match:
+        raise ReceiptError(f"duration must look like '74min 05sec', got {value!r}")
+    return int(match.group(1)) * 60 + int(match.group(2))
+
+
+def run_interval(receipt_path: Path | None, duration: str):
+    """A receipt saved by make-receipt.py is named for its generation time, so
+    the stamp is the run's end and `duration` is its span. Any other input has
+    no derivable end, and the driver row is reported unscoped instead."""
+    if receipt_path is None:
+        return None
+    match = RECEIPT_STAMP.match(receipt_path.name)
+    if not match:
+        return None
+    end = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    return end - timedelta(seconds=parse_duration(duration)), end
+
+
+def _parse_ts(value: str):
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def driver_row(session_id: str, interval, projects_root: Path = DEFAULT_PROJECTS) -> dict:
+    blank = {"state": "unavailable", "usage": _blank_usage(),
+             "models": [], "cost_usd": None}
+    # The session id is data, not a pattern: escape it before it reaches glob.
+    pattern = str(projects_root / "*" / (glob.escape(session_id) + ".jsonl"))
+    matches = sorted(glob.glob(pattern))
+    if not matches:
+        return blank
+
+    usage = _blank_usage()
+    models: set[str] = set()
+    for line in Path(matches[0]).read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        message = event.get("message") or {}
+        raw = message.get("usage")
+        if not raw:
+            continue
+        if interval is not None:
+            stamp = _parse_ts(event.get("timestamp", ""))
+            if stamp is None or not (interval[0] <= stamp <= interval[1]):
+                continue
+        for counter, field in CLAUDE_FIELDS.items():
+            _add(usage, counter, raw.get(field))
+        details = raw.get("output_tokens_details") or {}
+        _add(usage, "reasoning", details.get("thinking_tokens"))
+        if message.get("model"):
+            models.add(message["model"])
+
+    return {"state": "measured" if interval else "unscoped",
+            "usage": usage, "models": sorted(models), "cost_usd": None}
 
 
 def main(argv: list[str] | None = None) -> int:

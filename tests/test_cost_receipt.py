@@ -220,5 +220,77 @@ class JobRowTests(unittest.TestCase):
         self.assertEqual(row["usage"]["input"], 100)
 
 
+from datetime import datetime, timedelta, timezone
+
+
+def transcript_line(ts: str, tokens: int) -> str:
+    return json.dumps({
+        "type": "assistant", "timestamp": ts,
+        "message": {"model": "claude-opus-5",
+                    "usage": {"input_tokens": tokens, "output_tokens": 1}}})
+
+
+class IntervalTests(unittest.TestCase):
+    def test_parse_duration(self):
+        self.assertEqual(rcr.parse_duration("74min 05sec"), 74 * 60 + 5)
+        self.assertEqual(rcr.parse_duration("0min 00sec"), 0)
+
+    def test_saved_receipt_name_yields_an_interval(self):
+        path = Path("/x/.handoff/receipts/receipt-20260908T155001Z.md")
+        start, end = rcr.run_interval(path, "11min 01sec")
+        self.assertEqual(end, datetime(2026, 9, 8, 15, 50, 1, tzinfo=timezone.utc))
+        self.assertEqual((end - start).total_seconds(), 661)
+
+    def test_unstamped_input_has_no_interval(self):
+        self.assertIsNone(rcr.run_interval(Path("/x/notes.md"), "11min 01sec"))
+
+
+class DriverRowTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.projects = self.tmp / "projects"
+        (self.projects / "slug").mkdir(parents=True)
+        self.path = self.projects / "slug" / "sid-1.jsonl"
+        self.path.write_text("\n".join([
+            transcript_line("2026-09-08T15:00:00.000Z", 10),   # before
+            transcript_line("2026-09-08T15:45:00.000Z", 100),  # inside
+            transcript_line("2026-09-08T16:30:00.000Z", 1000),  # after
+        ]) + "\n")
+        self.interval = (datetime(2026, 9, 8, 15, 39, 0, tzinfo=timezone.utc),
+                         datetime(2026, 9, 8, 15, 50, 1, tzinfo=timezone.utc))
+
+    def test_interval_scopes_the_row(self):
+        row = rcr.driver_row("sid-1", self.interval, self.projects)
+        self.assertEqual(row["state"], "measured")
+        self.assertEqual(row["usage"]["input"], 100)
+        self.assertEqual(row["models"], ["claude-opus-5"])
+        self.assertIsNone(row["cost_usd"])
+
+    def test_transcript_growth_after_the_receipt_does_not_change_the_row(self):
+        before = rcr.driver_row("sid-1", self.interval, self.projects)
+        with self.path.open("a") as handle:
+            handle.write(transcript_line("2026-09-08T17:00:00.000Z", 9999) + "\n")
+        self.assertEqual(rcr.driver_row("sid-1", self.interval, self.projects), before)
+
+    def test_two_intervals_in_one_session_give_different_rows(self):
+        later = (datetime(2026, 9, 8, 16, 0, 0, tzinfo=timezone.utc),
+                 datetime(2026, 9, 8, 17, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(rcr.driver_row("sid-1", later, self.projects)["usage"]["input"], 1000)
+
+    def test_no_interval_is_unscoped_and_totals_the_session(self):
+        row = rcr.driver_row("sid-1", None, self.projects)
+        self.assertEqual(row["state"], "unscoped")
+        self.assertEqual(row["usage"]["input"], 1110)
+
+    def test_missing_transcript_is_unavailable(self):
+        row = rcr.driver_row("sid-absent", self.interval, self.projects)
+        self.assertEqual(row["state"], "unavailable")
+        self.assertEqual(set(row["usage"].values()), {None})
+
+    def test_session_id_is_a_literal_not_a_glob(self):
+        row = rcr.driver_row("sid-*", self.interval, self.projects)
+        self.assertEqual(row["state"], "unavailable")
+
+
 if __name__ == "__main__":
     unittest.main()
