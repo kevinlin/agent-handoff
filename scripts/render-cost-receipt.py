@@ -302,6 +302,9 @@ def _figure(rows: list[dict], with_cost: bool) -> dict:
         "usage": usage,
         "cost_usd": sum(known) if (with_cost and known) else None,
         "cost_complete": bool(costs) and len(known) == len(costs),
+        # A run with no claude-backed job has nothing to read, which is not the
+        # same fact as a reading that was attempted and failed.
+        "cost_applicable": bool(costs),
         "jobs": len(rows),
     }
 
@@ -348,6 +351,19 @@ def _figure_cell(column: dict) -> str:
     return f"≥ {body} ({column['measured']} of {column['total']} jobs measured)"
 
 
+def _cost_sentence(figure: dict) -> str:
+    """`unknown` claims a reading was attempted and failed. A run with no
+    claude-backed job had nothing to read, and says so instead."""
+    if not figure["cost_applicable"]:
+        return ("There were no claude-backed jobs in this run, so there is no "
+                "CLI-reported cost.")
+    if figure["cost_usd"] is None:
+        return "CLI-reported cost of the claude-backed jobs: unknown."
+    partial = "" if figure["cost_complete"] else " (partial)"
+    return (f"CLI-reported cost of the claude-backed jobs: "
+            f"{repr(figure['cost_usd'])}{partial}.")
+
+
 def build_payload(receipt: dict, rows: list[dict], driver: dict,
                   interval, sources: list[str]) -> dict:
     fields = receipt["fields"]
@@ -389,10 +405,8 @@ def render_markdown(payload: dict) -> str:
     out.append("|" + "---|" * len(COUNTERS))
     out.append("| " + " | ".join(_figure_cell(codex["usage"][c]) for c in COUNTERS) + " |")
     out.append("")
-    cost = ("unknown" if outside["cost_usd"] is None
-            else repr(outside["cost_usd"]) + ("" if outside["cost_complete"] else " (partial)"))
     out.append(f"**Ran outside the driver session** ({outside['jobs']} jobs). "
-               f"CLI-reported cost of the claude-backed jobs: {cost}.")
+               f"{_cost_sentence(outside)}")
     out.append("")
     out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")
     out.append("|" + "---|" * len(COUNTERS))

@@ -55,6 +55,12 @@ const el = (tag, text, cls) => {
 const num = (v) => v === null || v === undefined ? "unknown" : v.toLocaleString();
 const figureCell = (c) => c.value === null ? "unknown"
   : (c.complete ? num(c.value) : `\u2265 ${num(c.value)} (${c.measured} of ${c.total})`);
+// "unknown" claims a reading was attempted and failed; a run with no
+// claude-backed job had nothing to read.
+const costNote = (fig) => !fig.cost_applicable
+  ? "There were no claude-backed jobs in this run, so there is no CLI-reported cost."
+  : `CLI-reported cost of the claude-backed jobs: ${fig.cost_usd === null ? "unknown"
+      : fig.cost_usd + (fig.cost_complete ? "" : " (partial)")}`;
 
 function table(headers, rows) {
   const wrap = el("div", null, "scroll");
@@ -92,8 +98,7 @@ function render() {
     const card = el("section", null, "card");
     card.appendChild(el("h2", `${title} \u00b7 ${fig.jobs} jobs`));
     card.appendChild(el("p", withCost
-      ? `CLI-reported cost of the claude-backed jobs: ${fig.cost_usd === null ? "unknown"
-          : fig.cost_usd + (fig.cost_complete ? "" : " (partial)")}`
+      ? costNote(fig)
       : "No cost figure: the Codex CLI emits none.", "note"));
     card.appendChild(table(counters.map(c => LABELS[c]),
       [counters.map(c => figureCell(fig.usage[c]))]));

@@ -348,6 +348,15 @@ class SummaryTests(unittest.TestCase):
     def test_denials_are_none_when_no_claude_job_reported_any(self):
         self.assertIsNone(rcr.summarize([row("a", "codex", 1)])["denials"])
 
+    def test_codex_only_run_has_no_applicable_cost(self):
+        summary = rcr.summarize([row("a", "codex", 100)])
+        self.assertFalse(summary["outside_driver"]["cost_applicable"])
+
+    def test_a_claude_job_makes_the_cost_applicable_even_when_unread(self):
+        summary = rcr.summarize([row("b", "claude", 1, cost=None)])
+        self.assertTrue(summary["outside_driver"]["cost_applicable"])
+        self.assertIsNone(summary["outside_driver"]["cost_usd"])
+
 
 class MarkdownTests(unittest.TestCase):
     def payload(self, rows=None, driver=None):
@@ -399,6 +408,15 @@ class MarkdownTests(unittest.TestCase):
 
     def test_measured_zero_renders_as_zero(self):
         self.assertEqual(rcr.md_cell(0), "0")
+
+    def test_codex_only_run_states_there_were_no_claude_jobs(self):
+        out = rcr.render_markdown(self.payload(rows=[row("job-a", "codex", 100)]))
+        self.assertIn("no claude-backed jobs", out)
+        self.assertNotIn("cost of the claude-backed jobs: unknown", out)
+
+    def test_an_unread_claude_cost_still_renders_unknown(self):
+        out = rcr.render_markdown(self.payload(rows=[row("job-b", "claude", 1, cost=None)]))
+        self.assertIn("cost of the claude-backed jobs: unknown", out)
 
     def test_denial_command_strings_never_reach_the_output(self):
         rows = [row("job-b", "claude", 1, denials=11)]
