@@ -283,6 +283,39 @@ def driver_row(session_id: str, interval, projects_root: Path = DEFAULT_PROJECTS
             "usage": usage, "models": sorted(models), "cost_usd": None}
 
 
+def _figure(rows: list[dict], with_cost: bool) -> dict:
+    usage = {}
+    for counter in COUNTERS:
+        values = [r["usage"].get(counter) for r in rows]
+        measured = [v for v in values if v is not None]
+        usage[counter] = {
+            "value": sum(measured) if measured else None,
+            "complete": len(measured) == len(values) and bool(values),
+            "measured": len(measured),
+            "total": len(values),
+        }
+    costs = [r["cost_usd"] for r in rows if r["backend"] == "claude"]
+    known = [c for c in costs if c is not None]
+    return {
+        "usage": usage,
+        "cost_usd": sum(known) if (with_cost and known) else None,
+        "cost_complete": bool(costs) and len(known) == len(costs),
+        "jobs": len(rows),
+    }
+
+
+def summarize(rows: list[dict]) -> dict:
+    """Two figures whose populations overlap by design: codex jobs are in both.
+    They are never added together, and neither is a saving."""
+    codex_rows = [r for r in rows if r["backend"] == "codex"]
+    denials = [r["denials"] for r in rows if r["denials"] is not None]
+    return {
+        "codex_subscription": _figure(codex_rows, with_cost=False),
+        "outside_driver": _figure(rows, with_cost=True),
+        "denials": sum(denials) if denials else None,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("receipt", nargs="?", default=None)

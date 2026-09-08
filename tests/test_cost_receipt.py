@@ -292,5 +292,61 @@ class DriverRowTests(unittest.TestCase):
         self.assertEqual(row["state"], "unavailable")
 
 
+def row(job_id, backend, input_tokens, cost=None, state="DONE", denials=None):
+    usage = {c: None for c in rcr.COUNTERS}
+    usage["input"] = input_tokens
+    return {"job_id": job_id, "label": "", "role": "", "backend": backend,
+            "model": "m", "state": state, "usage": usage, "cost_usd": cost,
+            "denials": denials, "models": [], "repeated": False}
+
+
+class SummaryTests(unittest.TestCase):
+    def test_codex_jobs_appear_in_both_figures(self):
+        summary = rcr.summarize([row("a", "codex", 100), row("b", "claude", 10, cost=2.5)])
+        self.assertEqual(summary["codex_subscription"]["usage"]["input"]["value"], 100)
+        self.assertEqual(summary["codex_subscription"]["jobs"], 1)
+        self.assertEqual(summary["outside_driver"]["usage"]["input"]["value"], 110)
+        self.assertEqual(summary["outside_driver"]["jobs"], 2)
+
+    def test_codex_figure_never_carries_a_cost(self):
+        summary = rcr.summarize([row("a", "codex", 100)])
+        self.assertIsNone(summary["codex_subscription"]["cost_usd"])
+
+    def test_cost_is_the_sum_of_claude_jobs_only_and_unrounded(self):
+        summary = rcr.summarize([row("a", "codex", 1),
+                                 row("b", "claude", 1, cost=6.633623999999999)])
+        self.assertEqual(summary["outside_driver"]["cost_usd"], 6.633623999999999)
+
+    def test_the_two_figures_are_not_addends(self):
+        summary = rcr.summarize([row("a", "codex", 100), row("b", "claude", 10)])
+        combined = (summary["codex_subscription"]["usage"]["input"]["value"]
+                    + summary["outside_driver"]["usage"]["input"]["value"])
+        self.assertNotEqual(summary["outside_driver"]["usage"]["input"]["value"], combined)
+
+    def test_an_unmeasured_row_marks_the_column_incomplete(self):
+        summary = rcr.summarize([row("a", "codex", 100),
+                                 row("b", "codex", None, state="RUNNING")])
+        column = summary["codex_subscription"]["usage"]["input"]
+        self.assertEqual(column["value"], 100)
+        self.assertFalse(column["complete"])
+        self.assertEqual((column["measured"], column["total"]), (1, 2))
+
+    def test_a_fully_measured_column_is_complete(self):
+        column = rcr.summarize([row("a", "codex", 100)])["codex_subscription"]["usage"]["input"]
+        self.assertTrue(column["complete"])
+
+    def test_missing_cost_on_a_claude_job_marks_cost_incomplete(self):
+        summary = rcr.summarize([row("b", "claude", 1, cost=None)])
+        self.assertFalse(summary["outside_driver"]["cost_complete"])
+
+    def test_denials_sum_across_claude_jobs(self):
+        summary = rcr.summarize([row("b", "claude", 1, denials=11),
+                                 row("c", "claude", 1, denials=2)])
+        self.assertEqual(summary["denials"], 13)
+
+    def test_denials_are_none_when_no_claude_job_reported_any(self):
+        self.assertIsNone(rcr.summarize([row("a", "codex", 1)])["denials"])
+
+
 if __name__ == "__main__":
     unittest.main()
