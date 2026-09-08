@@ -37,9 +37,14 @@
     --switch-hover: light-dark(#e3e3e0, #2c2c31);
     --switch-fg:    light-dark(#3d3d3a, #c3c3bf);
     --on-accent:    light-dark(#ffffff, #16161a);
+    /* Soft accent tint for the prompt bubble, as in the setup wizard. */
+    --accent-soft:     light-dark(#e7eaff, #232946);
+    --accent-soft-line:light-dark(#c9d0f7, #38406b);
+    --accent-soft-ink: light-dark(#41497f, #c3caf5);
+    --shadow-card: 0 1px 2px rgb(0 0 0 / .04), 0 6px 18px rgb(0 0 0 / .05);
+    --radius-card: 16px;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --ease-out: cubic-bezier(.16, 1, .3, 1);
-    --measure: 70ch;                        /* readable line length for prose */
     --gutter: clamp(1rem, 3vw, 2.5rem);
   }
   :root[data-theme="light"] { color-scheme: light; }
@@ -49,9 +54,7 @@
   body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6
     ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
   /* A wide window spends its width on the things that were being truncated:
-     trace rows, shell output, and the header grid. Prose is capped at
-     --measure instead, since a 200-character line is not more readable for
-     being possible. */
+     trace rows, shell output, message bubbles, and the header grid. */
   main { max-width:90rem; margin:0 auto; padding:1.5rem var(--gutter) 6rem; }
 
   #topbar { display:flex; justify-content:flex-end; margin-bottom:.5rem; }
@@ -66,9 +69,9 @@
   .segmented button:focus-visible { outline:2px solid var(--accent);
     outline-offset:2px; }
 
-  #header { border:1px solid var(--line); border-radius:.5rem;
+  #header { border:1px solid var(--line); border-radius:var(--radius-card);
     background:var(--card); padding:.9rem 1rem; margin-bottom:1.25rem;
-    box-shadow:0 1px 2px rgb(0 0 0 / .04), 0 2px 6px rgb(0 0 0 / .03); }
+    box-shadow:var(--shadow-card); }
   #header dl { display:grid; grid-template-columns:auto minmax(0,1fr);
     gap:.15rem .75rem; margin:0; font-size:.85rem; }
   #header dt { color:var(--muted); }
@@ -119,17 +122,31 @@
 
   /* Agent prose quotes absolute paths, which have no break opportunity and
      would otherwise push the page wider than a narrow window. */
-  .agent { padding:1rem 0 1.25rem; border-bottom:1px solid var(--line);
+  .agent { position:relative; margin:.75rem 0; padding:1rem 1.15rem;
+    border:1px solid var(--line); border-radius:var(--radius-card);
+    background:var(--card); box-shadow:var(--shadow-card);
     overflow-wrap:break-word; }
-  /* Capping the children rather than the article keeps the separator rule
-     flush with the trace rows above and below it. */
-  .agent > * { max-width:var(--measure); text-wrap:pretty; }
+  /* The prompt bubble is the job's own input: tinted and labelled, so it does
+     not read as something the worker said. */
+  .agent.user { background:var(--accent-soft);
+    border-color:var(--accent-soft-line); }
+  .agent.user .msg-role { color:var(--accent-soft-ink); }
+  .msg-role { display:block; margin-bottom:.35rem; color:var(--muted);
+    font:11px/1.4 var(--mono); text-transform:uppercase;
+    letter-spacing:.06em; }
+  /* Prose fills the bubble instead of wrapping at a narrower measure. */
+  .agent > * { text-wrap:pretty; }
+  .agent > :first-child { margin-top:0; }
+  .agent > :last-child { margin-bottom:0; }
   .agent > :is(h1,h2,h3,h4) { font-size:1.05rem; margin:1rem 0 .4rem;
     text-wrap:balance; }
-  .agent > pre { max-width:none; overflow-x:auto; background:var(--card);
-    border:1px solid var(--line); border-radius:.4rem; padding:.6rem .75rem; }
+  .agent > pre { max-width:none; overflow-x:auto; background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:.6rem .75rem; }
   .agent code { font-size:.85em; }
-  .agent :not(pre) > code { background:var(--card); border:1px solid var(--line);
+  /* Translucent, so a code chip sits correctly on the plain and the tinted
+     bubble alike. */
+  .agent :not(pre) > code { background:light-dark(rgb(0 0 0 / .05),
+    rgb(255 255 255 / .08)); border:1px solid var(--line);
     border-radius:.25rem; padding:.05em .3em; }
   .agent > table { max-width:100%; width:max-content; display:block;
     overflow-x:auto; border-collapse:collapse; font-size:.9em; margin:.75rem 0; }
@@ -552,18 +569,23 @@ if(__exports != exports)module.exports = exports;return module.exports}));
   }
 
   function renderRow(row) {
-    if (row.kind === 'agent' || row.kind === 'reasoning') {
+    if (row.kind === 'agent' || row.kind === 'reasoning' || row.kind === 'user') {
       const article = document.createElement('article');
       article.className = 'agent';
       // The ONLY markup assignment in the viewer, and only on renderMarkdown
       // output, whose emitted tags are allowlisted by the renderer overrides
       // above. Every other log string reaches the DOM through textContent.
       article.innerHTML = HV.renderMarkdown(row.text || '');
+      const role = document.createElement('span');
+      role.className = 'msg-role';
+      role.textContent = row.kind === 'user' ? 'prompt' : row.kind;
+      article.prepend(role);
+      if (row.kind === 'user') article.classList.add('user');
       if (row.time) {
         const when = document.createElement('div');
         when.className = 'muted';
         when.textContent = localTime(row.time) || '';
-        article.prepend(when);
+        role.after(when);
       }
       if (row.kind === 'reasoning') article.classList.add('muted');
       return article;
@@ -611,6 +633,9 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
     const stream = $('stream');
     stream.textContent = '';
+    // prompt.md is the job's first user message; the log starts after it.
+    if (payload.prompt_text)
+      stream.append(renderRow({ kind: 'user', text: payload.prompt_text }));
     rows.forEach(row => stream.append(renderRow(row)));
 
     if (partial) {
@@ -679,7 +704,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     // A dropped log carries no meta, so mount with an empty job record rather
     // than merging into whatever job the page was generated for.
     window.HandoffViewer.mount({
-      job_id: file.name, meta: {}, log_text: await file.text(),
+      job_id: file.name, meta: {}, log_text: await file.text(), prompt_text: '',
       state: null, exit_code: null, exit_code_mtime: null,
       log_mtime: null, generated_at: null, parent_job_id: null
     });

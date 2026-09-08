@@ -28,10 +28,12 @@ class Base(unittest.TestCase):
         self.jobs.mkdir(parents=True)
 
     def make_job(self, name, *, meta=None, log="", exit_code=None,
-                 pid=None, cancelled=False):
+                 pid=None, cancelled=False, prompt=None):
         job = self.jobs / name
         job.mkdir()
         (job / "log.jsonl").write_text(log, encoding="utf-8")
+        if prompt is not None:
+            (job / "prompt.md").write_text(prompt, encoding="utf-8")
         lines = {"label": name.split("-")[-1], "submitted_at": "2026-09-08T10:00:00Z"}
         lines.update(meta or {})
         (job / "meta").write_text(
@@ -164,6 +166,14 @@ class PayloadTests(Base):
     def test_parent_job_id_recorded_for_resumes(self):
         job = self.make_job("job-p-three", meta={"parent": "job-parent", "mode": "resume"})
         self.assertEqual(rt.build_payload(job)["parent_job_id"], "job-parent")
+
+    def test_prompt_md_becomes_the_first_user_message(self):
+        job = self.make_job("job-p-five", prompt="# Task\nShip it.\n")
+        self.assertEqual(rt.build_payload(job)["prompt_text"], "# Task\nShip it.\n")
+
+    def test_missing_prompt_is_empty_string(self):
+        job = self.make_job("job-p-six")
+        self.assertEqual(rt.build_payload(job)["prompt_text"], "")
 
     def test_missing_log_is_empty_not_an_error(self):
         job = self.jobs / "job-p-four"

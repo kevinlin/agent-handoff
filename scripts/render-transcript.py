@@ -133,10 +133,15 @@ def _iso(timestamp: float) -> str:
 def build_payload(job_dir: Path) -> dict:
     meta = read_meta(job_dir)
     log = job_dir / "log.jsonl"
+    prompt = job_dir / "prompt.md"
     exit_code_file = job_dir / "exit_code"
     return {
         "job_id": job_dir.name,
         "meta": meta,
+        # The prompt is the job's first user message; the log itself never
+        # carries it, so the page cannot reconstruct it from log_text.
+        "prompt_text": prompt.read_text(encoding="utf-8", errors="replace")
+        if prompt.is_file() else "",
         "log_text": log.read_text(encoding="utf-8", errors="replace") if log.is_file() else "",
         "state": job_state(job_dir),
         "exit_code": exit_code_file.read_text(encoding="utf-8").strip()
