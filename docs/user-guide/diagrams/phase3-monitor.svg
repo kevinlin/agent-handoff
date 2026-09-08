@@ -41,7 +41,7 @@
   <rect x="461.0" y="104" width="11" height="11" rx="3" fill="#475569" opacity="0.85"/>
   <text x="478.0" y="114" class="leg">.handoff/ on disk</text>
   <path d="M 596 190 H 622 V 213 H 641" fill="none" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
-  <rect x="600" y="170" width="44" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="600" y="169" width="44" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="182" class="ev" text-anchor="middle">short</text>
   <line x1="346" y1="231" x2="346" y2="315" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="280" class="ev">long / many</text>
@@ -52,7 +52,7 @@
   <line x1="346" y1="702" x2="346" y2="741" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="729" class="ev">state + last event</text>
   <path d="M 596 788 H 622 V 818 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="592.8" y="768" width="58.4" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="592.8" y="767" width="58.4" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="780" class="ev" text-anchor="middle">stalled</text>
   <path d="M 898 889 V 912 H 52 V 504 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
   <text x="46" y="662" class="back" text-anchor="middle" transform="rotate(-90 46 662)">resubmitted → next tick</text>

@@ -53,17 +53,17 @@
   <text x="358" y="714" class="ev">bytes + hash</text>
   <line x1="346" y1="844" x2="346" y2="883" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a)"/>
   <path d="M 596 930 H 622 V 946 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="589.2" y="910" width="65.6" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="589.2" y="909" width="65.6" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="922" class="ev" text-anchor="middle">conflict</text>
   <line x1="346" y1="971" x2="346" y2="1040" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="1013" class="ev">the split, verbatim</text>
   <line x1="596" y1="1102" x2="641" y2="1102" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="592.8" y="1082" width="58.4" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="592.8" y="1081" width="58.4" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="1094" class="ev" text-anchor="middle">answers</text>
   <path d="M 898 1158 V 1181 H 52 V 788 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
   <text x="46" y="946" class="back" text-anchor="middle" transform="rotate(-90 46 946)">fix the split, gate again</text>
   <line x1="346" y1="1158" x2="346" y2="1197" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="354" y="1174" width="137.6" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="354" y="1173" width="137.6" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="358" y="1185" class="ev">the split survives</text>
   <rect x="96" y="150" width="500" height="81" rx="9" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
   <rect x="110" y="161" width="44.8" height="18" rx="6" fill="#0f172a" opacity="0.10"/>
@@ -158,7 +158,7 @@
   <text x="662" y="1302" class="note">read-only: no edit to the plan, the goal file, or the repo</text>
   <text x="662" y="1317" class="note">same vendor as the driver → say so, do not claim independence</text>
   <line x1="346" y1="1330" x2="346" y2="1369" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a)"/>
-  <rect x="354" y="1346" width="110" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="354" y="1345" width="110" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="358" y="1357" class="ev">plan adjusted</text>
   <rect x="96" y="1376" width="500" height="96" rx="9" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
   <rect x="110" y="1387" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>

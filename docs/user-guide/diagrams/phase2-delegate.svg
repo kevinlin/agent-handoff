@@ -47,7 +47,7 @@
   <line x1="346" y1="560" x2="346" y2="599" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="587" class="ev">--role</text>
   <path d="M 596 654 H 622 V 669 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="592.8" y="634" width="58.4" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="592.8" y="633" width="58.4" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="645" class="ev" text-anchor="middle">invalid</text>
   <line x1="346" y1="702" x2="346" y2="771" stroke="#d97706" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="744" class="ev">backend · model · effort</text>

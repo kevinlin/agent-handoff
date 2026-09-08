@@ -44,7 +44,7 @@
   <text x="599.0" y="114" class="leg">.handoff/ on disk</text>
   <line x1="346" y1="246" x2="346" y2="285" stroke="#475569" stroke-width="1.6" marker-end="url(#a)"/>
   <line x1="596" y1="355" x2="641" y2="355" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="603.6" y="335" width="36.8" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="603.6" y="334" width="36.8" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="346" class="ev" text-anchor="middle">gaps</text>
   <line x1="346" y1="418" x2="346" y2="457" stroke="#475569" stroke-width="1.6" marker-end="url(#a)"/>
   <text x="358" y="445" class="ev">evidence-derived fields</text>

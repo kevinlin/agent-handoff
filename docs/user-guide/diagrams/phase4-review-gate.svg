@@ -43,7 +43,7 @@
   <line x1="346" y1="560" x2="346" y2="599" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
   <path d="M 596 646 H 622 V 669 H 641" fill="none" stroke="#059669" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <path d="M 596 646 H 622 V 841 H 641" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ar)"/>
-  <rect x="589.2" y="626" width="65.6" height="15" rx="4" fill="#f8fafc" opacity="0.95"/>
+  <rect x="589.2" y="625" width="65.6" height="18" rx="4" fill="#f8fafc" opacity="0.95"/>
   <text x="622" y="638" class="ev" text-anchor="middle">findings</text>
   <path d="M 898 904 V 927 H 52 V 355 H 89" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ag)"/>
   <text x="46" y="598" class="back" text-anchor="middle" transform="rotate(-90 46 598)">re-review from the brief</text>
