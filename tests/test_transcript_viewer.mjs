@@ -196,3 +196,113 @@ test('codex logs stay timeless rather than inheriting a neighbour clock', () => 
   const { rows } = normalize(fixture('codex-basic.jsonl'));
   assert.ok(rows.every(r => r.time == null));
 });
+
+// --- Copilot ---------------------------------------------------------------
+// The branch is chosen by the declared backend, because copilot's terminal
+// event shares the `result` type name with claude stream-json.
+
+test('copilot folds execution_start/complete pairs by toolCallId', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  const bash = rows.filter(r => r.tool_call_id === 'call_A');
+  assert.equal(bash.length, 1);
+  assert.equal(bash[0].kind, 'command');
+  assert.equal(bash[0].command, 'pytest -q');
+  assert.equal(bash[0].output, '2 passed');
+  assert.equal(bash[0].is_error, false);
+  assert.equal(bash[0].pos, 8, 'keeps the execution_start line position');
+});
+
+test('copilot ephemeral events are dropped', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  const raws = rows.map(r => JSON.stringify(r.raw));
+  assert.ok(raws.every(r => !r.includes('message_delta')));
+  assert.ok(raws.every(r => !r.includes('tool_call_delta')));
+  assert.ok(raws.every(r => !r.includes('"ephemeral"')));
+});
+
+test('copilot final_answer is the one agent row', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  const agents = rows.filter(r => r.kind === 'agent');
+  assert.equal(agents.length, 1);
+  assert.equal(agents[0].final, true);
+  assert.match(agents[0].text, /^Suite passed/);
+});
+
+test('a failed copilot write is an error row, never a file change', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  const create = rows.find(r => r.tool_call_id === 'call_B');
+  assert.equal(create.is_error, true);
+  assert.equal(create.kind, 'error');
+  assert.equal(create.denied, undefined);
+  assert.match(create.text, /EACCES/);
+});
+
+test('a denied copilot tool call is typed as denied, not just failed', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  const denied = rows.find(r => r.tool_call_id === 'call_C');
+  assert.equal(denied.denied, true);
+  assert.equal(denied.is_error, true);
+  assert.match(denied.output, /shell\(curl\)/);
+});
+
+test('copilot turn events and result become lifecycle rows', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  const labels = rows.filter(r => r.kind === 'lifecycle').map(r => r.label);
+  assert.deepEqual(labels, ['turn started', 'turn completed', 'result']);
+  const result = rows.find(r => r.label === 'result');
+  assert.equal(result.detail, 'exit 0');
+  assert.equal(result.usage.premiumRequests, 1);
+});
+
+test('copilot per-event timestamps are captured', () => {
+  const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');
+  assert.equal(rows[0].time, '2026-09-09T05:31:17.900Z');
+});
+
+test('a truncated copilot log reports partial and keeps the session error', () => {
+  const { rows, partial } = normalize(fixture('copilot-truncated.jsonl'), 'copilot');
+  assert.equal(partial, true);
+  assert.equal(rows.filter(r => r.kind === 'unparsed').length, 0);
+  const error = rows.find(r => r.kind === 'error');
+  assert.match(error.text, /400 Unsupported value/);
+  const open = rows.find(r => r.tool_call_id === 'call_Z');
+  assert.equal(open.is_error, undefined, 'an unfinished tool call has no outcome');
+});
+
+test('a dropped copilot log with no meta.backend still parses as copilot', () => {
+  // The drop path mounts with meta: {}, so the backend has to be inferred.
+  const text = fixture('copilot-basic.jsonl');
+  assert.equal(globalThis.window.HandoffViewer.inferBackend(text), 'copilot');
+  assert.deepEqual(normalize(text), normalize(text, 'copilot'));
+});
+
+test('the backend is inferred from a unique type, never from result', () => {
+  const HVn = globalThis.window.HandoffViewer;
+  assert.equal(HVn.inferBackend(fixture('codex-basic.jsonl')), 'codex');
+  assert.equal(HVn.inferBackend('{"type":"result","exitCode":0}'), null);
+  assert.equal(HVn.inferBackend('{"type":"result","result":"done"}'), null);
+});
+
+test('one result line parses differently under each declared backend', () => {
+  const line = '{"type":"result","result":"All done.","exitCode":0,"usage":{"premiumRequests":1}}';
+  const copilot = normalize(line, 'copilot').rows;
+  const claude = normalize(line, 'claude').rows;
+  assert.deepEqual(copilot.map(r => r.kind), ['lifecycle']);
+  assert.equal(copilot[0].detail, 'exit 0');
+  assert.deepEqual(claude.map(r => r.kind), ['agent', 'lifecycle']);
+  assert.equal(claude[0].text, 'All done.');
+  assert.equal(claude[1].detail, undefined);
+});
+
+test('codex and claude fixtures parse exactly as they did before the copilot branch', () => {
+  // Snapshot taken from the parser as it stood before this branch existed.
+  // Compared through JSON, so an explicitly-undefined key reads as absent.
+  const baseline = JSON.parse(fixture('baseline-rows.json'));
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  for (const [name, expected] of Object.entries(baseline)) {
+    const text = fixture(name);
+    assert.deepEqual(plain(normalize(text)), expected, `${name} with no declared backend`);
+    assert.deepEqual(plain(normalize(text, 'codex')), expected, `${name} declared codex`);
+    assert.deepEqual(plain(normalize(text, 'claude')), expected, `${name} declared claude`);
+  }
+});

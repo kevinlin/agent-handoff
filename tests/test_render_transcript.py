@@ -175,6 +175,21 @@ class PayloadTests(Base):
         job = self.make_job("job-p-six")
         self.assertEqual(rt.build_payload(job)["prompt_text"], "")
 
+    def test_copilot_job_payload_declares_its_backend(self):
+        # The viewer picks its parser from meta.backend, because copilot's
+        # terminal event shares the `result` type name with claude's.
+        log = (Path(__file__).resolve().parent / "fixtures" / "transcript"
+               / "copilot-basic.jsonl").read_text(encoding="utf-8")
+        job = self.make_job("job-p-copilot", log=log, exit_code=0,
+                            meta={"backend": "copilot",
+                                  "model": "mai-code-1.1-flash"})
+        payload = rt.build_payload(job)
+        self.assertEqual(payload["meta"]["backend"], "copilot")
+        # The generator filters nothing: ephemeral events reach the page and
+        # the browser-side parser drops them.
+        self.assertEqual(payload["log_text"], log)
+        self.assertIn('"ephemeral":true', payload["log_text"])
+
     def test_missing_log_is_empty_not_an_error(self):
         job = self.jobs / "job-p-four"
         job.mkdir()

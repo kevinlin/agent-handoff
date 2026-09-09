@@ -1,0 +1,238 @@
+{
+ "codex-basic.jsonl": {
+  "rows": [
+   {
+    "kind": "lifecycle",
+    "pos": 0,
+    "label": "thread started",
+    "detail": "th-1",
+    "raw": {
+     "type": "thread.started",
+     "thread_id": "th-1"
+    }
+   },
+   {
+    "kind": "lifecycle",
+    "pos": 1,
+    "label": "turn started",
+    "raw": {
+     "type": "turn.started"
+    }
+   },
+   {
+    "pos": 2,
+    "id": "i1",
+    "raw": {
+     "id": "i1",
+     "type": "command_execution",
+     "command": "ls",
+     "aggregated_output": "a\nb",
+     "exit_code": 0,
+     "status": "completed"
+    },
+    "kind": "command",
+    "command": "ls",
+    "output": "a\nb",
+    "exit_code": 0,
+    "status": "completed"
+   },
+   {
+    "kind": "unparsed",
+    "pos": 3,
+    "line": 4,
+    "text": "NOT JSON AT ALL"
+   },
+   {
+    "pos": 5,
+    "id": "i2",
+    "raw": {
+     "id": "i2",
+     "type": "agent_message",
+     "text": "# Done\n\nAll **good**."
+    },
+    "kind": "agent",
+    "text": "# Done\n\nAll **good**."
+   },
+   {
+    "pos": 6,
+    "id": "i3",
+    "raw": {
+     "id": "i3",
+     "type": "web_search",
+     "query": "trunc...",
+     "action": {
+      "type": "search",
+      "queries": [
+       "full one",
+       "full two"
+      ]
+     }
+    },
+    "kind": "web_search",
+    "queries": [
+     "full one",
+     "full two"
+    ]
+   },
+   {
+    "kind": "lifecycle",
+    "pos": 7,
+    "label": "turn completed",
+    "usage": {
+     "input_tokens": 5,
+     "output_tokens": 2
+    },
+    "raw": {
+     "type": "turn.completed",
+     "usage": {
+      "input_tokens": 5,
+      "output_tokens": 2
+     }
+    }
+   }
+  ],
+  "partial": true
+ },
+ "claude-tools.jsonl": {
+  "rows": [
+   {
+    "kind": "lifecycle",
+    "pos": 0,
+    "label": "session start",
+    "detail": "sess-1",
+    "raw": {
+     "type": "system",
+     "subtype": "init",
+     "session_id": "sess-1",
+     "model": "opus"
+    }
+   },
+   {
+    "pos": 1,
+    "raw": {
+     "type": "text",
+     "text": "Checking."
+    },
+    "kind": "agent",
+    "text": "Checking."
+   },
+   {
+    "pos": 1,
+    "raw": {
+     "type": "tool_use",
+     "id": "tu1",
+     "name": "Bash",
+     "input": {
+      "command": "pytest -q"
+     }
+    },
+    "tool_use_id": "tu1",
+    "tool": "Bash",
+    "args": {
+     "command": "pytest -q"
+    },
+    "kind": "command",
+    "command": "pytest -q",
+    "output": "2 passed",
+    "is_error": false
+   },
+   {
+    "pos": 1,
+    "raw": {
+     "type": "weird_block",
+     "note": "unknown"
+    },
+    "kind": "unknown",
+    "type": "weird_block"
+   },
+   {
+    "pos": 3,
+    "raw": {
+     "type": "tool_use",
+     "id": "tu2",
+     "name": "Edit",
+     "input": {
+      "file_path": "/x/a.py"
+     }
+    },
+    "tool_use_id": "tu2",
+    "tool": "Edit",
+    "args": {
+     "file_path": "/x/a.py"
+    },
+    "kind": "error",
+    "changes": [
+     {
+      "path": "/x/a.py",
+      "kind": "update"
+     }
+    ],
+    "output": "File not found",
+    "is_error": true,
+    "text": "File not found"
+   },
+   {
+    "pos": 5,
+    "raw": {
+     "type": "text",
+     "text": "All set."
+    },
+    "kind": "agent",
+    "text": "All set.",
+    "final": true
+   },
+   {
+    "kind": "lifecycle",
+    "pos": 6,
+    "label": "result",
+    "usage": {
+     "input_tokens": 11,
+     "output_tokens": 7
+    },
+    "raw": {
+     "type": "result",
+     "subtype": "success",
+     "result": "All set.",
+     "usage": {
+      "input_tokens": 11,
+      "output_tokens": 7
+     }
+    }
+   }
+  ],
+  "partial": false
+ },
+ "xss.jsonl": {
+  "rows": [
+   {
+    "pos": 0,
+    "id": "x1",
+    "raw": {
+     "id": "x1",
+     "type": "agent_message",
+     "text": "raw: <img src=x onerror=alert(1)>\n\n<svg onload=alert(1)></svg>\n\n[click](javascript:alert(1))\n\n![pic](javascript:alert(1))\n\n[ok](https://example.com \"a \\\" quote\")\n\nprose <div> and Vec<T>\n\ntext </script><img src=y onerror=alert(2)> more"
+    },
+    "kind": "agent",
+    "text": "raw: <img src=x onerror=alert(1)>\n\n<svg onload=alert(1)></svg>\n\n[click](javascript:alert(1))\n\n![pic](javascript:alert(1))\n\n[ok](https://example.com \"a \\\" quote\")\n\nprose <div> and Vec<T>\n\ntext </script><img src=y onerror=alert(2)> more"
+   },
+   {
+    "pos": 1,
+    "id": "x2",
+    "raw": {
+     "id": "x2",
+     "type": "command_execution",
+     "command": "cat evil.html",
+     "aggregated_output": "<img src=x onerror=alert(3)><script>alert(4)</script>",
+     "exit_code": 0,
+     "status": "completed"
+    },
+    "kind": "command",
+    "command": "cat evil.html",
+    "output": "<img src=x onerror=alert(3)><script>alert(4)</script>",
+    "exit_code": 0,
+    "status": "completed"
+   }
+  ],
+  "partial": false
+ }
+}

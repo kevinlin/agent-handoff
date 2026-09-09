@@ -338,11 +338,46 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     return { kind: 'unknown', type: block.type };
   }
 
-  HV.normalize = function normalize(logText) {
+  const COPILOT_EDIT_TOOLS = new Set(['create', 'edit', 'str_replace', 'write']);
+
+  function mapCopilotTool(data) {
+    const name = data.toolName || '';
+    const args = data.arguments || {};
+    const base = { tool_call_id: data.toolCallId, tool: name, args };
+    if (name === 'bash' || name === 'shell')
+      return { ...base, kind: 'command', command: args.command || '', output: '' };
+    if (COPILOT_EDIT_TOOLS.has(name))
+      // Provisional, as in the claude branch: a refused write is not a change.
+      return { ...base, kind: 'file_change', pending_edit: true,
+               changes: args.path ? [{ path: args.path, kind: 'update' }] : [] };
+    return { ...base, kind: 'tool' };
+  }
+
+  // Copilot's terminal event is `type: "result"`, the same type name claude
+  // stream-json uses with a different payload, so the branch is chosen by the
+  // declared backend and never by the event shape. Only types unique to one
+  // format may seed the guess a metadata-free dropped log needs.
+  HV.inferBackend = function inferBackend(logText) {
+    const lines = String(logText == null ? '' : logText).split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try { event = JSON.parse(line.trim()); } catch (_) { continue; }
+      const type = (event && event.type) || '';
+      if (type === 'assistant.turn_start' || type === 'tool.execution_start')
+        return 'copilot';
+      if (type.indexOf('item.') === 0) return 'codex';
+    }
+    return null;
+  };
+
+  HV.normalize = function normalize(logText, backend) {
     const rows = [];
     const byItemId = new Map();
     const byToolUseId = new Map();
+    const byToolCallId = new Map();
     const lines = String(logText == null ? '' : logText).split('\n');
+    const format = backend || HV.inferBackend(logText);
     let partial = false;
 
     // Codex emits no per-event clock; Claude stream-json carries `timestamp`
@@ -372,6 +407,64 @@ if(__exports != exports)module.exports = exports;return module.exports}));
       const type = event.type || '';
       const item = event.item || null;
       currentTime = typeof event.timestamp === 'string' ? event.timestamp : null;
+
+      // --- Copilot envelope -----------------------------------------------
+      if (format === 'copilot') {
+        // Streaming noise: one small job produced 82 ephemeral message deltas.
+        if (event.ephemeral === true) return;
+        const data = event.data || {};
+
+        if (type === 'tool.execution_start') {
+          const row = add({ pos: index, raw: data, ...mapCopilotTool(data) });
+          if (data.toolCallId) byToolCallId.set(data.toolCallId, row);
+          return;
+        }
+        if (type === 'tool.execution_complete') {
+          const target = byToolCallId.get(data.toolCallId);
+          const error = data.error || null;
+          const text = error
+            ? (error.message || 'tool call failed')
+            : ((data.result && data.result.content) || '');
+          if (!target) {
+            add({ kind: 'error', pos: index, raw: data,
+                  text: 'tool result with no matching tool call' });
+            return;
+          }
+          target.output = text;
+          target.is_error = data.success === false;
+          // The denial is typed, so it never has to be pattern-matched.
+          if (error && error.code === 'denied') target.denied = true;
+          if (target.pending_edit && target.is_error) {
+            target.kind = 'error';
+            target.text = text;
+          }
+          delete target.pending_edit;
+          return;
+        }
+        // A tool-calling assistant.message carries no text; its work shows up
+        // as the tool.execution_* pair already folded above.
+        if (type === 'assistant.message') {
+          if (data.phase === 'final_answer')
+            add({ kind: 'agent', pos: index, text: data.content || '',
+                  final: true, raw: data });
+          return;
+        }
+        if (type === 'session.error')
+          return add({ kind: 'error', pos: index, raw: data,
+                       text: data.message || 'session error' });
+        if (type === 'assistant.turn_start')
+          return add({ kind: 'lifecycle', pos: index, label: 'turn started',
+                       raw: event });
+        if (type === 'assistant.turn_end')
+          return add({ kind: 'lifecycle', pos: index, label: 'turn completed',
+                       raw: event });
+        if (type === 'result')
+          return add({ kind: 'lifecycle', pos: index, label: 'result',
+                       detail: `exit ${event.exitCode}`, usage: event.usage,
+                       raw: event });
+        add({ kind: 'unknown', pos: index, type, raw: event });
+        return;
+      }
 
       // --- Codex envelope -------------------------------------------------
       if (item && type.indexOf('item.') === 0) {
@@ -586,6 +679,9 @@ if(__exports != exports)module.exports = exports;return module.exports}));
   }
 
   function summarize(row) {
+    // A denial is the failure the exit code does not show, so it is named in
+    // the summary rather than left folded inside the body.
+    if (row.denied) return `denied: ${row.tool || 'tool'} ${row.command || ''}`.trim();
     if (row.kind === 'command') return row.command;
     if (row.kind === 'file_change')
       return (row.changes || []).map(c => `${c.kind} ${c.path}`).join(', ');
@@ -601,8 +697,12 @@ if(__exports != exports)module.exports = exports;return module.exports}));
   function glyphFor(row) {
     if (row.kind === 'error' || row.is_error) return '!';
     if (row.kind === 'unparsed') return '?';
-    if (row.kind === 'command')
+    if (row.kind === 'command') {
+      // Copilot reports a tool outcome as a boolean, never as an exit code,
+      // so a finished successful call would otherwise read as still running.
+      if (row.exit_code == null && row.is_error === false) return 'ok';
       return row.exit_code === 0 ? 'ok' : (row.exit_code == null ? '..' : 'x');
+    }
     if (row.kind === 'file_change') return 'w';
     return '-';
   }
@@ -672,7 +772,10 @@ if(__exports != exports)module.exports = exports;return module.exports}));
   }
 
   HV.mount = function mount(payload) {
-    const { rows, partial } = HV.normalize(payload.log_text || '');
+    // A generated page declares its backend; a dropped raw log has no meta,
+    // so normalize falls back to inferring it from the events.
+    const { rows, partial } = HV.normalize(payload.log_text || '',
+                                           (payload.meta || {}).backend);
     renderHeader(payload);
 
     const stream = $('stream');

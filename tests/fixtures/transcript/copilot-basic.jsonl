@@ -1,0 +1,18 @@
+{"type":"session.managed_settings_resolved","data":{"deviceMdm":"none"},"id":"e1","timestamp":"2026-09-09T05:31:17.900Z"}
+{"type":"user.message","data":{"content":"Run the checks and write a note."},"id":"e2","timestamp":"2026-09-09T05:31:17.910Z"}
+{"type":"assistant.turn_start","data":{"turnId":"0"},"id":"e3","timestamp":"2026-09-09T05:31:17.966Z"}
+{"type":"assistant.message_start","data":{"messageId":"m0"},"ephemeral":true,"id":"e4","timestamp":"2026-09-09T05:31:18.000Z"}
+{"type":"assistant.message_delta","data":{"delta":"Runn"},"ephemeral":true,"id":"e5","timestamp":"2026-09-09T05:31:18.010Z"}
+{"type":"assistant.message_delta","data":{"delta":"ing"},"ephemeral":true,"id":"e6","timestamp":"2026-09-09T05:31:18.020Z"}
+{"type":"assistant.tool_call_delta","data":{"toolCallId":"call_A"},"ephemeral":true,"id":"e7","timestamp":"2026-09-09T05:31:18.030Z"}
+{"type":"assistant.message","data":{"messageId":"m0","model":"mai-code-1.1-flash","content":"","toolRequests":[{"toolCallId":"call_A","name":"bash","arguments":{"command":"pytest -q"},"type":"function"}],"turnId":"0"},"id":"e8","timestamp":"2026-09-09T05:31:18.100Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_A","toolName":"bash","arguments":{"command":"pytest -q","description":"run the suite","mode":"sync"},"turnId":"0","model":"mai-code-1.1-flash"},"id":"e9","timestamp":"2026-09-09T05:31:18.200Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_A","success":true,"result":{"content":"2 passed"}},"id":"e10","timestamp":"2026-09-09T05:31:19.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_B","toolName":"create","arguments":{"path":"/repo/notes.txt","file_text":"ok\n"},"turnId":"0"},"id":"e11","timestamp":"2026-09-09T05:31:19.100Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_B","success":false,"error":{"message":"EACCES: permission denied, open '/repo/notes.txt'","code":"tool_error"}},"id":"e12","timestamp":"2026-09-09T05:31:19.200Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_C","toolName":"bash","arguments":{"command":"curl -s https://example.com -o /dev/null","mode":"sync"},"turnId":"0"},"id":"e13","timestamp":"2026-09-09T05:31:19.300Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_C","success":false,"error":{"message":"Permission to run this tool was denied due to the following rules: `shell(curl)`","code":"denied"},"toolTelemetry":{"properties":{"shell_error_category":"permission_denied"}}},"id":"e14","timestamp":"2026-09-09T05:31:19.400Z"}
+{"type":"assistant.message","data":{"content":"Suite passed; the note was refused and curl was denied.","toolRequests":[],"turnId":"1","phase":"final_answer","model":"mai-code-1.1-flash"},"id":"e15","timestamp":"2026-09-09T05:31:20.000Z"}
+{"type":"assistant.turn_end","data":{"turnId":"1"},"id":"e16","timestamp":"2026-09-09T05:31:20.100Z"}
+{"type":"assistant.idle","data":{},"id":"e17","timestamp":"2026-09-09T05:31:20.200Z"}
+{"type":"result","timestamp":"2026-09-09T05:31:25.752Z","sessionId":"c33ddfad-4c6b-47a3-af49-6b2ca80182ce","exitCode":0,"usage":{"premiumRequests":1,"totalApiDurationMs":3533}}
