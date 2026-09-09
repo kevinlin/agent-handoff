@@ -271,7 +271,7 @@ Confirm the job edited files, `meta` records `backend=claude`, and the receipt c
 ## Not doing
 
 - No rename of `delegate-codex.sh`, no new delegation script, no config schema change.
-- No per-identity `permission_mode` field — the env override covers the sandbox case.
+- No per-identity `permission_mode` field, the env override covers the sandbox case. (Reversed in v3.7.1: each identity now has `permission_mode=default|allow-all`; the Claude env override remains supported.)
   *(v3.5.1: still true, but the reasoning was thin. An override only covers a case someone already
   knows to set, and nothing surfaced the need — the failing run's own report said the gates
   passed. The fix was to change the default and to report denials, not to add a field.)*

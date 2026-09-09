@@ -2,7 +2,7 @@
 
 Handoff uses one TOML configuration shape at project and global scope. The writer owns only the `hosts.claude_code` namespace; top-level comments, `[routing]`, and unknown sections are preserved as raw bytes.
 
-An identity is the complete routing choice `backend + model + effort`. Tasks select one of `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`; the identity's `backend` determines which CLI executes it.
+An identity is the routing choice `backend + model + effort` plus a per-identity `permission_mode`. Tasks select one of `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`; the identity's `backend` determines which CLI executes it.
 
 All three backend values — `claude`, `codex`, and `copilot` — are first-class execution channels for delegated jobs. `backend = "claude"` is not a subagent-only marker, and `backend = "copilot"` is not a second-class one: `delegate-codex.sh --role <identity>` runs any of them as a background job with the same jobId, job state, monitoring, fix-round `resume`, and receipt evidence. A per-job `--backend` contradicting a configured identity is refused — moving work onto another vendor is a change to this file, not a per-run override.
 
@@ -37,6 +37,7 @@ revision = 0
 backend = "claude"          # claude | codex | copilot — which CLI executes
 model = "opus"
 effort = "high"
+permission_mode = "default" # default | allow-all
 auto_review_spec = true     # optional, deep_reasoner only; setup writes it under --spec-review
 verified = false
 
@@ -80,6 +81,7 @@ always_on_host_rules = false
 | `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, or `copilot`. All three are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
 | `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot`, `auto` is refused at submit — name a concrete model. |
 | `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`. Copilot's enum is the CLI's superset — which efforts a given Copilot model actually accepts is decided per model by the API, and a rejected pair surfaces as Copilot's own error rather than being silently downgraded. |
+| `hosts.claude_code.identities.<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
 | `hosts.claude_code.identities.deep_reasoner.auto_review_spec` | boolean | no | Whether `deep_reasoner` reviews the plan once during Phase 1 planning, before it reaches the user. Absent means off. Rejected on any other identity. |
 | `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
@@ -89,7 +91,7 @@ Every configured identity requires `backend`, `model`, and `effort`. Backend is 
 
 ## Ownership and deterministic writes
 
-The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `auto_review_spec`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
+The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `permission_mode`, `auto_review_spec`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
 
 Comments and formatting inside an owned section are intentionally not retained. All unowned chunks remain in their original order and retain their original bytes, including comments and line endings.
 
@@ -132,8 +134,11 @@ python3 scripts/handoff-config.py --scope project init
 python3 scripts/handoff-config.py --scope project validate
 python3 scripts/handoff-config.py --scope project get hosts.claude_code.identities.deep_reasoner.backend
 python3 scripts/handoff-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
+python3 scripts/handoff-config.py --scope project set --role fast_worker --permission-mode allow-all
+python3 scripts/handoff-setup.py --preview --role-permission-mode fast_worker=default
 python3 scripts/handoff-config.py --scope project set --role deep_reasoner --spec-review
 python3 scripts/handoff-config.py --repo /path/to/repo resolve
+python3 scripts/handoff-config.py --repo /path/to/repo resolve --override fast_worker.permission_mode=default
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.auto_review_spec=true
 ```
@@ -141,3 +146,91 @@ python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_r
 The `set` command retains `--role` as its identity selector, and accepts the optional e2e identities alongside the core three. `--spec-review` / `--no-spec-review` write `auto_review_spec` and are refused on any identity but `deep_reasoner`; unlike a backend, model, or effort change, they leave `verified` and `verified_at` intact. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
 
 Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates the complete precedence chain; `get`, `set`, `validate`, and `init` target the selected scope.
+
+## Permission posture (v3.7.1)
+
+`default` is the CLI's own normal, bounded posture. Nothing prompts (a background
+job has no approval surface), so an unapproved action denies. `allow-all` means
+*use the provider's native unrestricted mode*, not force three CLIs into one
+security posture.
+
+| Backend | `default` | `allow-all` |
+|---|---|---|
+| claude | `--permission-mode dontAsk --allowed-tools Read Glob Grep Edit Write Bash` | `--permission-mode bypassPermissions` |
+| codex (fresh and resume) | No sandbox flag or override; the user's codex config decides | `--dangerously-bypass-approvals-and-sandbox` |
+| copilot | `--allow-all-tools` | `--allow-all-tools --allow-all-paths --allow-all-urls` |
+
+Only claude changes behaviour under `default`. Codex and copilot `default` are
+exactly what they emitted before; `allow-all` is a new, opt-in escalation on all
+three. This deliberately narrows the blast radius for a patch release.
+
+Claude's default set is enough to edit and verify: a `default` worker was
+measured editing a file and running its own check script. Under `dontAsk` a tool
+call that is not already approved is denied instead of run, where
+`bypassPermissions` runs it. That is the whole of the difference, and it is
+smaller than it looks. `deny` and `ask` rules in the user's own settings produce
+hard denials under **both** postures -- measured, not assumed -- so they are not
+what separates them; and on a machine whose settings already approve a tool,
+both postures were observed reaching it with zero denials, `WebFetch` included.
+How much `default` narrows therefore depends on the user's own Claude Code
+settings. It is a permission-rule posture, never containment. The allowlist is
+not applied to `--read-only` jobs.
+
+Precedence: `--read-only` > `HANDOFF_CLAUDE_PERMISSION_MODE` (claude only) >
+config `permission_mode` > `default`. The legacy env override is still
+validated before read-only overrides it. Read-only maps to `-s read-only`
+on fresh codex jobs (`-c 'sandbox_mode="read-only"'` on resume),
+`--permission-mode plan` on claude, and `--mode plan` on copilot. Copilot
+read-only never carries any allow-all flags.
+
+Resolution materializes the default after merging: global `allow-all` plus a
+project identity omitting the field keeps `allow-all`. Like `model_source`,
+`permission_posture_source=config:<layer>` names the top participating layer,
+not per-field provenance. Role-less jobs use `default`. Resume inherits
+`permission_posture` and `read_only` from the parent; a missing posture key
+means `default`, never `allow-all`. An old key does not prove unrestricted
+authority.
+
+Job `meta` and dry-run output record requested `permission_posture`, its
+`permission_posture_source` (`config:<layer>`, `explicit`, `env`,
+`read-only`, `parent`, or `default`), and the effective concrete
+`permission_mode`. Overrides change the source and effective mode while the
+requested posture remains visible. Warnings use the effective mode. Receipt
+schema stays v6: `roles_used` rejects additional properties, so posture
+evidence stays in job `meta`.
+
+Changing posture does not invalidate `verified` or `verified_at`. Smoke
+verifies a model/effort pair, not a posture; its plan-mode probes are unchanged.
+
+### Deviations from the research doc
+
+1. **codex `default` passes no sandbox flag**, where the doc says
+   `workspace-write`. Probed: ordinary file writes succeed but `.git/` writes
+   are refused, and `sandbox_workspace_write.writable_roots` on the repo root
+   does not lift it. Forcing it would break the worker-commits-on-its-worktree-
+   branch contract for users who have not granted `.git` per repo and narrow
+   a `danger-full-access` user whose e2e worker commits today. Inheriting the
+   user's codex config preserves the documented contract.
+2. **codex has no `--ask-for-approval` on `exec`** (top-level flag only).
+   `codex exec` never prompts, so the doc's `approval=never` half is already
+   satisfied.
+3. **copilot `default` keeps `--allow-all-tools`**, where the doc lists
+   `--allow-tool=write` plus stack-specific test/build/lint rules. The doc
+   permits test execution; the unsolved part is enumerating those commands per
+   repo, which Handoff cannot know. `--allow-all-tools` leaves Copilot's path
+   and URL verification on; `allow-all` turns those off.
+
+### Stated limitations
+
+- **No OS-level sandbox for claude `default`.** The research doc also asks for
+  enforced sandboxing, workspace-only IO, and denied network. This release
+  changes the permission-rule layer only. The Darwin ratchet requires one
+  dimension per change, and network denial interacts with installing and testing.
+- **Codex denials are not counted.** The scanner counts Claude-shaped
+  `subtype: permission_denied` and Copilot `error.code: "denied"` events.
+  Codex sandbox refusals match neither, and result extraction discards command
+  outcomes. The shared denial test's Claude-shaped event proves nothing about
+  Codex denial detection. Implementing that detection is out of scope here.
+- **`permission_denied` is advisory, not enforced.** Job state derives DONE
+  from the exit code, and status warns but still succeeds. The prompt-shaped
+  guard stays prompt-shaped; zero denials cannot prove the checks ran.

@@ -242,7 +242,7 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertTrue(parsed["codex_bin"].endswith("/claude"), parsed["codex_bin"])
         # --skip-git-repo-check is a codex flag; a claude job never carries it.
         self.assertEqual("", parsed["skip_git_repo_check"])
-        self.assertEqual("bypassPermissions", parsed["permission_mode"])
+        self.assertEqual("dontAsk", parsed["permission_mode"])
 
     def test_explicit_backend_contradicting_a_role_is_refused(self):
         result, _ = self.run_submit(
@@ -449,6 +449,94 @@ class BackendLifecycle:
         self.assertEqual(0, result.returncode, result.stderr)
         return result.stdout.strip()
 
+    def configure_posture(self, posture):
+        path = self.repo / ".handoff" / "config.toml"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            'schema_version = 2\nrevision = 0\n'
+            '[hosts.claude_code.identities.fast_worker]\n'
+            f'backend = "{self.BACKEND}"\nmodel = "fixture"\neffort = "high"\n'
+            f'permission_mode = "{posture}"\n', encoding="utf-8"
+        )
+
+    def configured_submit(self, posture, *arguments):
+        self.configure_posture(posture)
+        return self.submit("--role", "fast_worker", *arguments)
+
+    def assert_posture_argv(self, job_id, posture, read_only=False, resume=False):
+        run_sh = (self.job_dir(job_id) / "run.sh").read_text()
+        meta = self.read_meta(job_id)
+        self.assertEqual(posture, meta["permission_posture"])
+        self.assertEqual(str(read_only).lower(), meta["read_only"])
+        if self.BACKEND == "codex":
+            self.assertEqual(posture == "allow-all" and not read_only,
+                             "--dangerously-bypass-approvals-and-sandbox" in run_sh)
+            if read_only:
+                self.assertIn('sandbox_mode=\"read-only\"' if resume else "-s read-only", run_sh)
+            else:
+                self.assertNotIn("sandbox_mode", run_sh)
+                self.assertNotIn(" -s ", run_sh)
+        elif self.BACKEND == "claude":
+            mode = "plan" if read_only else ("dontAsk" if posture == "default" else "bypassPermissions")
+            self.assertIn(f"--permission-mode {mode}", run_sh)
+            self.assertEqual(not read_only and posture == "default", "--allowed-tools" in run_sh)
+        else:
+            self.assertEqual(read_only, "--mode plan" in run_sh)
+            self.assertEqual(not read_only, "--allow-all-tools" in run_sh)
+            for flag in ("--allow-all-paths", "--allow-all-urls"):
+                self.assertEqual(posture == "allow-all" and not read_only, flag in run_sh)
+
+    def test_configured_postures_and_resume_inherit_authority(self):
+        for posture in ("default", "allow-all"):
+            for read_only in (False, True):
+                with self.subTest(posture=posture, read_only=read_only):
+                    job_id = self.configured_submit(posture, *(["--read-only"] if read_only else []))
+                    self.assert_posture_argv(job_id, posture, read_only)
+                    self.assertEqual("read-only" if read_only else "config:project",
+                                     self.read_meta(job_id)["permission_posture_source"])
+                    self.finish(job_id)
+                    # Config changes must not change the authority of a fix round.
+                    self.configure_posture("default" if posture == "allow-all" else "allow-all")
+                    result = self.delegate("resume", job_id, "--repo", str(self.repo),
+                                           "--prompt-file", str(self.prompt))
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    child = result.stdout.strip()
+                    self.assert_posture_argv(child, posture, read_only, resume=True)
+                    self.assertEqual("read-only" if read_only else "parent",
+                                     self.read_meta(child)["permission_posture_source"])
+                    if read_only:
+                        self.assertNotIn("permission checks bypassed", result.stderr)
+
+    def test_legacy_parent_missing_posture_resumes_default(self):
+        job_id = self.configured_submit("allow-all")
+        job = self.finish(job_id)
+        meta = job / "meta"
+        meta.write_text("".join(line for line in meta.read_text().splitlines(True)
+                                if not line.startswith("permission_posture=")))
+        result = self.delegate("resume", job_id, "--repo", str(self.repo),
+                               "--prompt-file", str(self.prompt))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assert_posture_argv(result.stdout.strip(), "default", resume=True)
+        self.assertEqual("default", self.read_meta(result.stdout.strip())["permission_posture_source"])
+
+    def test_effective_mode_controls_warnings(self):
+        self.configure_posture("allow-all")
+        result = self.submit_raw("--role", "fast_worker")
+        self.assertIn("permission checks bypassed", result.stderr)
+        result = self.submit_raw("--role", "fast_worker", "--read-only")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("permission checks bypassed", result.stderr)
+        if self.BACKEND == "claude":
+            self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "dontAsk"
+            result = self.submit_raw("--role", "fast_worker")
+            self.assertNotIn("permission checks bypassed", result.stderr)
+            self.configure_posture("default")
+            self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "bypassPermissions"
+            result = self.submit_raw("--role", "fast_worker")
+            self.assertIn("permission checks bypassed", result.stderr)
+            self.assertEqual("default", self.read_meta(result.stdout.strip())["permission_posture"])
+            self.assertEqual("env", self.read_meta(result.stdout.strip())["permission_posture_source"])
+
     def job_dir(self, job_id: str) -> Path:
         return self.repo / ".handoff" / "jobs" / job_id
 
@@ -624,7 +712,7 @@ class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
     BACKEND = "claude"
     # `claude` has no -C; the run script cd's into the worktree instead.
     WORKDIR_MARKER = 'cd "$WORKDIR"'
-    PERMISSION_MODE = "bypassPermissions"
+    PERMISSION_MODE = "dontAsk"
     LOG_LINES = (
         '{"type":"system","subtype":"init","session_id":"sess-fixture"}',
         '{"type":"assistant","message":{"content":[{"type":"text","text":"looking"},'
@@ -637,25 +725,18 @@ class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
     def exec_line(self, job_id: str) -> str:
         return (self.job_dir(job_id) / "run.sh").read_text(encoding="utf-8")
 
-    def test_worker_runs_with_permission_checks_bypassed_by_default(self):
-        """The v3.5.1 fix, asserted.
-
-        A background `--print` job has no approval surface, so every mode that
-        prompts denies instead — which is what stopped a v3.5.0 worker from
-        running the acceptance checks its own packet asked for.
-        """
-
+    def test_worker_default_uses_dont_ask_and_worker_tools(self):
         run_sh = self.exec_line(self.submit())
-        self.assertIn("--permission-mode bypassPermissions", run_sh)
-        # Inert under bypass, but it keeps a dialled-down job from hanging on a
-        # prompt nobody is there to answer.
+        self.assertIn("--permission-mode dontAsk", run_sh)
+        self.assertIn("--allowed-tools Read Glob Grep Edit Write Bash", run_sh)
         self.assertIn("--permission-prompts none", run_sh)
 
     def test_submit_warns_that_the_worker_is_unsupervised(self):
+        self.env["HANDOFF_CLAUDE_PERMISSION_MODE"] = "bypassPermissions"
         result = self.submit_raw()
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("permission checks bypassed", result.stderr)
-        self.assertIn("HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits", result.stderr)
+        self.assertIn("HANDOFF_CLAUDE_PERMISSION_MODE=dontAsk", result.stderr)
         # The warning goes to stderr; stdout stays exactly the jobId, which is
         # what the driver captures.
         self.assertRegex(result.stdout.strip(), r"^job-[\w.:-]+$")
@@ -701,8 +782,8 @@ class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
         child = result.stdout.strip()
-        self.assertEqual("bypassPermissions", self.read_meta(child)["permission_mode"])
-        self.assertIn("--permission-mode bypassPermissions", self.exec_line(child))
+        self.assertEqual("dontAsk", self.read_meta(child)["permission_mode"])
+        self.assertIn("--permission-mode dontAsk", self.exec_line(child))
 
 
 class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
@@ -758,18 +839,22 @@ class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
         # Without this a long prompt can leave the job waiting on stdin forever.
         self.assertIn("</dev/null", run_sh)
 
-    def test_argv_never_carries_the_export_or_blanket_permission_flags(self):
-        """Session export to GitHub web and mobile is on by default.
-
-        A delegated job carries the prompt and the repository contents, and
-        Handoff owns the worktree protocol, so none of these are ours to pass.
-        """
-
-        run_sh = self.exec_line(self.submit())
-        for flag in ("--share", "--share-gist", "--yolo", "--allow-all", "--worktree",
-                     "--enable-memory", "--add-dir", "--max-ai-credits"):
-            with self.subTest(flag=flag):
-                self.assertNotRegex(run_sh, rf"{flag}(?![-\w])")
+    def test_export_flags_are_banned_and_blanket_permissions_require_allow_all(self):
+        # The three allow-all flags are equivalent to --allow-all / --yolo.
+        for posture in ("default", "allow-all"):
+            for read_only in (False, True):
+                job_id = self.configured_submit(posture, *(["--read-only"] if read_only else []))
+                run_sh = self.exec_line(job_id)
+                for flag in ("--share", "--share-gist", "--worktree", "--enable-memory",
+                             "--add-dir", "--max-ai-credits"):
+                    with self.subTest(flag=flag, posture=posture, read_only=read_only):
+                        self.assertNotRegex(run_sh, rf"{flag}(?![-\w])")
+                blanket = ("--allow-all-paths" in run_sh and "--allow-all-urls" in run_sh
+                           and "--allow-all-tools" in run_sh)
+                self.assertEqual(posture == "allow-all" and not read_only, blanket)
+                if read_only or posture == "default":
+                    for flag in ("--yolo", "--allow-all", "--allow-all-paths", "--allow-all-urls"):
+                        self.assertNotRegex(run_sh, rf"{flag}(?![-\w])")
 
     def test_read_only_uses_plan_mode_and_never_allow_all_tools(self):
         """The exclusivity is a correctness requirement, not a preference.

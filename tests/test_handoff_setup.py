@@ -103,6 +103,38 @@ class SetupTests(unittest.TestCase):
             if path.is_file()
         }
 
+    def test_permission_mode_plan_apply_status_and_bad_value(self):
+        args = ("--role-permission-mode", "fast_worker=allow-all")
+        status, output, error = self.run_cli(*self.claude_args("--preview", *args))
+        self.assertEqual(0, status, error)
+        self.assertIn("permission=allow-all", output)
+        status, _, error = self.run_cli(*self.claude_args("--apply", *args))
+        self.assertEqual(0, status, error)
+        status, output, error = self.run_cli("--status", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertIn("permission=allow-all", next(line for line in output.splitlines() if line.startswith("fast_worker:")))
+        self.assertIn("permission=default", output)
+        status, _, error = self.run_cli(*self.claude_args(
+            "--preview", "--role-permission-mode", "fast_worker=invalid"))
+        self.assertNotEqual(0, status)
+        self.assertIn("--role-permission-mode", error)
+
+    def test_terminal_custom_wizard_asks_each_permission(self):
+        from unittest.mock import patch
+        answers = ["4", "1", "n", "n", "n", "n"]
+        for identity in handoff_setup.CORE_IDENTITIES:
+            answers.extend(["claude", "opus", "high", "allow-all" if identity == "fast_worker" else ""])
+        answers.append("n")
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers) as prompt:
+            status, output, error = self.run_cli("--interactive", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        for identity in handoff_setup.CORE_IDENTITIES:
+            self.assertIn(unittest.mock.call(f"{identity} permission [default/allow-all] (default): "),
+                          prompt.call_args_list)
+        self.assertIn("permission=allow-all", output)
+        self.assertIn("permission=default", output)
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
     def test_preview_is_zero_write_and_lists_every_target_with_diffs(self):
         before = self.snapshot()
         status, output, error = self.run_cli(

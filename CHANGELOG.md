@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.7.1 (2026-09-10)
+
+- Add per-identity `permission_mode` (`default` or `allow-all`) across config, delegation, terminal setup and browser setup.
+- Claude default now uses dontAsk with the worker tool set; Codex and Copilot default flags stay unchanged. Allow-all selects each provider's native unrestricted mode.
+- Resume preserves parent read-only state and posture; absent legacy posture means default.
+- Record requested posture/source and effective mode in job meta. Warnings follow effective mode.
+- Document research deviations, the lack of Claude OS-level sandboxing, uncounted Codex denials, and advisory denial reporting. Receipt schema stays v6.
+
 ## v3.7.0 (2026-09-09)
 
 ### A third execution backend: GitHub Copilot CLI

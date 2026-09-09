@@ -109,6 +109,34 @@ class SetupUITests(unittest.TestCase):
             "smoke": False,
         }
 
+    def test_permission_payload_presets_page_and_reload(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.payload(controller)
+        normalized = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        self.assertTrue(all(v["permission_mode"] == "default" for v in normalized["identities"].values()))
+        raw["identities"]["fast_worker"]["permission_mode"] = "allow-all"
+        with self.assertRaisesRegex(handoff_setup_ui.UIError, "custom"):
+            handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        raw["mode"] = "custom"
+        normalized = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        args = handoff_setup_ui.engine_arguments(normalized, "--preview")
+        self.assertIn("--role-permission-mode", args)
+        self.assertIn("fast_worker=allow-all", args)
+        self.assertTrue(controller.preview(raw)["ok"])
+        applied = controller.apply(raw)
+        self.assertTrue(applied["ok"], applied)
+        state = handoff_setup_ui.SetupController(self.repo, self.env).state()
+        self.assertEqual("allow-all", state["initial_matrix"]["fast_worker"]["permission_mode"])
+        self.assertEqual(["default", "allow-all"], state["permission_modes"])
+        raw["identities"]["fast_worker"]["permission_mode"] = "unsafe"
+        with self.assertRaisesRegex(handoff_setup_ui.UIError, "permission_mode"):
+            handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        page = SCRIPT.read_text()
+        self.assertIn('data-field="permission_mode"', page)
+        self.assertIn("permission_mode: matrix[identity].permission_mode", page)
+        self.assertIn("state.permission_labels[p]", page)
+        self.assertIn("values.permission_mode || 'default'", page)
+
     def test_state_shows_exact_detected_models_and_full_presets(self):
         state = handoff_setup_ui.build_state(self.repo, self.env)
         self.assertEqual("default", state["config_source"])

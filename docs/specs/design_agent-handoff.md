@@ -147,7 +147,7 @@ The packet never mentions backend, model, or effort. There is nothing to mention
 
 An explicit `--model` or `--effort` still wins per field for a task that genuinely needs an override. `--backend` does not.
 
-### Fail-closed, in five places
+### Fail-closed, in six places
 
 | Condition | Behaviour |
 | --- | --- |
@@ -156,6 +156,7 @@ An explicit `--model` or `--effort` still wins per field for a task that genuine
 | `--backend` contradicting a named role | refused, with the `handoff-config.py set` command that would make it legitimate |
 | Effort not in that backend's enum | refused. The enums are per CLI, never one shared set: `ultra` is codex-only, `none` is copilot-only, and claude takes `low…max` |
 | `model = "auto"` on copilot | refused. An identity is a deliberate choice, and `auto` hands it back to the vendor per request, so the job's record would name what Copilot picked rather than what the repo configured |
+| Invalid `permission_mode` | refused by config validation; only `default` and `allow-all` are accepted |
 
 No wording in a prompt can move a job onto a different vendor or meter: routing resolves from config into `run.sh` flags and `meta`, and the prompt never carries those fields at all.
 
@@ -202,11 +203,21 @@ The e2e packets are the only ones that **replace** the shared template's "Do not
 
 ### The permission posture, stated plainly
 
-A claude worker runs with permission checks bypassed and a copilot worker with `--allow-all-tools`; `submit` warns on stderr in both cases. A background job has no approval surface: nobody can answer a prompt, so any rule that would prompt denies instead, and a worker that cannot run a test runner or a repo check cannot verify its own work. It will report success it never earned.
+Each identity selects `permission_mode=default|allow-all`. Default uses Claude `dontAsk` with `Read Glob Grep Edit Write Bash`, inherited Codex config without sandbox flags, or Copilot `--allow-all-tools` retaining path/URL checks. Allow-all means *use the provider's native unrestricted mode*, not force three CLIs into one security posture. Only claude changes behaviour under default; Codex and Copilot retain their previous flags. Read-only wins over the retained Claude env override and configured posture; the env value is still validated first. Read-only drops Claude's worker allowlist and Copilot's allow-all flags. Resume inherits posture and read_only; missing parent posture means default, never allow-all. Warnings follow the effective concrete mode. No OS-level sandbox is added for Claude default. Codex denials are not counted, and permission_denied is advisory, not enforced. Verify edits and checks on disk.
 
-What bounds the worker is its worktree and the scope constraints in its packet. Those are **scope controls, not enforced containment**: a plain `submit` without `--worktree` runs in the main repo, so the worker can reach the whole checkout. The driver tells the user this before the run's first claude-backed or copilot-backed delegation, and `HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits` trades a claude worker's self-verification for prompting if they prefer. Codex workers are unaffected: they are bounded by the sandbox in the user's own codex config.
+| Backend | Default | Allow-all |
+| --- | --- | --- |
+| claude | `--permission-mode dontAsk --allowed-tools Read Glob Grep Edit Write Bash` | `--permission-mode bypassPermissions` |
+| codex, fresh and resume | No sandbox flag or override; inherit the user's config | `--dangerously-bypass-approvals-and-sandbox` |
+| copilot | `--allow-all-tools` | `--allow-all-tools --allow-all-paths --allow-all-urls` |
 
-On copilot, `--read-only` swaps `--allow-all-tools` for `--mode plan`, and the two are never generated together. That pairing was probed: plan mode still wins on disk, but the worker emits zero denial events, exits 0, and reports writes that never happened — a silent-failure channel with nothing for the monitor to catch. There is deliberately no env override for copilot; naming an escape hatch nothing tells the user to reach for is not mitigation.
+Under `dontAsk` a call that is not already approved is denied rather than run; under `bypassPermissions` it runs. That is the only difference, and how much it buys is the user's configuration to decide rather than Handoff's: `deny` and `ask` rules were measured producing hard denials under **both** postures, and a tool those same settings already approve was reached under both, `WebFetch` included. This changes the permission-rule layer only -- no OS-level sandbox, no workspace-only IO, no denied network -- so `default` is a narrower posture, not containment.
+
+The deliberate research deviations are documented in `docs/config-schema.md`: codex default inherits config instead of forcing workspace-write, preserving the worker-commit contract; exec has no ask-for-approval flag and never prompts; copilot default retains allow-all-tools because Handoff cannot enumerate each repo's test/build/lint commands. Copilot path and URL verification remain on until allow-all.
+
+Read-only uses codex read-only sandbox overrides, Claude plan without the worker allowlist, or Copilot plan without allow-all flags. The Copilot combination is deliberately avoided: probing found zero denials and claims of writes that never happened when plan and allow-all-tools were combined.
+
+Job meta records requested permission_posture and permission_posture_source separately from effective permission_mode. Receipt schema remains v6; posture evidence stays in job meta. Worktrees and packets are scope controls, not enforced containment.
 
 ---
 
@@ -248,7 +259,7 @@ Reading the log is not optional on copilot: an API failure can arrive with `stde
 
 ### `permission_denied` is a failed job whatever the exit code says
 
-`status` reports a non-zero denial count; `result` prints the count always, including the zero. Always, because the driver needs positive evidence that nothing was blocked rather than merely the absence of a warning.
+`status` and `result` count Claude and Copilot denials. **Codex denials are not counted**: its sandbox refusals match neither event shape and result extraction discards command outcomes. The shared Claude-shaped test event proves nothing about Codex denial detection. **`permission_denied` is advisory, not enforced**: job state derives DONE from exit code, and status warns but still succeeds. Zero does not establish that checks ran; the prompt-shaped guard stays prompt-shaped.
 
 A denied tool call does not move the exit code. So a worker that was blocked ran to completion believing it had run checks it never ran, and its self-report of those checks is worthless. Treat any non-zero count as a failed job, re-run the blocked commands yourself, and record it as an anomaly.
 
@@ -358,7 +369,9 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 
 - **The adversarial gate has no independence.** The driver attacks its own split. The optional spec review adds an outside reader, but it is informed rather than blind and inherits the driver's framing.
 - **Prompt-shaped guards degrade silently.** A skipped review, a third fix round, an unattacked split. None of these produce an error. They produce a run that looks identical to a good one.
-- **Worker containment is scope, not sandbox** on the claude and copilot backends. A plain `submit` without `--worktree` reaches the whole checkout, and the permission bypass is what buys the worker's ability to verify itself. The tradeoff is stated to the user rather than hidden.
+- **No OS-level sandbox for claude `default`.** This release changes the permission-rule layer only; enforced sandboxing, workspace-only IO and denied network remain outside scope. Network denial interacts with installing and testing, and the Darwin ratchet permits one dimension per change.
+- **Codex denials are not counted.** The current scanner recognizes Claude and Copilot events, not Codex sandbox refusals. Result extraction discards command outcomes; denial detection is out of scope.
+- **`permission_denied` is advisory, not enforced.** DONE follows the exit code and status warns but still succeeds. The driver must verify checks independently.
 - **The hash lock is partial.** Specifier discipline about separating scaffolding from specs is what keeps the bounded review small; if that discipline slips, the review grows and gets skipped.
 - **Forward compatibility fails closed.** `validate_config` raises on an unknown identity, so a five-identity config errors on a pre-3.2 engine. Acceptable: the skill and its config version travel together, and failing closed is the correct direction.
 - **Cost of the acceptance pair.** Two extra jobs per user-observable change, plus one more per planning phase when the spec-review toggle is on. The Phase 1 criterion and the default-off toggle are the controls; if the criterion fires too often the criterion tightens, not the identities.

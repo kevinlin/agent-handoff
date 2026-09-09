@@ -335,6 +335,7 @@ def _preset_matrices(env: Mapping[str, str]) -> Dict[str, Dict[str, Dict[str, st
                 "backend": backend,
                 "model": model,
                 "effort": effort,
+                "permission_mode": "default",
                 "model_source": source,
             }
         matrices[mode] = matrix
@@ -351,6 +352,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
             "backend": values["backend"],
             "model": values["model"],
             "effort": values["effort"],
+            "permission_mode": values.get("permission_mode", "default"),
             "model_source": "existing config",
         }
         for identity, values in identities.items()
@@ -397,6 +399,8 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "presets": presets,
         "initial_mode": initial_mode,
         "initial_matrix": initial_matrix,
+        "permission_modes": list(engine.PERMISSION_MODES),
+        "permission_labels": {"default": "Default", "allow-all": "Allow all"},
         "efforts_by_backend": {
             backend: list(efforts) for backend, efforts in engine.BACKEND_EFFORTS.items()
         },
@@ -455,6 +459,9 @@ def normalize_payload(
         if backend not in engine.BACKENDS:
             raise UIError(f"Invalid CLI for {identity}")
         model = _clean_string(values.get("model"), f"{identity} model")
+        permission = values.get("permission_mode", "default")
+        if permission not in engine.PERMISSION_MODES:
+            raise UIError(f"Invalid permission_mode for {identity}")
         effort = values.get("effort")
         supported_efforts = engine.BACKEND_EFFORTS[backend]
         if model_options:
@@ -477,13 +484,14 @@ def normalize_payload(
             "backend": backend,
             "model": model,
             "effort": effort,
+            "permission_mode": permission,
         }
     if mode != "custom":
         expected = _preset_matrices(env)[mode]
         comparable = {
             identity: {
                 field: expected[identity][field]
-                for field in ("backend", "model", "effort")
+                for field in ("backend", "model", "effort", "permission_mode")
             }
             for identity in required
         }
@@ -521,6 +529,7 @@ def engine_arguments(payload: Mapping[str, Any], action: str) -> list[str]:
             args.extend(("--role-backend", f"{identity}={values['backend']}"))
             args.extend(("--role-model", f"{identity}={values['model']}"))
             args.extend(("--role-effort", f"{identity}={values['effort']}"))
+            args.extend(("--role-permission-mode", f"{identity}={values['permission_mode']}"))
     args.append("--with-e2e" if payload["with_e2e"] else "--no-with-e2e")
     args.append("--spec-review" if payload["spec_review"] else "--no-spec-review")
     args.append("--write-agents" if payload["write_agents"] else "--no-write-agents")
@@ -820,7 +829,7 @@ HTML = r'''<!doctype html>
     .review-addon { grid-column:1/-1; margin:3px 0 0; padding:14px 0 0; border-top:1px solid var(--line-v2); }
     .review-addon > p { max-width:530px; margin:6px 0 0; color:var(--muted-v2); font-size:13px; line-height:1.5; }
     .review-addon strong { color:var(--ink); font:680 15px var(--body); }
-    .identity { display:grid; grid-template-columns:minmax(155px,.82fr) minmax(130px,.7fr) minmax(220px,1.2fr) minmax(120px,.62fr); gap:12px; align-items:start; position:relative; min-height:110px; overflow:hidden; padding:17px; border:1px solid var(--line-v2); border-radius:17px; background:var(--card); box-shadow:var(--shadow-card); }
+    .identity { display:grid; grid-template-columns:minmax(155px,.82fr) minmax(130px,.7fr) minmax(220px,1.2fr) minmax(120px,.62fr) minmax(120px,.62fr); gap:12px; align-items:start; position:relative; min-height:110px; overflow:hidden; padding:17px; border:1px solid var(--line-v2); border-radius:17px; background:var(--card); box-shadow:var(--shadow-card); }
     .identity:nth-child(1) { --row:0; }
     .identity:nth-child(2) { --row:1; }
     .identity:nth-child(3) { --row:2; }
@@ -909,6 +918,10 @@ HTML = r'''<!doctype html>
     @keyframes signal-run { 0% { opacity:0; transform:translateX(0) scale(.75); } 18% { opacity:1; } 80% { opacity:1; } 100% { opacity:0; transform:translateX(150px) scale(1); } }
     @keyframes button-scan { from { transform:translateX(-70%) rotate(12deg); } to { transform:translateX(70%) rotate(12deg); } }
 
+    @media (max-width:1368px) {
+      .identity { grid-template-columns:1fr 1fr; }
+      .identity-head,.field.model-field { grid-column:1 / -1; }
+    }
     @media (max-width:1040px) {
       .hero { grid-template-columns:1fr 1fr; gap:34px; }
       .config-grid { grid-template-columns:1fr; }
@@ -1016,7 +1029,7 @@ HTML = r'''<!doctype html>
     </section>
 
     <section class="config-section" id="configWorkspace" aria-busy="true">
-      <div class="config-heading"><h2>Pick a work mode</h2><p>Start from a recommended combination, or set each role's CLI, model, and effort directly.</p></div>
+      <div class="config-heading"><h2>Pick a work mode</h2><p>Start from a recommended combination, or set each role's CLI, model, effort, and permission directly.</p></div>
       <div class="modes" id="modes" role="group" aria-label="Work mode"><p class="loading-copy">Building modes...</p></div>
 
       <div class="config-grid">
@@ -1197,7 +1210,7 @@ HTML = r'''<!doctype html>
           continue;
         }
         const backend = BACKEND_LABELS[values.backend] || values.backend;
-        const summary = `${backend} / ${values.model || 'not set'} / ${values.effort}`;
+        const summary = `${backend} / ${values.model || 'not set'} / ${values.effort} / ${values.permission_mode || 'default'}`;
         node.textContent = summary;
         node.title = summary;
       }
@@ -1244,6 +1257,7 @@ HTML = r'''<!doctype html>
             ? `<input id="${identity}-model" data-field="model" type="text" spellcheck="false" autocomplete="off" placeholder="Model name, exactly as Copilot names it" value="${esc(values.model || '')}" aria-describedby="${identity}-source">`
             : `<select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select>`}<div class="source" id="${identity}-source">Source: ${esc(sourceLabel(typed ? 'typed' : source))}</div></div>
           <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
+          <div class="field"><label for="${identity}-permission">Permission</label><select id="${identity}-permission" data-field="permission_mode">${state.permission_modes.map(p => `<option value="${p}" ${(values.permission_mode || 'default') === p ? 'selected' : ''}>${esc(state.permission_labels[p])}</option>`).join('')}</select></div>
           ${identity === state.spec_review_identity ? reviewAddon() : ''}
         </article>`;
       }).join('');
@@ -1301,6 +1315,7 @@ HTML = r'''<!doctype html>
           backend: matrix[identity].backend,
           model: matrix[identity].model,
           effort: matrix[identity].effort,
+          permission_mode: matrix[identity].permission_mode || 'default',
         };
       }
       return {

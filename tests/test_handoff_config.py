@@ -701,5 +701,54 @@ class SpecReviewFieldTests(unittest.TestCase):
             self.assertEqual(before, path.read_bytes())
 
 
+
+class PermissionModeTests(unittest.TestCase):
+    def test_values_order_merge_cli_and_verification(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            project = repo / ".handoff" / "config.toml"
+            global_path = root / "xdg" / "handoff" / "config.toml"
+            project.parent.mkdir(parents=True)
+            global_path.parent.mkdir(parents=True)
+            env = {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "xdg")}
+            identity = {"backend": "codex", "model": "fixture", "effort": "high",
+                        "verified": True, "verified_at": "2026-09-10T00:00:00Z"}
+            def doc(values):
+                return handoff_config.update_host("", identities={"fast_worker": values})
+            def resolved():
+                return handoff_config.resolve_config(repo, env=env)["hosts"]["claude_code"]["identities"]["fast_worker"]
+            project.write_text(doc(identity))
+            self.assertEqual("default", resolved()["permission_mode"])
+            for mode in handoff_config.PERMISSION_MODES:
+                with self.subTest(mode=mode):
+                    text = doc(dict(identity, permission_mode=mode))
+                    handoff_config.validate_config(text)
+                    self.assertLess(text.index("effort ="), text.index("permission_mode ="))
+                    self.assertLess(text.index("permission_mode ="), text.index("verified ="))
+            for bad in ("", "bypassPermissions", "DEFAULT", True, 4):
+                with self.subTest(bad=bad), self.assertRaises(handoff_config.ConfigValidationError):
+                    doc(dict(identity, permission_mode=bad))
+            global_path.write_text(doc(dict(identity, permission_mode="allow-all")))
+            self.assertEqual("allow-all", resolved()["permission_mode"])
+            self.assertTrue(resolved()["verified"])
+            with patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, handoff_config.main([
+                    "--repo", str(repo), "set", "--role", "fast_worker",
+                    "--permission-mode", "default"]))
+            self.assertEqual("default", resolved()["permission_mode"])
+            self.assertTrue(resolved()["verified"])
+            self.assertEqual(identity["verified_at"], resolved()["verified_at"])
+            output = io.StringIO()
+            with patch.dict(os.environ, env), contextlib.redirect_stdout(output):
+                self.assertEqual(0, handoff_config.main([
+                    "--repo", str(repo), "resolve", "--override",
+                    "fast_worker.permission_mode=allow-all"]))
+            fields = json.loads(output.getvalue())["hosts"]["claude_code"]["identities"]["fast_worker"]
+            self.assertEqual("allow-all", fields["permission_mode"])
+            self.assertTrue(fields["verified"])
+
+
 if __name__ == "__main__":
     unittest.main()

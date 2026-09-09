@@ -43,12 +43,28 @@ def ordered(names: Iterable[str]) -> List[str]:
     return [identity for identity in IDENTITIES if identity in set(names)]
 
 
-IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "auto_review_spec", "verified", "verified_at")
+IDENTITY_FIELD_ORDER = (
+    "backend",
+    "model",
+    "effort",
+    "permission_mode",
+    "auto_review_spec",
+    "verified",
+    "verified_at",
+)
 # auto_review_spec is a responsibility toggle, not a routing value: it belongs to
 # one identity only, and changing it never invalidates a verification.
 SPEC_REVIEW_IDENTITY = "deep_reasoner"
 BOOLEAN_FIELDS = ("auto_review_spec", "verified")
 BACKENDS = ("claude", "codex", "copilot")
+# One abstraction over three CLIs: `default` is each CLI's own bounded posture and
+# `allow-all` its native unrestricted mode -- never one shared security posture.
+# Absent means `default`, which is what keeps a config written before 3.7.1
+# loading unchanged; resolve_config materializes it so no consumer has to read an
+# absence as a value. Changing it never invalidates a verification: smoke checks a
+# model-and-effort pair, not a permission posture.
+PERMISSION_MODES = ("default", "allow-all")
+DEFAULT_PERMISSION_MODE = "default"
 V1_UPGRADE_MESSAGE = (
     'Detected a schema v1 config. Rerun /agent-handoff config to upgrade '
     "(setup replaces it with a schema v2 document and backs up the old file)."
@@ -297,6 +313,12 @@ def _validate_data(
                 raise ConfigValidationError(
                     f"hosts.{host}.identities.{identity}.{required} must be a non-empty string"
                 )
+        permission_mode = fields.get("permission_mode", DEFAULT_PERMISSION_MODE)
+        if permission_mode not in PERMISSION_MODES:
+            raise ConfigValidationError(
+                f"hosts.{host}.identities.{identity}.permission_mode must be one of "
+                f"{', '.join(PERMISSION_MODES)}"
+            )
         if "auto_review_spec" in fields:
             if identity != SPEC_REVIEW_IDENTITY:
                 raise ConfigValidationError(
@@ -564,6 +586,11 @@ def resolve_config(
         _invalidate_inherited_verification(resolved, session_override, host)
         source = "session"
     _validate_data(resolved, host)
+    # Materialized once, here, so every consumer reads a value rather than an
+    # absence. The merge above is per field, so a global `allow-all` survives a
+    # project identity that omits the field.
+    for fields in resolved["hosts"][host]["identities"].values():
+        fields.setdefault("permission_mode", DEFAULT_PERMISSION_MODE)
     resolved["source"] = source
     return resolved
 
@@ -619,6 +646,12 @@ def build_parser() -> argparse.ArgumentParser:
     set_parser.add_argument("--backend", choices=BACKENDS)
     set_parser.add_argument("--model")
     set_parser.add_argument("--effort")
+    set_parser.add_argument(
+        "--permission-mode",
+        dest="permission_mode",
+        choices=PERMISSION_MODES,
+        help="Permission posture for this identity's delegated jobs.",
+    )
     verified = set_parser.add_mutually_exclusive_group()
     verified.add_argument("--verified", dest="verified", action="store_true")
     verified.add_argument("--unverified", dest="verified", action="store_false")
@@ -681,6 +714,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "backend": args.backend,
                 "model": args.model,
                 "effort": args.effort,
+                "permission_mode": args.permission_mode,
                 "verified": args.verified,
                 "verified_at": args.verified_at,
                 "auto_review_spec": args.auto_review_spec,

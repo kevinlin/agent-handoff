@@ -21,7 +21,8 @@ set -euo pipefail
 #   session_id   worker thread/session id, extracted from log.jsonl — or, on
 #                copilot, assigned at submit and written before launch
 #   meta         label, backend, effort, mode, permission mode, parent job,
-#                timestamps
+#                timestamps; permission_posture is requested, permission_mode is
+#                the effective backend mode, permission_posture_source records origin
 #   usage.json   copilot only: final usage counters (--usage-output-file)
 #   copilot-logs copilot only: the CLI's own --log-dir output
 
@@ -45,8 +46,8 @@ Usage:
   delegate-codex.sh list    --repo <path>
 
 Defaults: --backend codex, --effort high (Handoff default for delegated
-work), read-write sandbox per the user's codex config, and permission checks
-bypassed on a claude or copilot worker. Use --read-only for review/adversarial
+work), permission_mode=default: codex inherits the user's config, claude uses
+dontAsk with Read Glob Grep Edit Write Bash, copilot keeps --allow-all-tools. Use --read-only for review/adversarial
 jobs that must not touch the repo; it maps to `-s read-only` on codex,
 `--permission-mode plan` on claude, and `--mode plan` on copilot.
 
@@ -55,13 +56,13 @@ Passing both was probed: plan mode still won on disk, but the worker emitted no
 denial events, exited 0, and reported writes that had not happened. A read-only
 copilot job therefore drops `--allow-all-tools` entirely.
 
-A copilot job also never carries `--share`, `--share-gist`, `--yolo`,
-`--allow-all`, `--worktree`, or `--enable-memory`, and always carries
+A copilot job never carries `--share`, `--share-gist`,
+`--worktree`, or `--enable-memory`, and always carries
 `--no-remote --no-remote-export`: session export to GitHub web and mobile is on
 by default, and a delegated job's prompt and repository contents are not
 exportable material.
 
---role resolves backend, model, and effort from Handoff config, and the
+--role resolves backend, model, effort, and permission_mode from Handoff config, and the
 identity's backend decides which CLI executes the job — always. --backend is
 for role-less ad-hoc jobs only: passing one that contradicts a named role is
 refused rather than silently overriding the config.
@@ -105,17 +106,19 @@ stale variable is the likeliest way to hold the wrong path; and a fix round
 re-checks the parent job's recorded binary before reusing it. Each fails closed
 naming what it found instead.
 
-HANDOFF_CLAUDE_PERMISSION_MODE overrides a claude worker's default
-`bypassPermissions` with any mode the claude CLI takes:
-acceptEdits|auto|bypassPermissions|manual|dontAsk|plan. A read-only job stays
-`plan` regardless.
+permission_mode=allow-all selects the provider's native unrestricted mode:
+claude bypassPermissions, codex --dangerously-bypass-approvals-and-sandbox,
+copilot --allow-all-tools --allow-all-paths --allow-all-urls.
+HANDOFF_CLAUDE_PERMISSION_MODE overrides claude's configured posture:
+acceptEdits|auto|bypassPermissions|manual|dontAsk|plan. It is validated before
+--read-only wins. Resume inherits posture and read_only; missing posture means
+default. meta and --dry-run show permission_posture, permission_posture_source
+(config:<layer>|explicit|env|read-only|parent|default), and effective permission_mode.
 
-Why bypass is the default: a background `--print` job has no approval surface.
-Nobody can answer a permission prompt, so every mode that prompts denies
-instead, and the worker cannot run the acceptance checks its own packet asks
-for. What bounds a delegated worker is its worktree and its packet, not an
-allowlist nothing can answer. `status` and `result` report any denial that does
-happen, because a blocked check still leaves exit 0 behind.
+A background job never prompts: unapproved actions deny. Claude default changes
+permission rules only, with no OS-level sandbox. Codex default inherits its
+config without a sandbox flag. Copilot default retains path and URL checks.
+permission_denied is advisory, not enforced; Codex denials are not counted.
 
 Exit codes: status prints RUNNING/DONE/FAILED/CANCELLED; `status --wait`
 returns non-zero on timeout or failure so callers can branch on it.
@@ -124,6 +127,8 @@ USAGE
 
 JOBS_SUBDIR=".handoff/jobs"
 PERMISSION_MODE=""
+PERMISSION_POSTURE="default"
+PERMISSION_POSTURE_SOURCE="default"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() {
@@ -264,13 +269,14 @@ validate_effort() {
 }
 
 resolve_claude_permission_mode() {
-  # Sets PERMISSION_MODE for a claude worker. A background `--print` job has no
-  # approval surface: nobody can answer a permission prompt, so any mode that
-  # prompts denies instead and the worker cannot run its own acceptance checks.
-  # The env var is validated before --read-only overrides it, so a typo is
-  # caught even on a job that would have ignored the value.
-  local read_only="$1"
-  PERMISSION_MODE="${HANDOFF_CLAUDE_PERMISSION_MODE:-bypassPermissions}"
+  local read_only="$1" posture="$2"
+  PERMISSION_MODE="dontAsk"
+  [ "$posture" = "allow-all" ] && PERMISSION_MODE="bypassPermissions"
+  # Validate the legacy override before read-only wins, including on resume.
+  if [ -n "${HANDOFF_CLAUDE_PERMISSION_MODE:-}" ]; then
+    PERMISSION_MODE="$HANDOFF_CLAUDE_PERMISSION_MODE"
+    PERMISSION_POSTURE_SOURCE="env"
+  fi
   case "$PERMISSION_MODE" in
     acceptEdits|auto|bypassPermissions|manual|dontAsk|plan) ;;
     *) die "invalid HANDOFF_CLAUDE_PERMISSION_MODE: $PERMISSION_MODE (accepts acceptEdits|auto|bypassPermissions|manual|dontAsk|plan)" ;;
@@ -280,27 +286,44 @@ resolve_claude_permission_mode() {
 }
 
 resolve_copilot_permission_mode() {
-  # Sets PERMISSION_MODE for a copilot worker. Same reasoning as claude: a
-  # background `-p` job has no approval surface, so any rule that would prompt
-  # denies instead and the worker cannot run its own acceptance checks. There
-  # is deliberately no env override — naming an escape hatch nothing tells the
-  # user to reach for is not mitigation. --read-only is the supported way to
-  # run a copilot job that must not touch the repo.
-  if [ "$1" = "true" ]; then PERMISSION_MODE="plan"; else PERMISSION_MODE="allow-all-tools"; fi
+  PERMISSION_MODE="allow-all-tools"
+  [ "$2" = "allow-all" ] && PERMISSION_MODE="allow-all"
+  [ "$1" = "true" ] && PERMISSION_MODE="plan"
+  return 0
+}
+
+resolve_codex_permission_mode() {
+  PERMISSION_MODE=""
+  [ "$2" = "allow-all" ] && PERMISSION_MODE="allow-all"
+  [ "$1" = "true" ] && PERMISSION_MODE="read-only"
+  return 0
+}
+
+resolve_permission_mode() {
+  case "$PERMISSION_POSTURE" in
+    default|allow-all) ;;
+    *) die "invalid permission_posture: $PERMISSION_POSTURE" ;;
+  esac
+  "resolve_${BACKEND}_permission_mode" "$READ_ONLY" "$PERMISSION_POSTURE"
+  [ "$READ_ONLY" = "true" ] && PERMISSION_POSTURE_SOURCE="read-only"
+  return 0
 }
 
 warn_permission_bypass() {
   case "$BACKEND:$PERMISSION_MODE" in
-    claude:bypassPermissions|copilot:allow-all-tools) ;;
+    claude:bypassPermissions|copilot:allow-all-tools|copilot:allow-all|codex:allow-all) ;;
     *) return 0 ;;
   esac
   echo "WARN $1 is a $BACKEND worker running with permission checks bypassed." >&2
-  echo "     A background job has no approval surface, so this is what lets it run its own" >&2
-  echo "     acceptance checks — and it can run any command the packet leads it to." >&2
-  if [ "$BACKEND" = "claude" ]; then
-    echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits to restore prompting instead." >&2
+  echo "     A background job has no approval surface; verify its work on disk." >&2
+  if [ "$BACKEND" = "claude" ] && [ "${HANDOFF_CLAUDE_PERMISSION_MODE:-}" = "bypassPermissions" ]; then
+    echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=dontAsk or unset the override." >&2
+  elif [ -n "${PARENT_ID:-}" ]; then
+    echo "     Resume with --read-only, or submit a new job with permission_mode=default." >&2
+  elif [ -n "${ROLE:-}" ]; then
+    echo "     Set identity $ROLE permission_mode=default; use --read-only to prohibit writes." >&2
   else
-    echo "     Submit with --read-only for a job that must not touch the repo instead." >&2
+    echo "     Submit with --read-only for a job that must not touch the repo." >&2
   fi
 }
 
@@ -433,6 +456,8 @@ cmd_submit() {
     fi
     BACKEND="$ROLE_BACKEND"
     BACKEND_SOURCE="config:$CONFIG_SOURCE"
+    PERMISSION_POSTURE="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin)["hosts"]["claude_code"]["identities"][sys.argv[1]]["permission_mode"])' "$ROLE")"
+    PERMISSION_POSTURE_SOURCE="config:$CONFIG_SOURCE"
     if [ "$MODEL_EXPLICIT" = "false" ]; then
       MODEL="$ROLE_MODEL"
       MODEL_SOURCE="config:$CONFIG_SOURCE"
@@ -453,17 +478,15 @@ cmd_submit() {
   fi
   validate_effort "$BACKEND" "$EFFORT"
   resolve_worker_bin "$BACKEND"
-  PERMISSION_MODE=""
-  [ "$BACKEND" = "claude" ] && resolve_claude_permission_mode "$READ_ONLY"
-  [ "$BACKEND" = "copilot" ] && resolve_copilot_permission_mode "$READ_ONLY"
+  resolve_permission_mode
 
   LABEL="$(echo "$LABEL" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//;s/-$//')"
   if [ "$DRY_RUN" = "true" ]; then
     local SKIP_GIT_REPO_CHECK=""
     [ "$BACKEND" = "codex" ] && { is_git_repo "$REPO" || SKIP_GIT_REPO_CHECK="--skip-git-repo-check"; }
-    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\npermission_mode=%s\n' \
+    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\n' \
       "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "${MODEL:-default}" "$EFFORT" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK" "$PERMISSION_MODE"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK" "$PERMISSION_MODE" "$PERMISSION_POSTURE" "$PERMISSION_POSTURE_SOURCE"
     return 0
   fi
   local JOB_ID
@@ -493,9 +516,9 @@ cmd_submit() {
   fi
 
   {
-    printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=%s\nbackend_source=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\nsubmitted_at=%s\nmode=fresh\n' \
+    printf 'label=%s\neffort=%s\nmodel=%s\nrole=%s\nbackend=%s\nbackend_source=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\nsubmitted_at=%s\nmode=fresh\n' \
       "$LABEL" "$EFFORT" "${MODEL:-default}" "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$(now_utc)"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$PERMISSION_POSTURE" "$PERMISSION_POSTURE_SOURCE" "$(now_utc)"
   } >"$JOB/meta"
 
   if [ -n "$NEW_SESSION_ID" ]; then
@@ -530,6 +553,16 @@ cmd_resume() {
   [ "$(job_state)" = "RUNNING" ] && die "parent job still running; wait or cancel first"
 
   local PARENT_JOB="$JOB"
+  if [ "$READ_ONLY" != "true" ]; then
+    READ_ONLY="$(meta_value read_only "$PARENT_JOB")"
+    READ_ONLY="${READ_ONLY:-false}"
+  fi
+  PERMISSION_POSTURE="$(meta_value permission_posture "$PARENT_JOB")"
+  PERMISSION_POSTURE_SOURCE="parent"
+  if [ -z "$PERMISSION_POSTURE" ]; then
+    PERMISSION_POSTURE="default"
+    PERMISSION_POSTURE_SOURCE="default"
+  fi
   # A fix round resumes on the parent job's backend, never on a re-decided one.
   # Jobs written before backend dispatch carry no `backend=` line; they are
   # codex by construction.
@@ -566,9 +599,7 @@ cmd_resume() {
   else
     resolve_worker_bin "$BACKEND"
   fi
-  PERMISSION_MODE=""
-  [ "$BACKEND" = "claude" ] && resolve_claude_permission_mode "$READ_ONLY"
-  [ "$BACKEND" = "copilot" ] && resolve_copilot_permission_mode "$READ_ONLY"
+  resolve_permission_mode
   local ROUND=2
   case "$PARENT_ID" in *-r[0-9]*) ROUND=$(( ${PARENT_ID##*-r} + 1 )) ;; esac
   local JOB_ID="${PARENT_ID%-r[0-9]*}-r${ROUND}"
@@ -579,9 +610,9 @@ cmd_resume() {
   printf '%s' "$SESSION_ID" >"$JOB/session_id"
 
   {
-    printf 'label=resume\neffort=%s\nmodel=inherit\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
+    printf 'label=resume\neffort=%s\nmodel=inherit\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
       "${EFFORT:-high}" "${PARENT_ROLE:-none}" "$BACKEND" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$(now_utc)" "$PARENT_ID"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$PERMISSION_POSTURE" "$PERMISSION_POSTURE_SOURCE" "$(now_utc)" "$PARENT_ID"
   } >"$JOB/meta"
 
   if [ "$PARENT_WORKDIR" != "$REPO" ]; then
@@ -617,6 +648,7 @@ write_run_script() {
       # sandbox and effort go through -c config overrides.
       local args="--json -c 'model_reasoning_effort=\"$effort\"'"
       [ "$read_only" = "true" ] && args="$args -c 'sandbox_mode=\"read-only\"'"
+      [ "$PERMISSION_MODE" = "allow-all" ] && args="$args --dangerously-bypass-approvals-and-sandbox"
       echo 'cd "$WORKDIR"'
       printf '"$CODEX_BIN" exec resume %q "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$session_id" "$args"
     else
@@ -626,6 +658,7 @@ write_run_script() {
       is_git_repo "$WORKDIR" || args="$args --skip-git-repo-check"
       [ -n "$model" ] && args="$args -m \"$model\""
       [ "$read_only" = "true" ] && args="$args -s read-only"
+      [ "$PERMISSION_MODE" = "allow-all" ] && args="$args --dangerously-bypass-approvals-and-sandbox"
       printf '"$CODEX_BIN" exec "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
     fi
     echo 'echo $? >"$JOB/exit_code"'
@@ -649,6 +682,7 @@ write_claude_exec_line() {
   # so it is inert, and under a dialled-down mode it keeps the job from hanging
   # on a prompt nobody is there to answer.
   local args="--print --output-format stream-json --verbose --permission-prompts none --permission-mode $PERMISSION_MODE --effort $effort"
+  [ "$PERMISSION_MODE" = "dontAsk" ] && args="$args --allowed-tools Read Glob Grep Edit Write Bash"
   if [ -n "$session_id" ]; then
     args="$args --resume $session_id"
   elif [ -n "$model" ]; then
@@ -661,7 +695,7 @@ write_copilot_exec_line() {
   local effort="$1" model="$2" read_only="$3" session_id="$4"
   # Egress defaults are overridden explicitly. Session export to GitHub web and
   # mobile is on by default, and a delegated job carries the prompt and the
-  # repository contents. --share, --share-gist, --yolo, --allow-all,
+  # repository contents. --share, --share-gist,
   # --worktree, and --enable-memory are never passed: Handoff owns the worktree
   # protocol, pinned to an immutable base SHA.
   local args="--output-format json --effort $effort --no-ask-user"
@@ -676,6 +710,7 @@ write_copilot_exec_line() {
     args="$args --mode plan"
   else
     args="$args --allow-all-tools"
+    [ "$PERMISSION_MODE" = "allow-all" ] && args="$args --allow-all-paths --allow-all-urls"
   fi
   # Job evidence lives with the rest of the job state. cmd_cleanup keeps the job
   # directory, so this co-locates the logs without making them disposable.

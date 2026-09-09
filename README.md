@@ -5,7 +5,7 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.7.0](https://img.shields.io/badge/version-3.7.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.7.1](https://img.shields.io/badge/version-3.7.1-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -224,7 +224,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 
 ## Safety
 
-- Background jobs use the read-write sandbox from your own codex config, bypassed permission checks on a claude worker, or `--allow-all-tools` on a copilot worker; pass `--read-only` for scan and review jobs on any of them. A background job has no approval surface, so a worker that had to ask would instead be refused and could not run the checks its own task asks for; `submit` warns, `HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits` restores prompting on a claude worker, and `status`/`result` report any denial that happens so a blocked check cannot pass as a green one. On copilot, `--read-only` means `--mode plan` and never carries `--allow-all-tools`: probing found that pair emits no denial events at all while the worker reports writes that never happened.
+- Each identity selects `permission_mode=default|allow-all`. Default uses Claude `dontAsk` with `Read Glob Grep Edit Write Bash`, inherited Codex config without sandbox flags, or Copilot `--allow-all-tools` retaining path/URL checks. Allow-all means *use the provider's native unrestricted mode*, not force three CLIs into one security posture. Only claude changes behaviour under default; Codex and Copilot retain their previous flags. Read-only wins over the retained Claude env override and configured posture; the env value is still validated first. Read-only drops Claude's worker allowlist and Copilot's allow-all flags. Resume inherits posture and read_only; missing parent posture means default, never allow-all. Warnings follow the effective concrete mode. No OS-level sandbox is added for Claude default. Codex denials are not counted, and permission_denied is advisory, not enforced. Verify edits and checks on disk. See [the schema](docs/config-schema.md#permission-posture-v371) for mappings and research deviations.
 - Delegating is not handing over control: architecture, the split decision, cross-task integration, security- and correctness-critical paths, and final acceptance all stay with the driving session.
 - Never accept a diff you have not read, and never mark a task done because a worker said it finished.
 - Do not change repo visibility, tag releases, publish to registries, or announce externally without explicit permission.

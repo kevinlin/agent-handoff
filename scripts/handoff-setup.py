@@ -40,6 +40,7 @@ SPEC_REVIEW_IDENTITY = handoff_config.SPEC_REVIEW_IDENTITY
 identities_for = handoff_config.identities_for
 ordered = handoff_config.ordered
 BACKENDS = handoff_config.BACKENDS
+PERMISSION_MODES = handoff_config.PERMISSION_MODES
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # Copilot's own CLI enum, which is a superset: which efforts a given model
@@ -361,6 +362,10 @@ def choose_identities(
     backends = parse_identity_values(args.role_backend, "--role-backend")
     models = parse_identity_values(args.role_model, "--role-model")
     efforts = parse_identity_values(args.role_effort, "--role-effort")
+    permissions = parse_identity_values(args.role_permission_mode, "--role-permission-mode")
+    for identity, permission in permissions.items():
+        if permission not in PERMISSION_MODES:
+            raise SetupError(f"--role-permission-mode for {identity} must be one of {', '.join(PERMISSION_MODES)}")
     for identity, backend in backends.items():
         if backend not in BACKENDS:
             raise SetupError(
@@ -381,6 +386,7 @@ def choose_identities(
                 "backend": backends[identity],
                 "model": models[identity],
                 "effort": efforts[identity],
+                "permission_mode": permissions.get(identity, "default"),
                 "verified": False,
             }
             sources[identity] = {field: "custom" for field in ("backend", "model", "effort")}
@@ -420,6 +426,7 @@ def choose_identities(
             "backend": backend,
             "model": model,
             "effort": efforts.get(identity, preset_effort),
+            "permission_mode": permissions.get(identity, "default"),
             "verified": False,
         }
         sources[identity] = {
@@ -657,6 +664,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
         sources[identity]["backend_value"] = str(desired[identity]["backend"])
         sources[identity]["model_value"] = str(desired[identity]["model"])
         sources[identity]["effort_value"] = str(desired[identity]["effort"])
+        sources[identity]["permission_mode_value"] = str(desired[identity]["permission_mode"])
         sources[identity]["availability"] = (
             "unavailable" if identity in unavailable else "available"
         )
@@ -746,6 +754,7 @@ def print_plan(plan: Plan) -> None:
             f"  {identity}: backend={selected['backend_value']} [{selected['backend']}], "
             f"model={selected['model_value']} [{selected['model']}], "
             f"effort={selected['effort_value']} [{selected['effort']}], "
+            f"permission={selected['permission_mode_value']}, "
             f"availability={selected['availability']}"
         )
     for note in plan.notes:
@@ -1006,6 +1015,7 @@ def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             f"{identity}: backend={values.get('backend', '<unset>')} "
             f"model={values.get('model', '<unset>')} "
             f"effort={values.get('effort', '<unset>')} "
+            f"permission={values.get('permission_mode', 'default')} "
             f"verified={str(values.get('verified', False)).lower()} "
             f"verified_at={values.get('verified_at', '<unset>')}"
             f"{spec_review}"
@@ -1246,6 +1256,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     identity_backends: List[str] = []
     identity_models: List[str] = []
     identity_efforts: List[str] = []
+    identity_permissions: List[str] = []
     with_e2e = getattr(args, "with_e2e", False)
     if mode == "custom":
         answer = input("Also configure the optional e2e identities? [y/N]: ").strip().lower()
@@ -1260,11 +1271,14 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             identity_efforts.append(
                 f"{identity}={input(f'{identity} effort: ').strip()}"
             )
+            permission = input(f"{identity} permission [default/allow-all] (default): ").strip() or "default"
+            identity_permissions.append(f"{identity}={permission}")
     selected = argparse.Namespace(**vars(args))
     selected.mode, selected.scope = mode, scope
     selected.with_e2e = with_e2e
     selected.spec_review = spec_review
     selected.write_agents, selected.routing_block = write_agents, routing
+    selected.role_permission_mode = identity_permissions
     selected.role_backend = identity_backends
     selected.role_model, selected.role_effort = identity_models, identity_efforts
     plan = build_plan(selected, env)
@@ -1291,6 +1305,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=("balanced", "quality", "cost", "custom"), default="balanced", help="Identity preset (default: balanced).")
     parser.add_argument("--role-backend", action="append", default=[], metavar="IDENTITY=BACKEND", help="Override an identity backend; repeat per identity. Required for all identities in custom mode.")
     parser.add_argument("--role-model", action="append", default=[], metavar="IDENTITY=MODEL", help="Override an identity model; repeat per identity. Required for all identities in custom mode.")
+    parser.add_argument("--role-permission-mode", action="append", default=[], metavar="IDENTITY=VALUE", help="Identity permission posture: default or allow-all.")
     parser.add_argument("--role-effort", action="append", default=[], metavar="IDENTITY=EFFORT", help="Override an identity effort; repeat per identity. Required for all identities in custom mode.")
     e2e = parser.add_mutually_exclusive_group()
     e2e.add_argument(
