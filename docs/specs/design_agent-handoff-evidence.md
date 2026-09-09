@@ -18,7 +18,7 @@ Covered: the `.handoff/` evidence store, transcript rendering, session receipt g
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
 | Identity configuration and the setup wizard | `docs/config-schema.md` |
 | E2E verdicts | `docs/verdict-schema.json`, `references/e2e-gauntlet.md` |
-| The illustrative workload model and its ledger | `docs/showcase-cost-model.md` |
+| The illustrative workload model and its ledger | `examples/showcase-cost-ledger.json` |
 
 The prose contract agents load is `references/claude-driven.md`, Phase 0 and Phase 5; the same flow drawn for a human reader is `docs/user-guide/diagrams/phase5-wrap-up.svg`.
 
@@ -27,7 +27,7 @@ The prose contract agents load is `references/claude-driven.md`, Phase 0 and Pha
 Every field in every artifact traces back to a file read during the run. Three corollaries, each with a script behind it:
 
 - **Generated, never typed.** `make-receipt.py` refuses to print an invalid receipt, `validate-receipt.py` re-checks a written one, and neither renderer accepts a prose section a driver fills in by hand.
-- **Measured, never repriced.** Tokens metered by one vendor are never converted into another vendor's list price. The `$64.195302` "avoided spend" figure in `examples/v2.0.0-conversation-cost-receipt.md` is the specific move this rules out, and `CLAUDE.md` forbids it independently.
+- **Measured, never repriced.** Tokens metered by one vendor are never converted into another vendor's list price. The `$64.195302` "avoided spend" figure in the retired v2.0.0 archive receipt is the specific move this rules out, and `CLAUDE.md` forbids it independently.
 - **A gap is named, never zeroed.** `unknown`, `running`, `cancelled`, `failed`, `unscoped`, `unavailable`, `inherit (unresolved)` and `not recorded` are all real output values. A measured zero prints `0`, and the two facts stay distinguishable.
 
 ### Producers and readers
@@ -197,7 +197,7 @@ The Handoff Session Receipt (`docs/receipt-schema.json`, schema v6) records phas
 
 ### The premise that changed
 
-The consumption question used to have two bad answers: the workload model in `docs/showcase-cost-model.md`, which is explicitly illustrative, and the hand-written `examples/v2.0.*-conversation-cost-receipt.md`, whose central figure was a counterfactual obtained by repricing observed Codex tokens at another vendor's list rates. Delegated jobs now retain real usage telemetry, so the question can be answered by measurement. Both archives keep their schema-v2 banner and one pointer line to the current example; restating them under the current schema would mean inventing a receipt block `validate-receipt.py` is built to reject.
+The consumption question used to have two bad answers: the workload model in the since-retired showcase cost model doc, which was explicitly illustrative, and the hand-written `examples/v2.0.*-conversation-cost-receipt.md`, whose central figure was a counterfactual obtained by repricing observed Codex tokens at another vendor's list rates. Delegated jobs now retain real usage telemetry, so the question can be answered by measurement. Both archives keep their schema-v2 banner and one pointer line to the current example; restating them under the current schema would mean inventing a receipt block `validate-receipt.py` is built to reject.
 
 ### One Python parser, two outputs
 

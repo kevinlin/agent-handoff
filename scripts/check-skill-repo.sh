@@ -39,7 +39,6 @@ check_file "assets/config-switch-demo.mp4"
 check_file "assets/config-switch-demo.gif"
 check_file "assets/v3.6.1-conversation-cost-receipt.png"
 check_file "examples/showcase-cost-ledger.json"
-check_file "docs/showcase-cost-model.md"
 check_file "docs/receipt-schema.json"
 check_file "examples/session-receipt.md"
 check_file "references/handoff-template.md"
@@ -139,13 +138,6 @@ if grep -qF '# Agent Handoff' README.md && grep -qF 'every handoff leaves a rece
   echo "PASS README identity"
 else
   echo "FAIL README must include Agent Handoff identity and slogan"
-  fail=$((fail + 1))
-fi
-
-if grep -qF 'docs/showcase-cost-model.md' README.md; then
-  echo "PASS docs entrypoints"
-else
-  echo "FAIL README must link the cost model doc"
   fail=$((fail + 1))
 fi
 

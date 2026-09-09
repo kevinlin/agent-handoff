@@ -11,7 +11,7 @@
 
 **Claude Code plans, splits, and signs off. A worker CLI does the work as a background job — Codex on its own subscription, a second Claude Code, or GitHub Copilot on its AI credits. What you save is the driver's quota and its context window; what you keep is the quality gate.**
 
-[Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [How The Flow Runs](#how-the-flow-runs) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
+[Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [How The Flow Runs](#how-the-flow-runs) · [User Guide](docs/user-guide/agent-handoff.html) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
 
 </div>
 
@@ -62,19 +62,6 @@ Before first real use, say `/agent-handoff config`. Handoff opens a local single
 
 Every number on that page was read from a file named in its own Method list. Codex-backed jobs carry token counters and no cost figure, because the Codex CLI emits none; claude-backed jobs carry the CLI's own `total_cost_usd`, unrounded and labelled *CLI-reported*. The two summary figures cover overlapping populations, so the page says they are not addends, and no saving is computed anywhere. The driver row is scoped to the run's own interval, derived from the receipt stamp minus its duration, so re-rendering an old receipt after the session grew returns the same row.
 
-**Archive: the v2.0.1 fault chain**
-
-This is an archived fault chain from the v2.0.1 bounded planner. That component was removed in 3.0.0; the record stays because what it demonstrates still holds: real cost can be verified run by run, the failed attempt never triggered a silent model swap, and partial output was never turned into a plan.
-
-| Observed stage | Outcome | Cost returned by Claude CLI | Handoff response |
-|---|---|---:|---|
-| v2.0.0 repository plan | Authentication worked; after spawning three subagents the stream idled, with no plan returned | `$6.57` | Exposed the unbounded legacy path |
-| v2.0.1 fresh bounded attempt | No accepted event for 180 seconds; `idle_timeout`; no plan created | `unknown` (no final cost event) | Terminated the process group and kept metadata/checkpoint/recovery |
-| Same-session resume | Exact `claude-fable-5` / `xhigh`; valid eight-section plan | `$0.382695` | Proved recovery without changing models |
-| Final fresh candidate | Exact model/session, return code 0, matching packet/runner hashes | `$0.45282` | Became the final Judge and PR evidence |
-
-These dollar values are costs returned by Claude CLI for the individual real planning runs, not a measured end-to-end token-savings rate. When a failed attempt has no final result event, the cost stays `unknown`. The [v2.0.0 failure-baseline receipt](examples/v2.0.0-conversation-cost-receipt.md) and [v2.0.1 complete conversation cost receipt](examples/v2.0.1-conversation-cost-receipt.md) record each identity's actual tasks, model, effort, and per-run cost (both are schema v2 archives, superseded by the generated [v3.6.1 cost receipt](examples/v3.6.1-conversation-cost-receipt.md), which is read from measured job telemetry). See [`docs/releases/v2.0.1.md`](docs/releases/v2.0.1.md) and [`docs/showcase-cost-model.md`](docs/showcase-cost-model.md) for the evidence boundary.
-
 ## Use It
 
 ```text
@@ -110,6 +97,8 @@ bash install.sh --config --repo /path/to/project
 </div>
 
 Each phase has its own diagram in [`docs/user-guide/diagrams/`](docs/user-guide/diagrams/): the [plan and split gate](docs/user-guide/diagrams/phase1-plan-split.svg), [delegation](docs/user-guide/diagrams/phase2-delegate.svg), [the monitor loop](docs/user-guide/diagrams/phase3-monitor.svg), [the review gate](docs/user-guide/diagrams/phase4-review-gate.svg), and [wrap up](docs/user-guide/diagrams/phase5-wrap-up.svg), plus [packet anatomy](docs/user-guide/diagrams/handoff-packet-anatomy.svg), [the evidence ladder](docs/user-guide/diagrams/context-ladder.svg), and [the goal-drift loop](docs/user-guide/diagrams/feedback-loop.svg). The prose they illustrate is [`references/claude-driven.md`](references/claude-driven.md).
+
+For the walkthrough of all five stages — what crosses each boundary, what is enforced there, and what evidence survives — read the [user guide](docs/user-guide/agent-handoff.html).
 
 ## Cost Pressure Model
 

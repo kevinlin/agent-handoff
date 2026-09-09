@@ -72,7 +72,7 @@ Keep the existing negative guard, retargeted: do not trigger on the bare English
 
 **Data / schema**: [docs/receipt-schema.json](docs/receipt-schema.json) (`$id`, title, description), [test-prompts.json](test-prompts.json) (prompts, expected_behavior, must_not, ids `bare-partner-trigger` → `bare-handoff-trigger`, `resume-from-partner-state` → `resume-from-handoff-state`), [examples/showcase-cost-ledger.json](examples/showcase-cost-ledger.json) — **regenerate, do not hand-edit**.
 
-**Prose**: [SKILL.md](SKILL.md), [README.md](README.md) (title, slogan, badges, install URLs → `kevinlin/agent-handoff`, File Map, trigger block), [CLAUDE.md](CLAUDE.md), [docs/config-schema.md](docs/config-schema.md), [docs/showcase-cost-model.md](docs/showcase-cost-model.md), all nine `references/*.md`, [examples/session-receipt.md](examples/session-receipt.md) (live example — regenerate under the new header), and a rename bullet set in the existing `## v3.0.0` section of [CHANGELOG.md](CHANGELOG.md).
+**Prose**: [SKILL.md](SKILL.md), [README.md](README.md) (title, slogan, badges, install URLs → `kevinlin/agent-handoff`, File Map, trigger block), [CLAUDE.md](CLAUDE.md), [docs/config-schema.md](docs/config-schema.md), the showcase cost model doc (since retired), all nine `references/*.md`, [examples/session-receipt.md](examples/session-receipt.md) (live example — regenerate under the new header), and a rename bullet set in the existing `## v3.0.0` section of [CHANGELOG.md](CHANGELOG.md).
 
 **Left alone**: `docs/releases/v2.0.*.md`, `examples/v2.0.*-conversation-cost-receipt.{md,html}`, older CHANGELOG sections, the fork-attribution URL. Nothing in CI greps those for the brand string — confirm after the gate edits.
 
