@@ -397,7 +397,9 @@ def build_payload(receipt: dict, rows: list[dict], driver: dict,
                   "usage": r["usage"], "cost_usd": r["cost_usd"],
                   "denials": r["denials"], "repeated": r["repeated"]}
                  for r in rows],
-        "driver": driver,
+        # The state word alone does not say what unscoped means; the note the
+        # markdown prints travels with the payload so both outputs say it once.
+        "driver": {**driver, "note": DRIVER_NOTE[driver["state"]]},
         "summary": summarize(rows),
         "sources": [_relative_source(source, repo) for source in sources],
         "counters": list(COUNTERS),

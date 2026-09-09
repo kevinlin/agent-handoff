@@ -6,37 +6,144 @@
 <meta name="color-scheme" content="light dark">
 <title>Handoff Cost Receipt</title>
 <style>
+/* The v2.0.1 receipt's editorial language - serif masthead, cobalt accent,
+   coral caveat rule, uppercase mono labels - carried onto light-dark() tokens
+   so the page still reads in both themes. */
 :root {
   color-scheme: light dark;
-  --bg:     light-dark(#fbfbfa, #16161a);
-  --fg:     light-dark(#1a1a19, #e8e8e6);
-  --muted:  light-dark(#6b6b68, #9a9a96);
-  --line:   light-dark(#e3e3e0, #2c2c31);
-  --card:   light-dark(#ffffff, #1e1e23);
-  --accent: light-dark(#4a5cd6, #8b9aff);
-  --shadow-card: 0 1px 2px rgb(0 0 0 / .04), 0 6px 18px rgb(0 0 0 / .05);
-  --radius-card: 16px;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --paper:   light-dark(#f1f3f6, #141519);
+  --surface: light-dark(#fbfcfd, #1c1e24);
+  --ink:     light-dark(#171a20, #e8e9ec);
+  --muted:   light-dark(#59616d, #99a1ae);
+  --line:    light-dark(#cfd5de, #2d3038);
+  --rule:    light-dark(#171a20, #6c7382);
+  --cobalt:      light-dark(#1748d2, #93a9ff);
+  --cobalt-soft: light-dark(#e9efff, #1e2540);
+  --cobalt-line: light-dark(#c6d3fb, #33406c);
+  --coral:      light-dark(#b53d34, #e2705a);
+  --coral-ink:  light-dark(#713029, #f0a496);
+  --hover:      light-dark(#eef1f5, #23262e);
+  --ok-soft:  light-dark(#e4f1e8, #1b2d22);
+  --ok-ink:   light-dark(#256240, #5fbe84);
+  --ok-line:  light-dark(#bcdfc8, #2f5a3f);
+  --bad-soft: light-dark(#fff0ed, #32201c);
+  --bad-line: light-dark(#f0c5b8, #5e3229);
+  --radius: 16px;
+  --serif: Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --gutter: clamp(1rem, 3vw, 2.5rem);
 }
-body { margin:0; background:var(--bg); color:var(--fg);
-  font:14px/1.6 ui-sans-serif, system-ui, -apple-system, sans-serif; }
-main { max-width:72rem; margin:0 auto; padding:1.5rem var(--gutter) 6rem; }
-.card { border:1px solid var(--line); border-radius:var(--radius-card);
-  background:var(--card); padding:1rem 1.25rem; margin-bottom:1.25rem;
-  box-shadow:var(--shadow-card); }
-.scroll { overflow-x:auto; }
+* { box-sizing: border-box; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  background: var(--paper); }
+body { margin:0; min-width:320px; background:var(--paper); color:var(--ink);
+  font:14px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+/* Twelve columns of job telemetry: the wide measure the transcript viewer
+   uses, so the table scrolls only on genuinely narrow windows. */
+/* minmax(0,1fr), never the implicit auto: an auto column sizes to the widest
+   table's min-content and drags the whole page sideways with it. */
+main { max-width:90rem; margin:0 auto; padding:clamp(20px,3vh,30px) var(--gutter) 6rem;
+  display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+
+section { opacity:0; animation:reveal 520ms cubic-bezier(.2,.72,.2,1) forwards; }
+section:nth-child(2) { animation-delay:70ms; }
+section:nth-child(3) { animation-delay:140ms; }
+section:nth-child(4) { animation-delay:210ms; }
+section:nth-child(5) { animation-delay:280ms; }
+section:nth-child(n+6) { animation-delay:350ms; }
+@keyframes reveal { from { opacity:0; transform:translateY(12px); }
+                    to   { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) {
+  section { animation-duration:.01ms; animation-delay:0ms; }
+}
+
+/* Masthead: the run's identity, ruled off from everything measured below. */
+.masthead { display:grid; gap:8px 28px; align-items:end; padding:4px 2px 12px;
+  border-bottom:2px solid var(--rule); }
+@media (min-width:48rem) {
+  .masthead { grid-template-columns:minmax(0,1fr) auto; }
+}
+.masthead h1 { margin:4px 0 6px; font:600 clamp(34px,4.4vw,56px)/.96 var(--serif);
+  letter-spacing:-.045em; text-wrap:balance; }
+.masthead .subtitle { margin:0; color:var(--cobalt); font-size:13px; font-weight:750;
+  letter-spacing:.09em; text-transform:uppercase; }
+.stamp { text-align:right; font-variant-numeric:tabular-nums; }
+.stamp span { display:block; margin-bottom:5px; color:var(--muted); font-size:11px;
+  font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+.stamp time { font:13px/1.4 var(--mono); overflow-wrap:anywhere; }
+
+.card { background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); padding:19px 20px; }
+/* The two summary figures lead the page, so they carry the accent rule. */
+.card.lead { border-top:7px solid var(--cobalt); padding-top:16px; }
+h2 { margin:0 0 4px; font:820 13px/1.4 ui-sans-serif, -apple-system, sans-serif;
+  letter-spacing:.1em; text-transform:uppercase; }
+h2 .count { color:var(--cobalt); font-family:var(--mono); font-size:12px;
+  font-weight:760; letter-spacing:0; text-transform:none; }
+p { text-wrap:pretty; }
+.note { max-width:68ch; margin:0 0 .5rem; color:var(--muted);
+  font-size:12px; line-height:1.5; }
+/* The caveat rule from the v2.0.1 page: what the numbers do not establish. */
+.caveat { padding-left:13px; color:var(--coral-ink); border-left:3px solid var(--coral); }
+
+/* Metric grid: a label over a serif figure, the v2.0.1 lead treatment applied
+   to each counter, so five figures wrap instead of forcing a scroll. Each pair
+   is its own grid item, or dt and dd would land in adjacent columns. */
+.metrics { display:grid; grid-template-columns:repeat(auto-fit, minmax(10rem, 1fr));
+  gap:16px 20px; margin:14px 0 0; padding-top:15px; border-top:1px solid var(--line); }
+.metrics > div { min-width:0; }
+.metrics dt { margin-bottom:4px; color:var(--muted); font-size:11px; font-weight:750;
+  letter-spacing:.1em; text-transform:uppercase; }
+.metrics dd { margin:0; color:var(--cobalt); font:600 clamp(20px,2.1vw,30px)/1.05 var(--serif);
+  letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+/* An absent measurement is never set in the figure face: it is not a figure. */
+.metrics dd.absent { color:var(--muted); font:italic 400 14px/1.4 var(--mono);
+  letter-spacing:0; overflow-wrap:anywhere; }
+
+.meta { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.15rem .75rem;
+  margin:0; }
+.meta dt { color:var(--muted); font:11px/1.6 var(--mono); text-transform:uppercase;
+  letter-spacing:.06em; }
+.meta dd { margin:0; padding-inline-end:1.5rem; font:13px/1.6 var(--mono);
+  overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+@media (min-width:62rem) {
+  .meta { grid-template-columns:repeat(2, auto minmax(0,1fr)); }
+}
+
+/* Focusable so a keyboard can reach the scroll the region owns. */
+.scroll { overflow-x:auto; margin-top:12px; }
+.scroll:focus-visible { outline:3px solid var(--cobalt); outline-offset:2px;
+  border-radius:.4rem; }
 table { border-collapse:collapse; width:100%; font:13px/1.5 var(--mono); }
-th, td { text-align:right; padding:.4rem .6rem; border-bottom:1px solid var(--line);
-  white-space:nowrap; }
+th, td { text-align:right; padding:.45rem .6rem; border-bottom:1px solid var(--line);
+  white-space:nowrap; font-variant-numeric:tabular-nums; }
 th:first-child, td:first-child { text-align:left; }
-th { color:var(--muted); font-weight:500; }
-.note { color:var(--muted); font-size:12px; }
-.figure { font:600 20px/1.2 var(--mono); color:var(--accent); }
-h1 { font-size:20px; margin:0 0 .25rem; }
-h2 { font-size:15px; margin:0 0 .75rem; color:var(--muted); }
-dt { color:var(--muted); font:11px var(--mono); }
-dd { margin:0 0 .5rem; font:13px var(--mono); }
+th { color:var(--muted); font:750 11px/1.6 ui-sans-serif, -apple-system, sans-serif;
+  letter-spacing:.09em; text-transform:uppercase; }
+thead th { border-bottom-color:var(--rule); }
+tbody tr:last-child td { border-bottom:0; }
+/* A job id is the row's only identifier and the widest cell on the page, so it
+   stays put while the counters scroll under it. */
+.jobs td:first-child, .jobs th:first-child { position:sticky; left:0;
+  background:var(--surface); }
+@media (hover:hover) and (pointer:fine) {
+  .jobs tbody tr:hover td { background:var(--hover); }
+}
+/* An absent measurement must not read as a value. Colour is reinforcement:
+   the word itself already says what happened. */
+td.absent { color:var(--muted); font-style:italic; }
+.pill { display:inline-flex; align-items:center; padding:.05rem .5rem;
+  border:1px solid var(--line); border-radius:999px; background:var(--paper);
+  font:11px var(--mono); text-transform:uppercase; letter-spacing:.06em; }
+.pill.ok   { color:var(--ok-ink); background:var(--ok-soft); border-color:var(--ok-line); }
+.pill.bad  { color:var(--coral-ink); background:var(--bad-soft); border-color:var(--bad-line); }
+.pill.live { color:var(--cobalt); background:var(--cobalt-soft); border-color:var(--cobalt-line); }
+.pill.off  { color:var(--muted); }
+
+.method h2 { font:600 20px/1.3 var(--serif); letter-spacing:-.02em;
+  text-transform:none; margin-bottom:8px; }
+.method ul { margin:10px 0 0; padding-left:1.1rem; }
+.method li { font:12px/1.7 var(--mono); overflow-wrap:anywhere; }
 </style>
 </head>
 <body>
@@ -46,16 +153,38 @@ dd { margin:0 0 .5rem; font:13px var(--mono); }
 const data = JSON.parse(document.getElementById("handoff-payload").textContent);
 const LABELS = {input:"Input", cache_read:"Cache read", cache_write:"Cache write",
                 output:"Output", reasoning:"Reasoning"};
+const STATE_TONE = {done:"ok", failed:"bad", cancelled:"off", running:"live"};
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
   if (text !== undefined && text !== null) node.textContent = String(text);
   if (cls) node.className = cls;
   return node;
 };
-const num = (v) => v === null || v === undefined ? "unknown" : v.toLocaleString();
-const figureCell = (c) => c.value === null ? "unknown"
-  : (c.complete ? num(c.value) : `\u2265 ${num(c.value)} (${c.measured} of ${c.total})`);
+// A cell is either a measurement or a word standing in for one. The two are
+// never styled alike, so a reader cannot mistake "unknown" for a reading.
+const measured = (text) => ({text: String(text), cls: ""});
+const absent = (text) => ({text, cls: "absent"});
+const num = (v) => v === null || v === undefined
+  ? absent("unknown") : measured(v.toLocaleString());
+const figureCell = (c) => c.value === null ? absent("unknown")
+  : (c.complete ? measured(c.value.toLocaleString())
+     : absent("≥ " + c.value.toLocaleString() + ` (${c.measured} of ${c.total})`));
 const jobCount = (n) => `${n} ${n === 1 ? "job" : "jobs"}`;
+// The payload carries UTC, which is what the files record. A reader compares
+// these against their own clock, so they are shown in the system timezone,
+// named, and the UTC original stays on the element as its datetime.
+const LOCAL = {year: "numeric", month: "short", day: "2-digit", hour: "2-digit",
+               minute: "2-digit", second: "2-digit", timeZoneName: "short"};
+const localTime = (iso) => {
+  const when = new Date(iso);
+  return isNaN(when) ? String(iso) : when.toLocaleString(undefined, LOCAL);
+};
+const stampEl = (iso) => {
+  const node = el("time", localTime(iso));
+  node.dateTime = iso;
+  node.title = iso;
+  return node;
+};
 // "unknown" claims a reading was attempted and failed; a run with no
 // claude-backed job had nothing to read.
 const costNote = (fig) => !fig.cost_applicable
@@ -63,87 +192,132 @@ const costNote = (fig) => !fig.cost_applicable
   : `CLI-reported cost of the claude-backed jobs: ${fig.cost_usd === null ? "unknown"
       : fig.cost_usd + (fig.cost_complete ? "" : " (partial)")}`;
 
-function table(headers, rows) {
+function metrics(counters, cells) {
+  const dl = el("dl", null, "metrics");
+  counters.forEach((c, i) => {
+    const pair = el("div");
+    pair.appendChild(el("dt", LABELS[c]));
+    pair.appendChild(el("dd", cells[i].text, cells[i].cls));
+    dl.appendChild(pair);
+  });
+  return dl;
+}
+
+function table(headers, rows, label, cls) {
   const wrap = el("div", null, "scroll");
-  const t = el("table");
+  wrap.tabIndex = 0;
+  wrap.setAttribute("role", "region");
+  wrap.setAttribute("aria-label", label);
+  const t = el("table", null, cls);
   const thead = el("thead"), hr = el("tr");
-  headers.forEach(h => hr.appendChild(el("th", h)));
+  headers.forEach(h => {
+    const th = el("th", h);
+    th.scope = "col";
+    hr.appendChild(th);
+  });
   thead.appendChild(hr); t.appendChild(thead);
   const tb = el("tbody");
   rows.forEach(r => {
     const tr = el("tr");
-    r.forEach(cell => tr.appendChild(el("td", cell)));
+    r.forEach(cell => {
+      const td = el("td", cell.pill ? null : cell.text, cell.cls);
+      if (cell.pill) td.appendChild(el("span", cell.text, `pill ${cell.pill}`));
+      tr.appendChild(td);
+    });
     tb.appendChild(tr);
   });
   t.appendChild(tb); wrap.appendChild(t);
   return wrap;
 }
 
+function section(cls) {
+  const node = el("section", null, cls);
+  document.getElementById("root").appendChild(node);
+  return node;
+}
+
 function render() {
-  const root = document.getElementById("root");
   const counters = data.counters;
-  const head = el("section", null, "card");
-  head.appendChild(el("h1", "Handoff Cost Receipt"));
-  const dl = el("dl");
-  const meta = [["session", data.claude_session], ["run duration", data.duration],
-    ["interval", data.interval ? `${data.interval[0]} to ${data.interval[1]}`
-                               : "not derivable from this input"],
-    ["generated", data.generated_at]];
-  meta.forEach(([k, v]) => { dl.appendChild(el("dt", k)); dl.appendChild(el("dd", v)); });
-  head.appendChild(dl);
-  root.appendChild(head);
+  const counterHeads = counters.map(c => LABELS[c]);
+
+  const head = section("masthead");
+  const title = el("div");
+  title.appendChild(el("p", "Handoff cost receipt", "subtitle"));
+  title.appendChild(el("h1", "Measured, not estimated"));
+  const meta = el("dl", null, "meta");
+  [["session", data.claude_session], ["run duration", data.duration]
+  ].forEach(([k, v]) => { meta.appendChild(el("dt", k)); meta.appendChild(el("dd", v)); });
+  meta.appendChild(el("dt", "interval"));
+  const span = el("dd");
+  if (data.interval) {
+    span.appendChild(stampEl(data.interval[0]));
+    span.appendChild(el("span", " to "));
+    span.appendChild(stampEl(data.interval[1]));
+  } else {
+    span.textContent = "not derivable from this input";
+  }
+  meta.appendChild(span);
+  title.appendChild(meta);
+  head.appendChild(title);
+  const stamp = el("div", null, "stamp");
+  stamp.appendChild(el("span", "Generated"));
+  stamp.appendChild(stampEl(data.generated_at));
+  head.appendChild(stamp);
 
   [["Ran on a Codex subscription", data.summary.codex_subscription, false],
    ["Ran outside the driver session", data.summary.outside_driver, true]
-  ].forEach(([title, fig, withCost]) => {
-    const card = el("section", null, "card");
-    card.appendChild(el("h2", `${title} \u00b7 ${jobCount(fig.jobs)}`));
+  ].forEach(([heading, fig, withCost]) => {
+    const card = section("card lead");
+    const h2 = el("h2", heading + " ");
+    h2.appendChild(el("span", jobCount(fig.jobs), "count"));
+    card.appendChild(h2);
     card.appendChild(el("p", withCost
       ? costNote(fig)
       : "No cost figure: the Codex CLI emits none.", "note"));
-    card.appendChild(table(counters.map(c => LABELS[c]),
-      [counters.map(c => figureCell(fig.usage[c]))]));
-    root.appendChild(card);
+    card.appendChild(metrics(counters, counters.map(c => figureCell(fig.usage[c]))));
   });
 
-  const overlap = el("section", null, "card");
+  const overlap = section("card");
+  overlap.appendChild(el("h2", "Reading the two figures"));
   overlap.appendChild(el("p", "Codex jobs are counted in both figures above. They are "
-    + "not addends, and no difference between them is a saving.", "note"));
+    + "not addends, and no difference between them is a saving.", "note caveat"));
   if (data.summary.denials !== null) {
     overlap.appendChild(el("p", `Permission denials across claude-backed jobs: `
       + `${data.summary.denials}. A denied tool call does not move a job's exit code.`,
       "note"));
   }
-  root.appendChild(overlap);
 
-  const jobs = el("section", null, "card");
+  const jobs = section("card");
   jobs.appendChild(el("h2", "Delegated jobs"));
   jobs.appendChild(table(
-    ["Job", "Role", "Backend", "Model", "State", ...counters.map(c => LABELS[c]),
-     "CLI-reported cost"],
-    data.jobs.map(j => [j.job_id, j.role || "-", j.backend, j.model, j.state.toLowerCase(),
-      ...counters.map(c => num(j.usage[c])),
-      j.backend === "codex" ? "n/a - subscription"
-        : (j.cost_usd === null ? "unknown" : String(j.cost_usd))])));
-  root.appendChild(jobs);
+    ["Job", "Role", "Backend", "Model", "State", ...counterHeads, "CLI-reported cost"],
+    data.jobs.map(j => {
+      const state = j.state.toLowerCase();
+      return [measured(j.job_id),
+        j.role ? measured(j.role) : absent("-"),
+        measured(j.backend), measured(j.model),
+        {text: state, cls: "", pill: STATE_TONE[state] || "off"},
+        ...counters.map(c => num(j.usage[c])),
+        j.backend === "codex" ? absent("n/a - subscription")
+          : (j.cost_usd === null ? absent("unknown") : measured(j.cost_usd))];
+    }), "Delegated jobs, per-job telemetry", "jobs"));
 
-  const driver = el("section", null, "card");
+  const driver = section("card");
   driver.appendChild(el("h2", "Driver session"));
-  driver.appendChild(el("p", `State: ${data.driver.state}. Models: `
-    + `${data.driver.models.join(", ") || "unknown"}. CLI-reported cost: unknown, `
-    + "the driver transcript carries no cost field.", "note"));
-  driver.appendChild(table(counters.map(c => LABELS[c]),
-    [counters.map(c => num(data.driver.usage[c]))]));
-  root.appendChild(driver);
+  driver.appendChild(el("p", `State: ${data.driver.state}`
+    + `${data.driver.note ? " - " + data.driver.note : ""}.`, "note"));
+  driver.appendChild(el("p", `Models: ${data.driver.models.join(", ") || "unknown"}. `
+    + "CLI-reported cost: unknown, the driver transcript carries no cost field.", "note"));
+  driver.appendChild(table(counterHeads,
+    [counters.map(c => num(data.driver.usage[c]))], "Driver session, token counters"));
 
-  const method = el("section", null, "card");
+  const method = section("card method");
   method.appendChild(el("h2", "Method"));
   method.appendChild(el("p", "Every number above was read from these files. Nothing is "
     + "estimated, and no price table is applied.", "note"));
   const ul = el("ul");
   data.sources.forEach(s => ul.appendChild(el("li", s)));
   method.appendChild(ul);
-  root.appendChild(method);
 }
 render();
 </script>
