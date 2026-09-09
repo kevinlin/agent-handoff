@@ -545,7 +545,11 @@ only for the plumbing.
 - `tests/test_handoff_config.py`: copilot accepted, an unknown backend still refused.
 - `tests/test_handoff_setup.py`: the copilot effort enum, the `auto` refusal, the `cli_available`
   identity check, and the smoke path.
-- `tests/test_handoff_setup_ui.py`: the catalog probe, the cache hit, and the refresh.
+- `tests/test_handoff_setup_ui.py`: that opening the wizard makes **no** copilot subprocess call,
+  that the model field renders as a text input rather than a disabled selector, and that no catalog,
+  cache, or refresh machinery exists. *This bullet asked for the catalog probe, the cache hit and
+  the refresh until task 5 was rewritten after the probes; it drifted, and the wave-3 worker caught
+  it.*
 
 Verify: `python3 -m unittest discover -s tests` fully green.
 
