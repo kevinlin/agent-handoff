@@ -74,7 +74,7 @@
   <rect x="110" y="288" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="118" y="301" class="pill" fill="#7c3aed">Claude driver</text>
   <text x="110" y="327" class="ntitle">Preflight</text>
-  <text x="110" y="345" class="note">codex/claude --version — a missing CLI stops the flow</text>
+  <text x="110" y="345" class="note">a backend's --version — a missing CLI stops the flow</text>
   <text x="110" y="360" class="note">AGENTS.md: DO NOT send optional commentary</text>
   <text x="110" y="375" class="note">git status --short → note pre-existing dirt</text>
   <text x="110" y="390" class="note">make-receipt.py --start → .handoff/session-start</text>

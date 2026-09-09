@@ -79,8 +79,8 @@
   <rect x="110" y="475" width="124" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="118" y="488" class="pill" fill="#2563eb">make-receipt.py</text>
   <text x="110" y="514" class="ntitle">make-receipt.py --save</text>
-  <text x="110" y="532" class="note">duration · codex_jobs + cc_jobs, split by each job's backend</text>
-  <text x="110" y="547" class="note">schema v5; a v4 receipt fails, the signal to regenerate it</text>
+  <text x="110" y="532" class="note">duration · three job counts, split by each job's backend</text>
+  <text x="110" y="547" class="note">schema v6; a v5 receipt fails, the signal to regenerate it</text>
   <text x="110" y="562" class="note">refuses to emit an invalid receipt at all</text>
   <rect x="96" y="621" width="500" height="96" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
   <rect x="110" y="632" width="152.8" height="18" rx="6" fill="#2563eb" opacity="0.10"/>

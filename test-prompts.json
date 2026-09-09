@@ -555,5 +555,90 @@
       "report a savings, avoided-cost, or context-saved figure",
       "estimate a cost for codex jobs or for the driver session"
     ]
+  },
+  {
+    "id": "copilot-identity-runs-on-copilot",
+    "prompt": "fast_worker is configured with backend copilot. Hand it this migration as a background job.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Submit the work with delegate-codex.sh submit --role fast_worker and report the returned jobId.",
+      "Let the identity's configured backend pick the CLI, so a copilot identity runs copilot -p --output-format json.",
+      "Treat the copilot job as a real delegated job: same job directory, monitoring loop, fix-round resume, and receipt entry as any other backend.",
+      "Confirm the copilot binary is GitHub Copilot CLI by its --version output, since AWS Copilot CLI shares the name."
+    ],
+    "must_not": [
+      "Run the work inline in the driving session because copilot looks like a lesser backend.",
+      "Spawn an in-process subagent instead of submitting a delegated job.",
+      "Pass --backend codex or --backend claude alongside --role fast_worker.",
+      "Report the job as delegated without a jobId."
+    ]
+  },
+  {
+    "id": "no-identity-substitution-across-three-backends",
+    "prompt": "fast_worker is copilot-backed and I would rather not spend those credits. Just send this to deep_reasoner instead, it is on Codex.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Refuse to swap the identity to move the job onto another vendor or meter, and say so plainly.",
+      "Name the change as a configuration change: /agent-handoff config, or handoff-config.py set --role fast_worker --backend codex.",
+      "Explain that the split decision picked the identity for the capability the work needs, across all three backends equally.",
+      "Offer to make the config change and continue once the user has seen it."
+    ],
+    "must_not": [
+      "Submit the work under a different identity to change the vendor or the meter.",
+      "Pass a per-job --backend that contradicts the named role.",
+      "Hide the vendor swap inside a jobId and report the task as delegated as planned.",
+      "Treat routing as a per-run decision the driver may re-make while delegating."
+    ]
+  },
+  {
+    "id": "copilot-fix-round-resumes-same-session",
+    "prompt": "The copilot job came back with two review findings. Send the fixes back to it.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Use delegate-codex.sh resume <jobId> so the fix round lands on the same session on the same backend.",
+      "Rely on the parent job's meta backend= and session_id rather than resubmitting the task from zero.",
+      "Send only the prioritized findings and the failed acceptance criteria, not the whole packet again.",
+      "Keep the bound at two fix rounds per task, then take the task back into the driving session."
+    ],
+    "must_not": [
+      "Start a fresh copilot job and call it a fix round.",
+      "Move the fix round to a different backend or identity than the parent job's.",
+      "Report an unresumable session as a bug when the parent died before Copilot created one.",
+      "Exceed two fix rounds without recording a takeback."
+    ]
+  },
+  {
+    "id": "typed-denials-fail-the-job",
+    "prompt": "The delegated job exited 0 and says every check passed. Sign it off.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read the permission_denied count from status or result before judging the diff.",
+      "Treat any non-zero denial count as a failed job whatever the exit code says, because a denied tool call does not move the exit code.",
+      "Re-run the blocked checks in the driving session and judge the diff on that output.",
+      "Record the denials as a monitoring anomaly in the receipt."
+    ],
+    "must_not": [
+      "Accept the worker's own report that its checks passed.",
+      "Read exit code 0 as evidence that nothing was blocked.",
+      "Sign off a diff that has not been read against the acceptance criteria.",
+      "Drop the anomaly from the receipt because the job finished."
+    ]
+  },
+  {
+    "id": "receipt-splits-three-backend-counts",
+    "prompt": "This run had jobs on Codex, on a second Claude Code, and on Copilot. Give me the receipt.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Generate the receipt with scripts/make-receipt.py, passing --codex-jobs, --cc-jobs, and --copilot-jobs separately.",
+      "Count each job from its own meta backend= line under .handoff/jobs/, not from recall.",
+      "Emit receipt_schema_version 6 with copilot_jobs and copilot_job_durations alongside the two existing pairs.",
+      "Use phase: delegated implementation when the run's delegated work was not all codex-backed."
+    ],
+    "must_not": [
+      "Fold copilot jobs into codex_jobs or cc_jobs.",
+      "Hand-type the counts or the durations instead of measuring them from the job directories.",
+      "Emit a v5 receipt that omits copilot_jobs and copilot_job_durations.",
+      "Report a copilot job's credits as a currency figure."
+    ]
   }
 ]

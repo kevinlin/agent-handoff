@@ -1,10 +1,10 @@
 # Agent Handoff Tryout (`/agent-handoff tryout`)
 
-The first-run proof pass. Triggered by `/agent-handoff tryout` after `/agent-handoff config` has been applied. Each configured identity runs one small, self-contained micro-task; the result is a report that lets a first-time user conclude in one glance: my identities are actually live, on the models I chose. This is a real end-to-end run (it spends real quota, minutes not seconds at high effort tiers). `handoff-setup.py --smoke` is the bounded installation check: Codex identities use the delegate dry-run chain, while each Claude identity uses one minimal tool-free fresh session so model/effort/auth are genuinely checked. The tryout remains the proof that every configured identity can complete its intended work, not merely answer the installation probe.
+The first-run proof pass. Triggered by `/agent-handoff tryout` after `/agent-handoff config` has been applied. Each configured identity runs one small, self-contained micro-task; the result is a report that lets a first-time user conclude in one glance: my identities are actually live, on the models I chose. This is a real end-to-end run (it spends real quota, minutes not seconds at high effort tiers). `handoff-setup.py --smoke` is the bounded installation check: Codex identities use the delegate dry-run chain, each Claude identity uses one minimal tool-free fresh session, and each Copilot identity adds one no-tool `copilot -p` run that asks the CLI whether the configured model-and-effort pair is usable on this account — so model/effort/auth are genuinely checked on every backend. The tryout remains the proof that every configured identity can complete its intended work, not merely answer the installation probe.
 
 ## The three micro-tasks
 
-Fixed content, independent of the target repo's state. Run each through `delegate-codex.sh submit --role <identity>`; the identity's configured backend picks the CLI, and the row reports whichever one ran:
+Fixed content, independent of the target repo's state. Run each through `delegate-codex.sh submit --role <identity>`; the identity's configured backend picks the CLI — codex, claude, or copilot — and the row reports whichever one ran:
 
 1. **fast_worker — mechanical**: "Sort the keys of this JSON object alphabetically at every nesting level and return only the formatted result: `{"b":{"z":1,"a":{"c":3}},"a":[2,1],"c":"x"}`" Pass = returns exactly the correctly sorted, valid JSON, nothing else.
 2. **deep_reasoner — reasoning**: "A CLI tool stores per-project config. A is one dotfile per project in the repo (committed); B is one central file in the user's home keyed by project path. Name the decisive tradeoff and pick one for a tool whose users frequently rename and move project directories. Conclusion first, then at most three sentences of reasoning." Pass = takes a clear position and the reasoning addresses the directory-move consequence (B's key breaks on move / A travels with the repo).
@@ -29,6 +29,6 @@ verdict: all identities live
 
 ## Rules
 
-- Never substitute a different model to make a row pass; a failing row fails visibly (no silent fallback — same principle as setup).
+- Never substitute a different model to make a row pass, and never move a row to another backend to get past a rejection; a failing row fails visibly (no silent fallback — same principle as setup). A copilot row that fails on an unsupported model-and-effort pair reports the CLI's own message, which names the pair.
 - Do not add project files, commits, or state: all three tasks are answer-only. The only writes are config `verified` flags and the `.handoff/receipts/` entry.
 - If the user has not run `/agent-handoff config` yet, say so and route them there first instead of improvising unconfigured identities.

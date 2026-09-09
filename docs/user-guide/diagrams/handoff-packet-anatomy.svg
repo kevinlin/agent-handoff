@@ -27,7 +27,7 @@
   <rect x="44" y="95" width="376" height="695" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
   <rect x="44" y="95" width="376" height="52" rx="10" fill="rgba(245,158,11,0.16)"/>
   <text x="62" y="121" class="cardtitle">Delegation Packet</text>
-  <text x="62" y="139" class="route" fill="#b45309">Claude → Codex · delegate-codex.sh submit</text>
+  <text x="62" y="139" class="route" fill="#b45309">Claude → worker · delegate-codex.sh submit</text>
 
   <text x="62" y="176" class="sec">Context — why-forward</text>
   <text x="62" y="192" class="secnote">working on X for Y so that Z; never a</text>
@@ -66,7 +66,7 @@
   <rect x="444" y="95" width="376" height="695" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
   <rect x="444" y="95" width="376" height="52" rx="10" fill="rgba(16,185,129,0.12)"/>
   <text x="462" y="121" class="cardtitle">E2E Packets</text>
-  <text x="462" y="139" class="route" fill="#047857">Claude → Codex · submit --worktree, optional</text>
+  <text x="462" y="139" class="route" fill="#047857">Claude → worker · submit --worktree, optional</text>
 
   <text x="462" y="176" class="sec">Specification, inline</text>
   <text x="462" y="192" class="secnote">the frozen goal excerpt and the spec,</text>

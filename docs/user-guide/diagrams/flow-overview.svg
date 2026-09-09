@@ -77,7 +77,7 @@
   <text x="547" y="342" class="line">handoff-config.py resolve →</text>
   <text x="547" y="359" class="line">backend · model · effort — config only</text>
   <text x="547" y="376" class="warn">no config → hard error, no default</text>
-  <text x="547" y="393" class="line">backend picks the CLI: codex or claude</text>
+  <text x="547" y="393" class="line">backend picks one of three CLIs</text>
 
   <rect x="860" y="294" width="318" height="108" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
   <text x="877" y="320" class="cardtitle">Submit a background job</text>
@@ -160,7 +160,7 @@
   <rect x="200" y="768" width="318" height="108" rx="8" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
   <text x="217" y="794" class="cardtitle">Handoff session receipt</text>
   <text x="217" y="816" class="line">make-receipt.py refuses invalid output</text>
-  <text x="217" y="833" class="line">duration · codex_jobs + cc_jobs, split</text>
+  <text x="217" y="833" class="line">duration · three job counts, split</text>
   <text x="217" y="850" class="line">roles_used carries verified as it is,</text>
   <text x="217" y="867" class="line">never guessed true to look cleaner</text>
 

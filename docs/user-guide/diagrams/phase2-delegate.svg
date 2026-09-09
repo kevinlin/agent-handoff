@@ -94,7 +94,7 @@
   <text x="670" y="630" class="pill" fill="#2563eb">handoff-config.py</text>
   <text x="662" y="656" class="ntitle">Fail-closed, both ways</text>
   <text x="662" y="674" class="warn">no Handoff config → hard error, never a default model</text>
-  <text x="662" y="689" class="note">the identity's backend selects the CLI: codex or claude</text>
+  <text x="662" y="689" class="note">the identity's backend selects one of three CLIs</text>
   <text x="662" y="704" class="warn">--backend contradicting a named role → refused</text>
   <text x="662" y="719" class="note">the guard against a job landing on a vendor not configured</text>
   <path d="M 596 835 H 622 V 841 H 641" fill="none" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
@@ -118,7 +118,7 @@
   <text x="118" y="959" class="pill" fill="#059669">worker CLI</text>
   <text x="110" y="985" class="ntitle">nohup the worker, detached, JSON stream</text>
   <text x="110" y="1003" class="note">stdin &lt;/dev/null, so a long prompt cannot leave it waiting</text>
-  <text x="110" y="1018" class="note">codex exec --json, or claude --output-format stream-json</text>
+  <text x="110" y="1018" class="note">codex exec, claude --print, or copilot -p — JSON stream</text>
   <text x="110" y="1033" class="note">log.jsonl and stderr.log start filling immediately</text>
   <rect x="96" y="1092" width="500" height="96" rx="9" fill="#ffffff" stroke="#d97706" stroke-width="1.4"/>
   <rect x="110" y="1103" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
