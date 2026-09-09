@@ -104,6 +104,46 @@ function renderContext() {
   return cachedViewer;
 }
 
+// Minimal DOM for the real mount/renderRow path, including prompt labels and
+// markdown bodies. No browser or duplicate stream-assembly implementation.
+function mountedStream(payload) {
+  class Element {
+    children = [];
+    className = '';
+    classList = { add: name => { this.className += ` ${name}`; } };
+    set textContent(value) { this.text = value; this.children = []; }
+    get textContent() { return this.text; }
+    append(...nodes) { this.children.push(...nodes); }
+    prepend(...nodes) { this.children.unshift(...nodes); }
+    after() {} // Timestamp placement does not affect prompt counting.
+  }
+  const elements = new Map();
+  const previousDocument = globalThis.document;
+  const previousNode = globalThis.Node;
+  globalThis.Node = Element;
+  globalThis.document = {
+    createElement: () => new Element(),
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new Element());
+      return elements.get(id);
+    },
+  };
+  try {
+    renderContext().mount(payload);
+    return elements.get('stream').children;
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.Node = previousNode;
+  }
+}
+
+function assertOnePrompt(payload, text) {
+  const prompts = mountedStream(payload).filter(row => row.className.split(' ').includes('user'));
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0].children[0].textContent, 'prompt');
+  assert.equal(prompts[0].innerHTML, renderContext().renderMarkdown(text));
+}
+
 // The renderer may only emit markup on these allowlists. Asserting the
 // structure beats scanning for "onerror": an escaped &lt;img onerror=…&gt;
 // is inert text, and a substring scan flags it as a false positive.
@@ -200,6 +240,30 @@ test('codex logs stay timeless rather than inheriting a neighbour clock', () => 
 // --- Copilot ---------------------------------------------------------------
 // The branch is chosen by the declared backend, because copilot's terminal
 // event shares the `result` type name with claude stream-json.
+
+test('a dropped copilot log renders one prompt and no unknown user.message', () => {
+  const payload = { meta: {}, log_text: fixture('copilot-basic.jsonl') };
+  const { rows } = normalize(payload.log_text);
+  const users = rows.filter(row => row.kind === 'user');
+  assert.equal(users.length, 1);
+  assert.equal(users[0].text, 'Run the checks and write a note.');
+  assert.equal(rows.filter(row => row.kind === 'unknown' && row.type === 'user.message').length, 0);
+  assertOnePrompt(payload, users[0].text);
+});
+
+test('a generated copilot payload renders exactly one prompt row', () => {
+  assertOnePrompt({
+    meta: { backend: 'copilot' }, log_text: fixture('copilot-basic.jsonl'),
+    prompt_text: 'Run the checks and write a note.\n',
+  }, 'Run the checks and write a note.');
+});
+
+test('codex and claude still render one prompt row from prompt_text', () => {
+  for (const [backend, name] of [['codex', 'codex-basic.jsonl'], ['claude', 'claude-tools.jsonl']]) {
+    assertOnePrompt({ meta: { backend }, log_text: fixture(name), prompt_text: 'Run the checks.' },
+      'Run the checks.');
+  }
+});
 
 test('copilot folds execution_start/complete pairs by toolCallId', () => {
   const { rows } = normalize(fixture('copilot-basic.jsonl'), 'copilot');

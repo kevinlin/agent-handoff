@@ -414,6 +414,8 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         if (event.ephemeral === true) return;
         const data = event.data || {};
 
+        if (type === 'user.message')
+          return add({ kind: 'user', pos: index, text: data.content || '', raw: event });
         if (type === 'tool.execution_start') {
           const row = add({ pos: index, raw: data, ...mapCopilotTool(data) });
           if (data.toolCallId) byToolCallId.set(data.toolCallId, row);
@@ -780,8 +782,9 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
     const stream = $('stream');
     stream.textContent = '';
-    // prompt.md is the job's first user message; the log starts after it.
-    if (payload.prompt_text)
+    // Use prompt.md only when the log does not already carry that prompt.
+    if (payload.prompt_text && !rows.some(row =>
+        row.kind === 'user' && row.text.trim() === payload.prompt_text.trim()))
       stream.append(renderRow({ kind: 'user', text: payload.prompt_text }));
     rows.forEach(row => stream.append(renderRow(row)));
 
