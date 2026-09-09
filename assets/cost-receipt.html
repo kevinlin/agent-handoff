@@ -302,14 +302,17 @@ function render() {
           : (j.cost_usd === null ? absent("unknown") : measured(j.cost_usd))];
     }), "Delegated jobs, per-job telemetry", "jobs"));
 
-  const driver = section("card");
-  driver.appendChild(el("h2", "Driver session"));
-  driver.appendChild(el("p", `State: ${data.driver.state}`
-    + `${data.driver.note ? " - " + data.driver.note : ""}.`, "note"));
+  // The driver is a third figure, not a one-row table: same lead card as the
+  // two summaries above, so all three counter sets read in one language.
+  const driver = section("card lead");
+  const driverHead = el("h2", "Driver session ");
+  driverHead.appendChild(el("span", data.driver.state, "count"));
+  driver.appendChild(driverHead);
+  if (data.driver.note) driver.appendChild(el("p",
+    data.driver.note.charAt(0).toUpperCase() + data.driver.note.slice(1) + ".", "note"));
   driver.appendChild(el("p", `Models: ${data.driver.models.join(", ") || "unknown"}. `
     + "CLI-reported cost: unknown, the driver transcript carries no cost field.", "note"));
-  driver.appendChild(table(counterHeads,
-    [counters.map(c => num(data.driver.usage[c]))], "Driver session, token counters"));
+  driver.appendChild(metrics(counters, counters.map(c => num(data.driver.usage[c]))));
 
   const method = section("card method");
   method.appendChild(el("h2", "Method"));
