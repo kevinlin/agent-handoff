@@ -51,14 +51,18 @@ Before first real use, say `/agent-handoff config`. Handoff opens a local single
 
 ## Showcase
 
-**A real cost receipt (v2.0.1 archive)**
+**A measured cost receipt (v3.6.1)**
 
 <div align="center">
-<a href="examples/v2.0.1-conversation-cost-receipt.html">
-<img src="assets/v2.0.1-conversation-cost-receipt.png" alt="Handoff v2.0.1 conversation-cost webpage screenshot showing role routing, verified cost, tasks, reasoning effort, and delivery evidence" width="720" />
+<a href="examples/v3.6.1-conversation-cost-receipt.html">
+<img src="assets/v3.6.1-conversation-cost-receipt.png" alt="Handoff cost receipt page: the two summary figures, the delegated-jobs table with per-job token counters and CLI-reported cost, the driver row, and the method list" width="720" />
 </a>
-<p><sub>Real webpage screenshot: switch roles to inspect the actual model, effort, task, cost, and delivery evidence.</sub></p>
+<p><sub>Real webpage screenshot: <code>/agent-handoff cost-receipt</code> reads a saved Session Receipt and the job logs it indexes.</sub></p>
 </div>
+
+Every number on that page was read from a file named in its own Method list. Codex-backed jobs carry token counters and no cost figure, because the Codex CLI emits none; claude-backed jobs carry the CLI's own `total_cost_usd`, unrounded and labelled *CLI-reported*. The two summary figures cover overlapping populations, so the page says they are not addends, and no saving is computed anywhere. The driver row is scoped to the run's own interval, derived from the receipt stamp minus its duration, so re-rendering an old receipt after the session grew returns the same row.
+
+**Archive: the v2.0.1 fault chain**
 
 This is an archived fault chain from the v2.0.1 bounded planner. That component was removed in 3.0.0; the record stays because what it demonstrates still holds: real cost can be verified run by run, the failed attempt never triggered a silent model swap, and partial output was never turned into a plan.
 

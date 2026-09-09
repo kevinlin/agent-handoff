@@ -37,13 +37,11 @@ check_file "install.sh"
 check_file "LICENSE"
 check_file "assets/config-switch-demo.mp4"
 check_file "assets/config-switch-demo.gif"
-check_file "assets/v2.0.1-conversation-cost-receipt.png"
+check_file "assets/v3.6.1-conversation-cost-receipt.png"
 check_file "examples/showcase-cost-ledger.json"
 check_file "docs/showcase-cost-model.md"
 check_file "docs/receipt-schema.json"
 check_file "examples/session-receipt.md"
-check_file "examples/v2.0.0-conversation-cost-receipt.md"
-check_file "examples/v2.0.1-conversation-cost-receipt.md"
 check_file "references/handoff-template.md"
 check_file "references/darwin-ratchet.md"
 check_file "references/e2e-gauntlet.md"
@@ -151,11 +149,11 @@ else
   fail=$((fail + 1))
 fi
 
-if [ -f assets/v2.0.1-conversation-cost-receipt.png ] && \
-  grep -qF 'assets/v2.0.1-conversation-cost-receipt.png' README.md; then
-  echo "PASS v2.0.1 conversation cost receipt image"
+if [ -f assets/v3.6.1-conversation-cost-receipt.png ] && \
+  grep -qF 'assets/v3.6.1-conversation-cost-receipt.png' README.md; then
+  echo "PASS cost receipt showcase image"
 else
-  echo "FAIL v2.0.1 conversation cost receipt image must exist and be linked by README.md"
+  echo "FAIL cost receipt showcase image must exist and be linked by README.md"
   fail=$((fail + 1))
 fi
 

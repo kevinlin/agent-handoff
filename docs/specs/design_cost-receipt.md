@@ -161,7 +161,9 @@ A third line reports `permission_denials` across claude-backed jobs. A denied to
 
 ### Page structure and the export boundary
 
-`assets/cost-receipt.html` inherits the transcript viewer's `light-dark()` token block, card idiom, mono stack, and documented tint-and-ink contrast pairs. One product, one visual language. The v2.0.1 page's light-only cobalt and coral palette is not revived. An `/interface-kit` pass polishes against those tokens rather than proposing a second design system.
+`assets/cost-receipt.html` was built on the transcript viewer's `light-dark()` token block, card idiom, mono stack, and documented tint-and-ink contrast pairs. One product, one visual language.
+
+**Superseded after implementation.** The `/interface-kit` pass moved the page onto the v2.0.1 receipt's editorial language instead - serif masthead, cobalt figures, coral caveat rule, uppercase labels - carried onto those same `light-dark()` tokens, so both themes still resolve and the page is still one token set rather than a second design system. The original decision, that the v2.0.1 light-only palette is not revived, was reversed by the repo owner. See the plan's changelog.
 
 Layout, top to bottom: header (session, receipt source, interval and how it was derived, generated time), the two summary figures with their overlap note, the delegated-jobs table, the driver row, the denials line, and a method note naming every file the numbers came from.
 
@@ -188,7 +190,7 @@ The gitignore warning from `render-transcript.py:216` still applies to generated
 5. **`test-prompts.json`**: one case for `/agent-handoff cost-receipt`; a `must_not` on the three existing session-receipt cases; a `must_not` against reporting a savings figure. **These are prompt-file structure checks.** [`run-test-prompts.py:25`](../../scripts/run-test-prompts.py) validates the case file, it does not exercise model behavior, so these record the intended contract rather than enforcing it. Enforcement of the reporting rules lives in `tests/test_cost_receipt.py`.
 6. **`scripts/check-skill-repo.sh`**: `check_file` for `scripts/render-cost-receipt.py`, `assets/cost-receipt.html`, `examples/v3.6.1-conversation-cost-receipt.md`, and `examples/v3.6.1-conversation-cost-receipt.html`.
 7. **`examples/v3.6.1-conversation-cost-receipt.{md,html}`**: generated, not hand-written. Pointer lines added to both v2.0.x archives.
-8. **`README.md`**: version badge; File Map; the line describing the v2.0.x receipts distinguishes archive from current. **The `assets/v2.0.1-conversation-cost-receipt.png` link must survive that edit** — [`check-skill-repo.sh:150`](../../scripts/check-skill-repo.sh) fails if README stops linking it.
+8. **`README.md`**: version badge; File Map; the line describing the v2.0.x receipts distinguishes archive from current. **Superseded after implementation:** Showcase now leads with `assets/v3.6.1-conversation-cost-receipt.png`, a screenshot of the generated example page, and the v2.0.1 fault chain keeps its table under an `Archive` heading. `check-skill-repo.sh` gates that image and its README link; its `v2.0.0`/`v2.0.1` entries are gone and `assets/v2.0.1-conversation-cost-receipt.png` was deleted.
 9. **`CHANGELOG.md`**: `## v3.6.1`; **`docs/releases/v3.6.1.md`** per convention.
 10. **`tests/test_cost_receipt.py`** (new).
 11. **`.gitignore`**: confirm `.handoff/` already covers `cost-receipts/`.
