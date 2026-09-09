@@ -6,7 +6,7 @@
 
 **Tech Stack:** Python 3 stdlib only (argparse, json, pathlib, subprocess, webbrowser, unittest). Vendored marked v15.0.12. Node for tests only — the normalizer and escaping helpers are pure string functions, so they test without a DOM.
 
-**Spec:** [`design_transcript-viewer.md`](design_transcript-viewer.md)
+**Spec:** [`design_agent-handoff-evidence.md`](design_agent-handoff-evidence.md) (Flow 2; supersedes the retired `design_transcript-viewer.md`)
 
 ## Global Constraints
 

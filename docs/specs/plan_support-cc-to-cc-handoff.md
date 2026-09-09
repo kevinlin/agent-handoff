@@ -204,7 +204,7 @@ The point of this task is that parity is asserted by the suite, not by prose.
   `delegate-codex.sh --role <identity>` for `backend=codex`") becomes one path for both. Leave
   the `handoff-setup.py --smoke` asymmetry alone — that is an installation probe, deliberately
   different, and out of scope here.
-- `docs/specs/design_e2e-gauntlet-roles.md`: append one amendment line to the "Backend parity"
+- `docs/specs/design_agent-handoff.md`: append one amendment line to the "Backend parity"
   risk bullet noting it was closed in v3.5.0. Do not rewrite the historical design text.
 
 Verify: `python3 -m unittest tests.test_delegate_role` with both subclasses green.

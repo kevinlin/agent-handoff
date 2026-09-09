@@ -40,7 +40,7 @@ subagent for a claude backend).
 
 ### 1. Design doc (commit before any code)
 
-`docs/specs/design_e2e-gauntlet-roles.md` — new section **"Extension: deep_reasoner spec review"** after
+`docs/specs/design_agent-handoff.md` — new section **"Extension: deep_reasoner spec review"** after
 "Flow placement", plus one risk bullet. Content: the config field and why it is not a sixth identity, the
 once-per-run rule and where the marker lives, how it differs from the adversarial gate and the arbiter,
 the same-vendor caveat, and one line saying this is not part of the Gauntlet borrow — it reuses that

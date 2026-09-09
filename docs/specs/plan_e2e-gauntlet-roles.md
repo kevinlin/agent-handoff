@@ -6,7 +6,7 @@
 
 **Tech Stack:** Python 3 standard library only (no third-party imports anywhere in this repo), Bash, `unittest`. No new dependencies.
 
-**Spec:** [docs/specs/design_e2e-gauntlet-roles.md](docs/specs/design_e2e-gauntlet-roles.md) — read it alongside this plan. Its "Rejected review findings" section records what an independent review asked for and what was deliberately not done.
+**Spec:** [docs/specs/design_agent-handoff.md](docs/specs/design_agent-handoff.md) — read it alongside this plan. That document was rewritten in v3.7.0 to cover all four flow phases; the e2e roles now appear inside Plan and Split, Delegate, and the Review Gate rather than as a feature section of their own.
 
 ## Implementation record
 

@@ -6,7 +6,7 @@
 
 **Tech Stack:** Python 3 standard library only. `unittest`. Self-contained HTML with inline CSS/JS, no CDN.
 
-**Spec:** [docs/specs/design_cost-receipt.md](design_cost-receipt.md)
+**Spec:** [design_agent-handoff-evidence.md](design_agent-handoff-evidence.md) (Flow 4; supersedes the retired `design_cost-receipt.md`)
 
 ## Global Constraints
 
