@@ -89,11 +89,26 @@ Settled during planning. Each is a decision, not an observation.
   `validate_effort copilot` therefore mirrors the CLI enum, and a per-model rejection surfaces as
   Copilot's own error.
 
-- **`model = "auto"` is refused for a configured identity.** Mechanically, `auto` plus any effort is
-  rejected at the CLI layer, and every identity requires a non-empty effort. Conceptually, an
-  identity is a deliberate `backend + model + effort` choice and the flow's own rule is that the
-  driver never re-decides routing per run; `auto` hands that choice back to the vendor. The refusal
-  uses the same "change the config" wording as the existing `--backend` contradiction guard.
+  **Task 1 found that this validation is free.** Probe-log 15 shows
+  `--model mai-code-1.1-flash --effort max` refused before any session with a plain-text stderr
+  line, `Error: Reasoning effort "max" is not supported for model "mai-code-1.1-flash".`, exit 1,
+  a two-line log and a zeroed `usage.json` — no premium request spent. So the model-and-effort pair
+  *can* be checked cheaply at setup time, which the drafted design assumed impossible. Two
+  consequences: `--smoke` should validate the pair for real rather than only checking argument
+  syntax, and any consumer must handle **both** rejection shapes — the CLI's plain-text stderr
+  before a session, and the API's `session.error` with a `statusCode` after one.
+
+- **`model = "auto"` is refused for a configured identity, on conceptual grounds only.**
+  *Narrowed after task 1.* The first draft leaned on a mechanical claim — "`auto` plus any effort is
+  rejected at the CLI layer" — and that claim did not survive re-probing. Probe-log 14 ran
+  `--model auto --effort none` and got exit 0 with a `final_answer`, where the morning's probe-log 6
+  got a 400. Compatibility is per *resolved* model, and `auto` resolves per request, so the pair is
+  sometimes fine. What remains is the reason that actually matters: an identity is a deliberate
+  `backend + model + effort` choice, and the flow's rule is that the driver never re-decides routing
+  per run. `auto` hands that choice back to the vendor, and makes the receipt's `model` field a
+  record of what the vendor picked rather than what the repo configured. The refusal stands; the
+  plan must not defend it with mechanics that do not hold. Same "change the config" wording as the
+  existing `--backend` contradiction guard.
 
 - **A delegated Copilot job runs with `--allow-all-tools`.** This mirrors the `bypassPermissions`
   default a delegated Claude job already gets, and the reasoning is the v3.5.1 retro. A background
@@ -134,19 +149,19 @@ Settled during planning. Each is a decision, not an observation.
 |---|---|---|
 | Non-interactive submit | `-p "<text>"` | probed |
 | `log.jsonl` event stream | `--output-format json` | probed |
-| Session id for `resume` | assigned via `--session-id` | needs probe (assumption 2) |
+| Session id for `resume` | assigned via `--session-id` | probed: echoed back, and an interrupted session resumes |
 | Fix round on the same session | `--resume <sid>` | probed, context intact |
 | Working directory | `-C` fresh, shell cwd on resume | probed, same shape as codex |
 | Effort as a routing field | `--effort` | probed, model-validated by the API |
-| Read-only job | `--mode plan` | needs probe (assumption 1) |
+| Read-only job | `--mode plan`, never with `--allow-all-tools` | probed: writes denied, reads allowed, tree clean |
 | Final agent message | `assistant.message` where `data.phase == "final_answer"` | probed |
 | Commands run | `tool.execution_start.data.arguments.command` | probed |
 | Denial detection | `tool.execution_complete` where `data.error.code == "denied"` | probed, typed rather than pattern-matched |
 | Token counters | `usage.json` from `--usage-output-file` | probed; key names already match `COUNTERS` |
-| Cost figure | premium requests and nano-AIU; no currency | probed; a third kind of meter |
+| Cost figure | premium requests and nano-AIU; no currency | probed; a third kind of meter, and cumulative per session |
 | Transcript rendering | drop `ephemeral: true`, fold by `toolCallId` | probed |
 | Binary discovery | `--version` identity match | new work, no existing pattern |
-| Model catalog | probe job reading `availableModels` | new work, no CLI source |
+| Model catalog | none exists; `availableModels` is `auto`'s routing set | **open design question** — see task 5 |
 
 ## Tasks
 
@@ -205,6 +220,12 @@ Each result written back into the research document as a `[probed]` line.
   `CODEX_BIN` / `CODEX_BIN_SOURCE` / `CODEX_VERSION` variables keep their names so `meta` keys and
   `resume`'s parent-binary reuse stay unchanged; `CODEX_VERSION` then records the real Copilot
   version string as job evidence.
+- **`resume` must fail cleanly on an id whose session never existed.** *Added after task 1.*
+  Because Handoff writes `$JOB/session_id` at submit, the file exists even when the job died before
+  Copilot created a session — probe-log 12 shows `--resume` on such an id exiting 1 with
+  `Error: No session, task, or name matched '<uuid>'`. An assigned id is a claim on a session, not a
+  guarantee that one exists, so `cmd_resume` must report that plainly rather than presenting it as a
+  missing-session bug.
 - **One resolution contract, used everywhere.** *Added after spec review.* Submit, resume, setup's
   availability check, and the UI's discovery probe must apply the same precedence and the same
   identity check, or setup can reject a valid install sitting behind AWS Copilot on PATH while the
@@ -221,7 +242,14 @@ Each result written back into the research document as a `[probed]` line.
   --no-remote --no-remote-export --no-auto-update --allow-all-tools
   --usage-output-file "$JOB/usage.json" --log-dir "$JOB/copilot-logs"`, redirected to
   `log.jsonl` and `stderr.log` with `</dev/null`. `--read-only` swaps `--allow-all-tools` for
-  `--mode plan`. A fresh job passes `--session-id "$NEW_SESSION_ID"`; a resume passes
+  `--mode plan`. **`--mode plan` and `--allow-all-tools` are mutually exclusive in the generated
+  `run.sh`, and that is a correctness requirement, not a preference.** *Added after task 1.*
+  Probe-log 8 ran both together: plan mode still won on disk, but the agent attempted only the read,
+  produced **zero** denial events, exited 0, and its final answer claimed it had created a file and
+  run a shell mutation that never happened — `plan-mode-write.txt` does not exist and `tracked.txt`
+  is byte-identical. That is a silent-failure channel with nothing for the monitor to detect, which
+  is the v3.5.1 defect in a new costume. Assert the exclusivity in a test.
+  A fresh job passes `--session-id "$NEW_SESSION_ID"`; a resume passes
   `--resume "$session_id"`, drops `-C` and `--model`, and uses `cd "$WORKDIR"` like the codex resume
   path. `--log-dir` points inside the job dir to co-locate the evidence with the rest of the job
   state. It does **not** cause cleanup to remove those logs: `cmd_cleanup` at
@@ -279,12 +307,13 @@ Verify: `python3 -m unittest tests.test_handoff_config`.
   `delegate-codex.sh submit --read-only --dry-run` (`handoff-setup.py:866`). That exercises binary
   identity resolution, effort validation, and the `auto` refusal at zero request cost. The
   deliberate codex/claude smoke asymmetry is out of scope, as it was in v3.5.0.
-- **Smoke fallback, if assumption 1 fails.** *Added after spec review.* That command passes exactly
-  the flag copilot would then refuse, so smoke would fail every write-capable copilot identity — or,
-  worse, be made to skip the capability check under `--dry-run` and pass misleadingly. If copilot
-  cannot take `--read-only`, smoke drops the flag for copilot only and keeps `--dry-run`, and the
-  printed result says which capability was checked. Decide this in task 1, not at implementation
-  time.
+- ~~**Smoke fallback, if assumption 1 fails.**~~ **Moot: assumption 1 resolved YES** in task 1, so
+  `--read-only` is supported on copilot and the drafted smoke command stands unchanged.
+- **Smoke can validate the model-and-effort pair for free.** *Added after task 1.* Probe-log 15
+  shows the CLI refusing an unsupported effort-for-model before any session, with a plain-text
+  stderr line and no premium request. A `--dry-run` check only exercises Handoff's own argument
+  handling; a real no-tool invocation would catch a configured pair this account cannot use, at zero
+  cost. Worth doing here rather than leaving the user to discover it on their first real job.
 - **Refuse `model = "auto"` at setup validation too**, not only at submit. `validate_backend_efforts`
   at `handoff-setup.py:94` checks effort alone, so a config naming `auto` currently applies cleanly
   and fails later at the first job. Also define the behaviour for a role-less ad-hoc copilot job
@@ -294,6 +323,16 @@ Verify: `python3 -m unittest tests.test_handoff_config`.
 Verify: `python3 -m unittest tests.test_handoff_setup`.
 
 ### 5. Setup UI — a probed model catalog
+
+> **BLOCKED on a decision. Task 1 undercut this task's premise.** The probe design assumed
+> `availableModels` is the account's model catalog. It is not: it is the candidate set `auto` routes
+> among. On this account it moved from `mai-code-1.1-flash` to `gpt-5.6-luna` inside a day on one CLI
+> build, while `--model mai-code-1.1-flash` *kept working* — so the field both omits models the user
+> may name and changes without their configuration changing. A probe job therefore cannot build a
+> catalog, because no catalog is exposed. Task 1 also found that naming a model and effort is
+> validated for free before any session, which makes typed-and-validated entry cheaper than it
+> looked when this was decided. Settle this before implementing task 5; the text below is the
+> pre-probe design and is retained only for reference.
 
 - `scripts/handoff-setup-ui.py`: new `_copilot_model_options(path, env)` beside
   `_codex_model_options` and `_claude_model_options`. It runs one throwaway `copilot -p` job and
@@ -389,12 +428,27 @@ prove the three-way partition.
 - `_figure`'s USD filter stays claude-only, which is already correct: Copilot reports no currency.
 - The denials sentence stops saying "across claude-backed jobs" and names both backends that
   report denials, in the Markdown and in the HTML.
-- **Unknown stays distinct from zero.** `_add` already keeps `None` apart from a measured zero
-  (`render-cost-receipt.py:142`); missing or truncated `usage.json` must read unknown, with partial
-  totals marked, never as zeros.
-- **Resumed-job accounting.** Whether a resumed session's counters are per invocation or cumulative
-  is probed in task 1. If cumulative, summing a parent and its fix round double-counts both tokens
-  and credits, and the fold needs to take the last reading rather than add.
+- **Unknown stays distinct from zero, and task 1 showed both cases occur.** `_add` already keeps
+  `None` apart from a measured zero (`render-cost-receipt.py:142`). Measured behaviour: a CLI-layer
+  argument rejection and an API-layer failure both **write** `usage.json` with genuine zeros
+  (probe-log 12, 15), while a whole-tree SIGKILL writes **no file at all** (probe-log 16, exit 137).
+  So a zeroed file is a measured zero and an absent file is unknown — do not collapse them.
+  Related: killing only the CLI's child processes still produces a terminal `result` with
+  `exitCode: 0` and a written `usage.json`, so a partially-killed job can look clean.
+- **Resumed-job accounting, settled by measurement in task 1. The two meters behave differently and
+  the fold must too.** Probe-log 11 compared a parent's `usage.json` with its resume's:
+
+  | Field | Parent | Resume | Scope |
+  |---|---|---|---|
+  | `tokenDetails.input.tokenCount` | 587 | 231 | **per invocation** — sum across jobs |
+  | `totalPremiumRequestCost` | 1 | 2 | **cumulative** — do not sum |
+  | `totalNanoAiu` | 84828000 | 130944000 | **cumulative** — do not sum |
+  | `modelMetrics.<model>.totalNanoAiu` | 84828000 | 46116000 | **per invocation** |
+
+  `130944000 = 84828000 + 46116000` exactly, so the top-level figure is a running session total.
+  Sum `tokenDetails` across a parent and its fix round; for the credit meter either take the last
+  top-level reading per session or sum `modelMetrics.<model>.totalNanoAiu`, which is the
+  per-invocation figure. Adding the top-level values would have double-counted every fix round.
 
 Verify: `python3 -m unittest tests.test_cost_receipt`, covering the credit columns in the payload
 and in the HTML, unknown and partial telemetry, and parent-plus-resume accounting.
@@ -541,30 +595,45 @@ confirm: the expected file changed; the named check actually executed, with its 
 `copilot_jobs` rather than either existing field. The first draft only submitted, polled, and read
 one job, which established none of the resume, worktree, or receipt claims.
 
-## Assumptions to probe
+## Assumptions to probe — all five resolved
 
-Planning chose spec-first, so these are stated rather than verified. Task 1 closes them and writes
-each result back into the research document. Three of the five are **gates**: they decide what the
-feature can claim, and the plan is conditional until they resolve.
+Closed by task 1 on 2026-09-09 as job `job-2026-09-09T18-27-22-39855-task1-probes` on `fast_worker`
+(claude / opus / medium). Eleven `-p` runs, recorded in the research document's probe log as entries
+7-17. Each verdict below was re-checked by the driver against the probe artifacts, not accepted from
+the worker's report.
 
-1. **Gate. `--mode plan` is genuinely read-only in a `-p` run**, and composes sensibly with the fact
-   that a read-only job does not pass `--allow-all-tools`. Highest risk of the five. The research
-   marked this `[open]` and explicitly warned against trusting the flag name. Resolving it fixes
-   both the affected-invocation list in task 1 and the smoke fallback in task 4.
-2. **Gate. `--session-id <uuid>` sets the id for a new `-p` session**, the terminal `result` echoes
-   it back, **and an interrupted session is genuinely resumable from it.** This is `[help]` text,
-   not probed behaviour, and the entire justification for assigning rather than extracting is
-   crash-resumability — which a clean run cannot demonstrate.
-3. **`--log-dir` inside the job dir works** without fighting `--output-format json` on stdout. Fits
-   inside task 1; the cleanup expectation is already corrected above.
-4. **`--usage-output-file` on failure, and the scope of a resumed session's counters.** Written on a
-   non-zero exit, across all three failure classes? And are a resumed session's counters per
-   invocation or cumulative? Fits inside task 1 with an explicit unknown-or-partial fallback in the
-   cost receipt, but the cumulative case changes how the fold works.
-5. **Gate. A repository's own verification command runs under `--allow-all-tools`** in a background
-   `-p` job with no tty. This is the capability that made v3.5.1 necessary on the claude backend,
-   and without it a delegated Copilot job cannot be promised as usable. Evidence is the check's
-   own output, not the worker's closing claim.
+| # | Assumption | Verdict | Evidence |
+|---|---|---|---|
+| 1 | Gate. `--mode plan` is read-only under `-p` | **YES** | Two typed `denied` events for a file write and a shell write; `view` on the tracked file returned its contents; `git status` clean; tree byte-identical. Plan mode is a usable review channel. |
+| 2 | Gate. Assigned `--session-id` survives interruption | **YES, with a caveat** | Terminal `result` echoed the assigned uuid; a job killed at 13s before its terminal event resumed and recalled `INTERRUPT-TOKEN-9931`. Caveat: a failure *before* session creation leaves the id unresumable. |
+| 3 | `--log-dir` inside the job dir | **Clean** | 50 JSONL lines, 0 unparseable, terminal `result` intact. The log dir receives one plain-text `[INFO]` file, not JSON. |
+| 4 | `usage.json` on failure, and resumed-counter scope | **Resolved; changes the fold** | Written with genuine zeros on both rejection classes, absent on a whole-tree SIGKILL. Tokens per invocation, credits cumulative — the table in task 7. |
+| 5 | Gate. A repo check runs under `--allow-all-tools` | **YES** | `bash scripts/check-skill-repo.sh .` executed in a fresh clone, its own `SUMMARY fail=0 warn=1` captured inside `tool.execution_complete`, 0 denials, exit 0. |
+
+All three gates cleared, so the feature keeps its full scope: `--read-only` is supported on copilot,
+`resume` parity is real, and a delegated Copilot worker can run this repository's own verification
+commands.
+
+**Two findings the probes produced that were not on the list**, both folded into the tasks above:
+
+- **`--mode plan` plus `--allow-all-tools` is a silent-failure combination.** Plan mode still won on
+  disk, but the agent attempted only the read, emitted zero denial events, exited 0, and claimed
+  two writes had succeeded that never happened. Nothing in the event stream marks the failure. Task
+  2 now makes the two flags mutually exclusive and asserts it in a test.
+- **Effort-for-model validation is free.** The CLI refuses an unsupported pair before any session
+  with a plain-text stderr line and no premium request spent, so `--smoke` can check a configured
+  pair for real. Tasks 4 and the effort decision now say so.
+
+**Two claims from the morning round did not reproduce**, which is why the research document's header
+now dates its results rather than only naming the CLI version:
+
+- `--model auto --effort none` returned exit 0 with a `final_answer`, where the earlier round got a
+  400. Effort-and-model compatibility is per *resolved* model, so the mechanical argument for
+  refusing `model = "auto"` is gone. The refusal now rests on the conceptual ground alone.
+- The account's `availableModels` moved from `mai-code-1.1-flash` to `gpt-5.6-luna` within a day on
+  the same build, while `--model mai-code-1.1-flash` kept working. `availableModels` is `auto`'s
+  routing candidate set, not a catalog of what a user may name. **This undercuts the premise of
+  task 5 and needs a decision before task 5 is implemented** — see the note in that task.
 
 ## Not doing
 
