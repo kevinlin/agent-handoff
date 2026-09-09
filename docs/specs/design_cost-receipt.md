@@ -60,7 +60,7 @@ python3 "$HANDOFF_DIR/scripts/render-cost-receipt.py" [<receipt-file>] --repo "$
 - An explicit path to any file containing a `[Handoff session receipt]` block also resolves.
 - Two receipt files carrying the same stamp is an error listing both, the same refuse-rather-than-guess rule `render-transcript.py` applies to ambiguous job selectors.
 - No saved receipt and no selector is an error telling the user to run `make-receipt.py --save`.
-- **Output naming.** `<repo>/.handoff/cost-receipts/<stamp>.{md,html}` where `<stamp>` is the receipt's filename stamp. An input outside `.handoff/receipts/` has no stamp, so it is named `<input-basename>.{md,html}`. Existing files are overwritten, because the output is a pure function of inputs that do not change; a hand-edited output is not something to protect.
+- **Output naming.** `<repo>/.handoff/cost-receipts/cost-receipt-<stamp>.{md,html}` where `<stamp>` is the receipt's filename stamp. An input outside `.handoff/receipts/` has no stamp, so it is named `cost-receipt-<input-basename>.{md,html}`. Existing files are overwritten, because the output is a pure function of inputs that do not change; a hand-edited output is not something to protect.
 
 ### Input validation
 

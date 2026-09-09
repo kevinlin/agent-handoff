@@ -543,14 +543,14 @@ class CliTests(unittest.TestCase):
         code, _ = self.run_cli()
         self.assertEqual(code, 0)
         out = self.tmp / ".handoff" / "cost-receipts"
-        self.assertTrue((out / "20260908T155001Z.md").is_file())
-        self.assertTrue((out / "20260908T155001Z.html").is_file())
+        self.assertTrue((out / "cost-receipt-20260908T155001Z.md").is_file())
+        self.assertTrue((out / "cost-receipt-20260908T155001Z.html").is_file())
 
     def test_arbitrary_input_is_named_for_its_basename(self):
         other = self.tmp / "notes.md"
         other.write_text(self.text)
         self.assertEqual(self.run_cli(str(other))[0], 0)
-        self.assertTrue((self.tmp / ".handoff" / "cost-receipts" / "notes.md").is_file())
+        self.assertTrue((self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-notes.md").is_file())
 
     def test_no_receipt_and_no_selector_exits_two(self):
         code, err = self.run_cli()
@@ -568,7 +568,7 @@ class CliTests(unittest.TestCase):
     def test_rerun_overwrites_in_place(self):
         self.write("receipt-20260908T155001Z.md")
         self.run_cli()
-        out = self.tmp / ".handoff" / "cost-receipts" / "20260908T155001Z.md"
+        out = self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.md"
         first = out.read_text()
         self.run_cli()
         self.assertIn("Handoff Cost Receipt", out.read_text())
@@ -577,7 +577,7 @@ class CliTests(unittest.TestCase):
     def test_html_output_carries_the_payload(self):
         self.write("receipt-20260908T155001Z.md")
         self.run_cli()
-        html = (self.tmp / ".handoff" / "cost-receipts" / "20260908T155001Z.html").read_text()
+        html = (self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.html").read_text()
         match = re.search(
             r'<script id="handoff-payload" type="application/json">(.*?)</script>',
             html, re.S)

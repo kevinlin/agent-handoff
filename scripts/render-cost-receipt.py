@@ -518,8 +518,8 @@ def main(argv: list[str] | None = None) -> int:
     stem = stamp_match.group(1) if stamp_match else receipt_path.stem
     out_dir = args.repo / ".handoff" / "cost-receipts"
     out_dir.mkdir(parents=True, exist_ok=True)
-    md_path = out_dir / f"{stem}.md"
-    html_path = out_dir / f"{stem}.html"
+    md_path = out_dir / f"cost-receipt-{stem}.md"
+    html_path = out_dir / f"cost-receipt-{stem}.html"
     md_path.write_text(render_markdown(payload), encoding="utf-8")
     html_path.write_text(
         inject(args.template.read_text(encoding="utf-8"), payload), encoding="utf-8")
