@@ -1454,6 +1454,23 @@ def make_handler(controller: SetupController, token: str):
             self._headers(status, "application/json; charset=utf-8")
             self.wfile.write(encoded)
 
+        def _drain(self) -> None:
+            # Read and discard the request body before an early refusal, so the client
+            # gets the rejection JSON instead of a connection reset from unread bytes.
+            try:
+                remaining = min(int(self.headers.get("Content-Length") or 0), 131072)
+            except ValueError:
+                return
+            self.connection.settimeout(2)
+            try:
+                while remaining > 0:
+                    chunk = self.rfile.read1(remaining)
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+            except OSError:
+                pass
+
         def _body(self) -> Any:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -1483,6 +1500,7 @@ def make_handler(controller: SetupController, token: str):
 
         def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
             if not self._authorized():
+                self._drain()
                 self._json(HTTPStatus.FORBIDDEN, {"error": "Invalid local access token"})
                 return
             try:

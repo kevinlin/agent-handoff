@@ -4,6 +4,7 @@ import contextlib
 import http.client
 import importlib.util
 import io
+import json
 import os
 import sys
 import tempfile
@@ -270,6 +271,25 @@ class SetupUITests(unittest.TestCase):
         self.assertEqual(
             403, self.request(port, "POST", "/api/preview?token=wrong", body=b"{}")[0]
         )
+
+    def test_unauthorized_post_with_a_body_still_returns_readable_403_json(self):
+        port = self.serve()
+        body = json.dumps({"mode": "custom", "pad": "x" * 65536}).encode("utf-8")
+        for headers in (
+            {},
+            {"X-Handoff-Token": "wrong"},
+            {"X-Handoff-Token": "test-token", "Host": "attacker.example"},
+        ):
+            with self.subTest(headers=headers):
+                status, payload = self.request(
+                    port,
+                    "POST",
+                    "/api/apply",
+                    headers={"Content-Type": "application/json", **headers},
+                    body=body,
+                )
+                self.assertEqual(403, status)
+                self.assertEqual("Invalid local access token", json.loads(payload)["error"])
 
     def test_server_refuses_a_non_loopback_host_header(self):
         port = self.serve()
