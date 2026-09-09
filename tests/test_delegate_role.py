@@ -13,17 +13,37 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path("scripts/delegate-codex.sh")
 
 
+# The two --version strings that tell the identically named binaries apart.
+GITHUB_COPILOT_VERSION = "GitHub Copilot CLI 1.0.83."
+AWS_COPILOT_VERSION = "copilot version: v1.34.1"
+
+
+def version_shim(version: str) -> str:
+    """A fake CLI prologue answering --version and nothing else."""
+
+    return f"if [ \"${{1:-}}\" = \"--version\" ]; then printf '{version}\\n'; exit 0; fi\n"
+
+
+def write_fake(path: Path, body: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/usr/bin/env bash\n{body}", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dict[str, str]:
-    """A clean environment pointing both HANDOFF_*_BIN at fake worker CLIs."""
+    """A clean environment pointing every HANDOFF_*_BIN at a fake worker CLI."""
 
     env = os.environ.copy()
     env.pop("HANDOFF_CLAUDE_PERMISSION_MODE", None)
     env.update({"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(root / "xdg")})
     for name, body in (("codex", codex_body), ("claude", claude_body or codex_body)):
-        fake = root / name
-        fake.write_text(f"#!/usr/bin/env bash\n{body}", encoding="utf-8")
-        fake.chmod(0o755)
-        env[f"HANDOFF_{name.upper()}_BIN"] = str(fake)
+        env[f"HANDOFF_{name.upper()}_BIN"] = str(write_fake(root / name, body))
+    # The copilot fake identifies itself the way GitHub Copilot CLI does, so
+    # discovery has something real to match on rather than a name.
+    env["HANDOFF_COPILOT_BIN"] = str(
+        write_fake(root / "copilot", version_shim(GITHUB_COPILOT_VERSION) + codex_body)
+    )
     return env
 
 
@@ -257,6 +277,55 @@ class DelegateRoleTests(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(f"invalid --effort for claude: {effort}", result.stderr)
 
+    def test_copilot_backend_is_selected_and_reports_its_binary(self):
+        result, _ = self.run_submit(None, "--backend", "copilot")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = self.parsed(result.stdout)
+        self.assertEqual("copilot", parsed["backend"])
+        self.assertEqual("explicit", parsed["backend_source"])
+        self.assertTrue(parsed["codex_bin"].endswith("/copilot"), parsed["codex_bin"])
+        self.assertEqual("allow-all-tools", parsed["permission_mode"])
+        # --skip-git-repo-check is a codex flag; a copilot job never carries it.
+        self.assertEqual("", parsed["skip_git_repo_check"])
+
+    def test_copilot_efforts_mirror_the_cli_enum(self):
+        for effort in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+            with self.subTest(effort=effort):
+                result, _ = self.run_submit(None, "--backend", "copilot", "--effort", effort)
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                self.assertEqual(effort, self.parsed(result.stdout)["effort"])
+        # `ultra` is codex's; the enums are per CLI, never one shared list.
+        result, _ = self.run_submit(None, "--backend", "copilot", "--effort", "ultra")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid --effort for copilot: ultra", result.stderr)
+
+    def test_copilot_refuses_the_auto_model(self):
+        """An identity is a deliberate backend + model + effort choice.
+
+        `auto` hands the model choice back to the vendor per request, so the
+        job would record what Copilot picked rather than what was configured.
+        """
+
+        result, _ = self.run_submit(None, "--backend", "copilot", "--model", "auto")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("'auto' is refused on a copilot job", result.stderr)
+        self.assertIn("--backend copilot --model <model>", result.stderr)
+        # Any other model is fine.
+        result, _ = self.run_submit(None, "--backend", "copilot", "--model", "gpt-5.6-luna")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+
+    def test_a_copilot_identity_routes_to_the_copilot_cli(self):
+        result, _ = self.run_submit(
+            self.config(deep_reasoner_backend="copilot", deep_reasoner_effort="high"),
+            "--role",
+            "deep_reasoner",
+        )
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = self.parsed(result.stdout)
+        self.assertEqual("copilot", parsed["backend"])
+        self.assertEqual("config:project", parsed["backend_source"])
+        self.assertTrue(parsed["codex_bin"].endswith("/copilot"), parsed["codex_bin"])
+
     def test_non_git_repo_appends_skip_git_repo_check(self):
         result, repo = self.run_submit(None)
         self.assertFalse((repo / ".git").exists())
@@ -292,6 +361,8 @@ class BackendLifecycle:
         '{"type":"system","subtype":"permission_denied","tool_name":"Bash",'
         '"decision_reason":"no approval surface in this session"}'
     )
+    # What `result` should name, given DENIED_LINE twice around LOG_LINES.
+    DENIED_TOOLS = ["Bash"]
     # A terminal event stream in this backend's own shape.
     LOG_LINES = (
         '{"type":"thread.started","thread_id":"sess-fixture"}',
@@ -500,6 +571,7 @@ class BackendLifecycle:
                 "permission_denied",
                 "denied_tools",
                 "usage",
+                "errors",
             },
             set(payload),
         )
@@ -532,12 +604,12 @@ class BackendLifecycle:
             self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
         )
         self.assertEqual(2, payload["permission_denied"])
-        self.assertEqual(["Bash"], payload["denied_tools"])
+        self.assertEqual(self.DENIED_TOOLS, payload["denied_tools"])
         # A denial is not worker output and must not be read as any.
         self.assertEqual("work done", payload["agent_message"])
 
         text = self.delegate("result", job_id, "--repo", str(self.repo))
-        self.assertIn("permission_denied: 2 (Bash)", text.stdout)
+        self.assertIn(f"permission_denied: 2 ({', '.join(self.DENIED_TOOLS)})", text.stdout)
         self.assertIn("verify its own work", text.stdout)
 
         status = self.delegate("status", job_id, "--repo", str(self.repo))
@@ -632,6 +704,308 @@ class ClaudeWorktreeTests(BackendLifecycle, unittest.TestCase):
         self.assertEqual("bypassPermissions", self.read_meta(child)["permission_mode"])
         self.assertIn("--permission-mode bypassPermissions", self.exec_line(child))
 
+
+class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
+    BACKEND = "copilot"
+    # `copilot` takes -C like codex does.
+    WORKDIR_MARKER = '-C "$WORKDIR"'
+    PERMISSION_MODE = "allow-all-tools"
+    DENIED_LINE = (
+        '{"type":"tool.execution_complete","data":{"toolCallId":"call_1","success":false,'
+        '"error":{"message":"Permission to run this tool was denied due to the following '
+        'rules: `shell(curl)`","code":"denied"}}}'
+    )
+    # The first denial precedes its start event, so its tool has no name yet:
+    # the correlation is by toolCallId, not by position.
+    DENIED_TOOLS = ["bash", "unknown"]
+    LOG_LINES = (
+        '{"type":"assistant.message_delta","data":{"content":"wor"},"ephemeral":true}',
+        '{"type":"tool.execution_start","data":{"toolCallId":"call_1","toolName":"bash",'
+        '"arguments":{"command":"pytest -q","description":"run the suite"}}}',
+        '{"type":"tool.execution_complete","data":{"toolCallId":"call_1","success":true,'
+        '"result":{"content":"ok"}}}',
+        '{"type":"assistant.message","data":{"content":"","toolRequests":[],"turnId":"0"}}',
+        '{"type":"assistant.message","data":{"content":"work done","toolRequests":[],'
+        '"turnId":"1","phase":"final_answer"}}',
+        '{"type":"result","sessionId":"sess-fixture","exitCode":0,'
+        '"usage":{"premiumRequests":1,"sessionDurationMs":8717}}',
+    )
+
+    def exec_line(self, job_id: str) -> str:
+        return (self.job_dir(job_id) / "run.sh").read_text(encoding="utf-8")
+
+    def test_argv_carries_the_permission_and_egress_flags(self):
+        """The capability assertions, not just the plumbing.
+
+        v3.5.0 shipped a green suite over a broken permission default because
+        no test named the flag that made the worker able to work. These are
+        the flags a copilot job is useless or unsafe without.
+        """
+
+        run_sh = self.exec_line(self.submit())
+        for flag in (
+            "--output-format json",
+            "--no-ask-user",
+            "--no-remote",
+            "--no-remote-export",
+            "--no-auto-update",
+            "--allow-all-tools",
+            "--usage-output-file",
+            "--log-dir",
+        ):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, run_sh)
+        # Without this a long prompt can leave the job waiting on stdin forever.
+        self.assertIn("</dev/null", run_sh)
+
+    def test_argv_never_carries_the_export_or_blanket_permission_flags(self):
+        """Session export to GitHub web and mobile is on by default.
+
+        A delegated job carries the prompt and the repository contents, and
+        Handoff owns the worktree protocol, so none of these are ours to pass.
+        """
+
+        run_sh = self.exec_line(self.submit())
+        for flag in ("--share", "--share-gist", "--yolo", "--allow-all", "--worktree",
+                     "--enable-memory", "--add-dir", "--max-ai-credits"):
+            with self.subTest(flag=flag):
+                self.assertNotRegex(run_sh, rf"{flag}(?![-\w])")
+
+    def test_read_only_uses_plan_mode_and_never_allow_all_tools(self):
+        """The exclusivity is a correctness requirement, not a preference.
+
+        Probed together, plan mode still won on disk but the worker attempted
+        only its read, emitted zero denial events, exited 0, and claimed two
+        writes that never happened. Nothing in the event stream marks that, so
+        there is nothing for the monitor to catch.
+        """
+
+        job_id = self.submit("--read-only")
+        run_sh = self.exec_line(job_id)
+        self.assertIn("--mode plan", run_sh)
+        self.assertNotIn("--allow-all-tools", run_sh)
+        self.assertEqual("plan", self.read_meta(job_id)["permission_mode"])
+
+    def test_a_writing_job_uses_allow_all_tools_and_never_plan_mode(self):
+        run_sh = self.exec_line(self.submit())
+        self.assertIn("--allow-all-tools", run_sh)
+        self.assertNotIn("--mode plan", run_sh)
+
+    def test_submit_warns_that_the_worker_is_unsupervised(self):
+        result = self.submit_raw()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("copilot worker running with permission checks bypassed", result.stderr)
+        self.assertIn("--read-only", result.stderr)
+        self.assertRegex(result.stdout.strip(), r"^job-[\w.:-]+$")
+
+    def test_a_read_only_job_is_not_warned_about(self):
+        result = self.submit_raw("--read-only")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("permission checks bypassed", result.stderr)
+
+    def test_a_crashed_job_still_has_a_resumable_session_id(self):
+        """Copilot emits sessionId only in its terminal event.
+
+        So the id is assigned at submit and persisted before launch. This is
+        the shape the decision exists for: a job that died before its terminal
+        event, whose log therefore names no session at all.
+        """
+
+        job_id = self.submit()
+        job = self.job_dir(job_id)
+        self.assertTrue(self.await_exit(job), "fake worker never exited")
+        assigned = (job / "session_id").read_text(encoding="utf-8").strip()
+        self.assertRegex(assigned, r"^[0-9a-f]{8}-[0-9a-f-]{27}$")
+        self.assertEqual("assigned", self.read_meta(job_id)["session_id_source"])
+        self.assertIn(f"--session-id {assigned}", self.exec_line(job_id))
+
+        # A log with no terminal event — nothing to extract an id from.
+        job.joinpath("log.jsonl").write_text(
+            "\n".join(self.LOG_LINES[:-1]) + "\n", encoding="utf-8"
+        )
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual(assigned, payload["session_id"])
+
+        result = self.delegate(
+            "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(f"--resume {assigned}", self.exec_line(result.stdout.strip()))
+
+    def test_a_fix_round_reuses_a_parent_binary_that_still_identifies(self):
+        job_id = self.submit()
+        self.finish(job_id)
+        result = self.delegate(
+            "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("parent", self.read_meta(result.stdout.strip())["codex_bin_source"])
+
+    def test_a_fix_round_re_verifies_the_parent_binary_identity(self):
+        """The recorded path may point at a different tool by the fix round.
+
+        `copilot` is also AWS Copilot CLI's binary name, so reusing a recorded
+        path on the strength of it still being executable is not enough.
+        """
+
+        job_id = self.submit()
+        self.finish(job_id)
+        impostor = write_fake(
+            self.root / "aws" / "copilot", version_shim(AWS_COPILOT_VERSION) + "exit 0\n"
+        )
+        meta = self.job_dir(job_id) / "meta"
+        meta.write_text(
+            meta.read_text(encoding="utf-8").replace(
+                self.env["HANDOFF_COPILOT_BIN"], str(impostor)
+            ),
+            encoding="utf-8",
+        )
+        result = self.delegate(
+            "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        child = self.read_meta(result.stdout.strip())
+        self.assertEqual(self.env["HANDOFF_COPILOT_BIN"], child["codex_bin"])
+        self.assertEqual("env", child["codex_bin_source"])
+
+    def test_result_reports_a_session_error_in_both_output_modes(self):
+        """Copilot's API failures can arrive with an empty stderr."""
+
+        job_id = self.submit()
+        job = self.finish(job_id)
+        error_line = (
+            '{"type":"session.error","data":{"errorType":"query","statusCode":400,'
+            '"message":"Execution failed: 400 Unsupported value"}}'
+        )
+        job.joinpath("log.jsonl").write_text(
+            "\n".join((*self.LOG_LINES[:-1], error_line, self.LOG_LINES[-1])) + "\n",
+            encoding="utf-8",
+        )
+
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual(
+            [{"error_type": "query", "message": "Execution failed: 400 Unsupported value",
+              "status_code": 400}],
+            payload["errors"],
+        )
+        text = self.delegate("result", job_id, "--repo", str(self.repo)).stdout
+        self.assertIn("session_error: query (status 400)", text)
+        self.assertIn("Unsupported value", text)
+
+    def test_ephemeral_events_are_dropped(self):
+        """82 streaming deltas in one small job; folding them in would repeat it."""
+
+        job_id = self.submit()
+        self.finish(job_id)
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual("work done", payload["agent_message"])
+
+
+class CopilotBinaryDiscoveryTests(unittest.TestCase):
+    """`copilot` is two unrelated CLIs, and PATH order decides which one wins."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.prompt = self.root / "prompt.md"
+        self.prompt.write_text("test prompt\n", encoding="utf-8")
+        self.env = make_env(self.root, "exit 0\n")
+        self.github = self.install("github-bin", GITHUB_COPILOT_VERSION)
+        self.aws = self.install("aws-bin", AWS_COPILOT_VERSION)
+
+    def install(self, directory: str, version: str) -> Path:
+        return write_fake(
+            self.root / directory / "copilot", version_shim(version) + "exit 0\n"
+        )
+
+    def dry_run(self, env: dict[str, str]):
+        return run_delegate(
+            env, "submit", "--repo", str(self.repo), "--prompt-file", str(self.prompt),
+            "--backend", "copilot", "--dry-run",
+        )
+
+    def on_path(self, *binaries: Path) -> dict[str, str]:
+        env = dict(self.env)
+        env.pop("HANDOFF_COPILOT_BIN")
+        env["PATH"] = os.pathsep.join(
+            [str(binary.parent) for binary in binaries] + ["/usr/bin", "/bin"]
+        )
+        return env
+
+    def test_an_explicit_override_wins_over_discovery(self):
+        result = self.dry_run(self.env)
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = parse_pairs(result.stdout)
+        self.assertEqual(self.env["HANDOFF_COPILOT_BIN"], parsed["codex_bin"])
+        self.assertEqual("env", parsed["codex_bin_source"])
+
+    def test_an_env_set_impostor_fails_closed(self):
+        """The override is checked too, and it is the likeliest stale path.
+
+        Trusting it launches AWS Copilot CLI with GitHub Copilot flags: the job
+        dies with a confusing error and a near-empty log, instead of failing
+        legibly at submit.
+        """
+
+        env = dict(self.env)
+        env["HANDOFF_COPILOT_BIN"] = str(self.aws)
+        result = self.dry_run(env)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("HANDOFF_COPILOT_BIN does not point at GitHub Copilot CLI", result.stderr)
+        self.assertIn(str(self.aws), result.stderr)
+        self.assertIn(AWS_COPILOT_VERSION, result.stderr)
+        # Distinguishable from the PATH-discovery refusal, which names PATH.
+        self.assertNotIn("on PATH is not GitHub Copilot CLI", result.stderr)
+
+    def test_a_codex_or_claude_override_is_not_identity_checked(self):
+        """Neither has the name collision, so neither pays for a --version call."""
+
+        for backend in ("codex", "claude"):
+            with self.subTest(backend=backend):
+                env = dict(self.env)
+                env[f"HANDOFF_{backend.upper()}_BIN"] = str(self.aws)
+                result = run_delegate(
+                    env, "submit", "--repo", str(self.repo), "--prompt-file",
+                    str(self.prompt), "--backend", backend, "--dry-run",
+                )
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                self.assertEqual(str(self.aws), parse_pairs(result.stdout)["codex_bin"])
+
+    def test_the_github_cli_is_found_whichever_way_path_is_ordered(self):
+        for order in ((self.github, self.aws), (self.aws, self.github)):
+            with self.subTest(first=order[0].parent.name):
+                result = self.dry_run(self.on_path(*order))
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                parsed = parse_pairs(result.stdout)
+                self.assertEqual(str(self.github), parsed["codex_bin"])
+                self.assertEqual("path", parsed["codex_bin_source"])
+                self.assertEqual(GITHUB_COPILOT_VERSION, parsed["codex_version"])
+
+    def test_an_aws_only_install_fails_closed_and_says_what_it_found(self):
+        result = self.dry_run(self.on_path(self.aws))
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("not GitHub Copilot CLI", result.stderr)
+        self.assertIn(str(self.aws), result.stderr)
+        self.assertIn(AWS_COPILOT_VERSION, result.stderr)
+        self.assertIn("HANDOFF_COPILOT_BIN", result.stderr)
+
+    def test_no_copilot_at_all_names_the_override(self):
+        env = dict(self.env)
+        env.pop("HANDOFF_COPILOT_BIN")
+        env["PATH"] = "/usr/bin:/bin"
+        result = self.dry_run(env)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("copilot CLI not found", result.stderr)
+        self.assertIn("HANDOFF_COPILOT_BIN", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

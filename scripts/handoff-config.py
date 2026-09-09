@@ -48,7 +48,7 @@ IDENTITY_FIELD_ORDER = ("backend", "model", "effort", "auto_review_spec", "verif
 # one identity only, and changing it never invalidates a verification.
 SPEC_REVIEW_IDENTITY = "deep_reasoner"
 BOOLEAN_FIELDS = ("auto_review_spec", "verified")
-BACKENDS = ("claude", "codex")
+BACKENDS = ("claude", "codex", "copilot")
 V1_UPGRADE_MESSAGE = (
     'Detected a schema v1 config. Rerun /agent-handoff config to upgrade '
     "(setup replaces it with a schema v2 document and backs up the old file)."

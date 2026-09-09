@@ -185,6 +185,20 @@ class BackendValidationTests(unittest.TestCase):
             )
         self.assertIn("backend must be one of claude, codex", str(raised.exception))
 
+    def test_every_supported_backend_validates(self):
+        for backend in ("claude", "codex", "copilot"):
+            with self.subTest(backend=backend):
+                handoff_config.validate_config(
+                    self.identity_document(f'backend = "{backend}"\n')
+                )
+
+    def test_the_error_names_every_supported_backend(self):
+        """A pre-3.7 engine refuses a copilot config rather than mis-running it."""
+
+        with self.assertRaises(handoff_config.ConfigValidationError) as raised:
+            handoff_config.validate_config(self.identity_document('backend = "gemini"\n'))
+        self.assertIn("backend must be one of claude, codex, copilot", str(raised.exception))
+
 
 class LegacyMigrationTests(unittest.TestCase):
     def run_cli(self, *arguments):

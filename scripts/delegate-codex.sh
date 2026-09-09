@@ -3,8 +3,9 @@ set -euo pipefail
 
 # delegate-codex.sh — Claude-driven Handoff delegation primitive.
 #
-# The name is historical: this is the delegation primitive for BOTH backends.
-# It wraps `codex exec --json` and `claude --print --output-format stream-json`
+# The name is historical: this is the delegation primitive for ALL backends.
+# It wraps `codex exec --json`, `claude --print --output-format stream-json`,
+# and `copilot -p --output-format json`
 # as background jobs with durable state under <repo>/.handoff/jobs/<jobId>/ so
 # a Claude Code session (or a /loop tick) can submit work to a worker CLI, poll
 # it, collect the result, and send follow-up fix rounds against the same worker
@@ -17,19 +18,22 @@ set -euo pipefail
 #   stderr.log   worker stderr (tokens, warnings, auth errors)
 #   pid          background worker pid
 #   exit_code    written when the worker finishes
-#   session_id   worker thread/session id, extracted from log.jsonl
+#   session_id   worker thread/session id, extracted from log.jsonl — or, on
+#                copilot, assigned at submit and written before launch
 #   meta         label, backend, effort, mode, permission mode, parent job,
 #                timestamps
+#   usage.json   copilot only: final usage counters (--usage-output-file)
+#   copilot-logs copilot only: the CLI's own --log-dir output
 
 usage() {
   cat <<'USAGE'
 delegate-codex.sh — background delegation jobs for the Handoff flow
-(the name is historical; it drives both the codex and claude backends)
+(the name is historical; it drives the codex, claude, and copilot backends)
 
 Usage:
   delegate-codex.sh submit --repo <path> --prompt-file <file>
                     [--label <name>] [--effort <level>] [--model <model>]
-                    [--backend codex|claude]
+                    [--backend codex|claude|copilot]
                     [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
                     [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
@@ -42,9 +46,20 @@ Usage:
 
 Defaults: --backend codex, --effort high (Handoff default for delegated
 work), read-write sandbox per the user's codex config, and permission checks
-bypassed on a claude worker. Use --read-only for review/adversarial jobs that
-must not touch the repo; it maps to `-s read-only` on codex and
-`--permission-mode plan` on claude.
+bypassed on a claude or copilot worker. Use --read-only for review/adversarial
+jobs that must not touch the repo; it maps to `-s read-only` on codex,
+`--permission-mode plan` on claude, and `--mode plan` on copilot.
+
+On copilot, `--mode plan` and `--allow-all-tools` are never generated together.
+Passing both was probed: plan mode still won on disk, but the worker emitted no
+denial events, exited 0, and reported writes that had not happened. A read-only
+copilot job therefore drops `--allow-all-tools` entirely.
+
+A copilot job also never carries `--share`, `--share-gist`, `--yolo`,
+`--allow-all`, `--worktree`, or `--enable-memory`, and always carries
+`--no-remote --no-remote-export`: session export to GitHub web and mobile is on
+by default, and a delegated job's prompt and repository contents are not
+exportable material.
 
 --role resolves backend, model, and effort from Handoff config, and the
 identity's backend decides which CLI executes the job — always. --backend is
@@ -52,7 +67,23 @@ for role-less ad-hoc jobs only: passing one that contradicts a named role is
 refused rather than silently overriding the config.
 
 Efforts are per CLI, never one shared enum: codex takes
-minimal|low|medium|high|xhigh|max|ultra, claude takes low|medium|high|xhigh|max.
+minimal|low|medium|high|xhigh|max|ultra, claude takes low|medium|high|xhigh|max,
+copilot takes none|minimal|low|medium|high|xhigh|max. Copilot's enum is the
+CLI's superset — which efforts a given copilot model accepts is decided per
+model by the API, and a rejected pair surfaces as Copilot's own error rather
+than being silently downgraded.
+
+`--model auto` is refused on a copilot job. An identity is a deliberate
+backend + model + effort choice; `auto` hands the model choice back to the
+vendor per request, so the job's record would name what Copilot picked rather
+than what the repo configured.
+
+A copilot job's session id is assigned at submit rather than extracted at the
+end: Copilot emits `sessionId` only in its terminal event, so a job that dies
+mid-run would have no id to resume. `meta` records
+`session_id_source=assigned`. An assigned id is a claim on a session, not proof
+one exists — a job that failed before Copilot created a session cannot be
+resumed, and `copilot --resume` says so on stderr.
 
 --worktree runs the job in a dedicated Git worktree under
 <repo>/.handoff/worktrees/<jobId>, cut from --base (default HEAD) resolved to
@@ -61,10 +92,18 @@ and removal stay with the driver. `cleanup <jobId>` removes the worktree and
 refuses one holding uncommitted changes. --repo always names the main repo,
 never a worktree.
 
-Worker binary: set HANDOFF_CODEX_BIN or HANDOFF_CLAUDE_BIN to an executable
-path or command name to override discovery. On macOS the ChatGPT/Codex
-app-bundled CLI is preferred when present so app-only models use a compatible
-client; otherwise PATH is used.
+Worker binary: set HANDOFF_CODEX_BIN, HANDOFF_CLAUDE_BIN, or
+HANDOFF_COPILOT_BIN to an executable path or command name to override
+discovery. On macOS the ChatGPT/Codex app-bundled CLI is preferred when present
+so app-only models use a compatible client; otherwise PATH is used.
+
+`copilot` is also the binary name of AWS Copilot CLI, an unrelated ECS
+deployment tool, so every way of resolving a copilot binary applies the same
+`--version` identity check. PATH discovery walks every match and takes the first
+reporting `GitHub Copilot CLI`; HANDOFF_COPILOT_BIN is checked too, since a
+stale variable is the likeliest way to hold the wrong path; and a fix round
+re-checks the parent job's recorded binary before reusing it. Each fails closed
+naming what it found instead.
 
 HANDOFF_CLAUDE_PERMISSION_MODE overrides a claude worker's default
 `bypassPermissions` with any mode the claude CLI takes:
@@ -123,7 +162,11 @@ resolve_worker_bin() {
   # Finds the CLI for one backend. The CODEX_* variable names are kept so the
   # meta keys and resume's parent-binary reuse stay unchanged across backends.
   local backend="$1" env_var configured candidate=""
-  if [ "$backend" = "claude" ]; then env_var="HANDOFF_CLAUDE_BIN"; else env_var="HANDOFF_CODEX_BIN"; fi
+  case "$backend" in
+    claude) env_var="HANDOFF_CLAUDE_BIN" ;;
+    copilot) env_var="HANDOFF_COPILOT_BIN" ;;
+    *) env_var="HANDOFF_CODEX_BIN" ;;
+  esac
   configured="${!env_var:-}"
 
   CODEX_BIN_SOURCE="path"
@@ -135,6 +178,14 @@ resolve_worker_bin() {
       candidate="$(command -v "$configured" 2>/dev/null || true)"
     fi
     [ -n "$candidate" ] && [ -x "$candidate" ] || die "$env_var is not executable: $configured"
+    # The override runs through the same identity check as PATH discovery. It
+    # is the likeliest way to hold a stale or mistyped path, and an unchecked
+    # one launches AWS Copilot CLI with GitHub Copilot flags: the job dies with
+    # a confusing error and a near-empty log instead of failing legibly here.
+    # Only copilot needs this — codex and claude have no name collision.
+    if [ "$backend" = "copilot" ] && ! is_github_copilot_bin "$candidate"; then
+      die "$env_var does not point at GitHub Copilot CLI: $candidate reports '$("$candidate" --version 2>/dev/null | head -1 || true)' (AWS Copilot CLI shares the binary name); point $env_var at the GitHub Copilot CLI, or unset it to discover one on PATH"
+    fi
   elif [ "$backend" = "codex" ] && [ "$(uname -s)" = "Darwin" ]; then
     # App-bundle probe is codex-only: app-only models need a compatible client.
     for candidate in "/Applications/ChatGPT.app/Contents/Resources/codex" "/Applications/Codex.app/Contents/Resources/codex"; do
@@ -144,6 +195,11 @@ resolve_worker_bin() {
       fi
       candidate=""
     done
+  fi
+
+  if [ -z "$candidate" ] && [ "$backend" = "copilot" ]; then
+    candidate="$(discover_copilot_bin)" || die "$candidate"
+    CODEX_BIN_SOURCE="path"
   fi
 
   if [ -z "$candidate" ]; then
@@ -157,10 +213,52 @@ resolve_worker_bin() {
   CODEX_VERSION="${CODEX_VERSION:-unknown}"
 }
 
+is_github_copilot_bin() {
+  # `copilot` is also the binary name of AWS Copilot CLI, an unrelated ECS
+  # deployment tool, and PATH order decides which one wins. The two are
+  # distinguishable only by --version output: "GitHub Copilot CLI 1.0.83."
+  # against "copilot version: v1.34.1". Every place that resolves a copilot
+  # binary — submit, resume, and anything reusing a recorded path — goes
+  # through this one check, so they cannot disagree about which install is the
+  # real one.
+  case "$("$1" --version 2>/dev/null | head -1 || true)" in
+    *"GitHub Copilot CLI"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+discover_copilot_bin() {
+  # Prints the first PATH match that identifies as GitHub Copilot CLI. On
+  # failure prints an actionable message and returns 1, so the caller can die
+  # with it.
+  local match first="" first_version=""
+  while IFS= read -r match; do
+    [ -n "$match" ] && [ -x "$match" ] || continue
+    if is_github_copilot_bin "$match"; then
+      printf '%s\n' "$match"
+      return 0
+    fi
+    if [ -z "$first" ]; then
+      first="$match"
+      first_version="$("$match" --version 2>/dev/null | head -1 || true)"
+    fi
+  done < <(type -a -p copilot 2>/dev/null || true)
+  if [ -n "$first" ]; then
+    printf '%s\n' "the 'copilot' on PATH is not GitHub Copilot CLI: $first reports '${first_version:-no --version output}' (AWS Copilot CLI shares the binary name); set HANDOFF_COPILOT_BIN to the GitHub Copilot CLI path"
+  else
+    printf '%s\n' "copilot CLI not found; install GitHub Copilot CLI or set HANDOFF_COPILOT_BIN"
+  fi
+  return 1
+}
+
 validate_effort() {
   # Efforts are per CLI, never one shared enum.
   case "$1" in
     claude) case "$2" in low|medium|high|xhigh|max) ;; *) die "invalid --effort for claude: $2" ;; esac ;;
+    # Copilot's enum is the CLI's superset; which values a given model accepts
+    # is decided per model by the API, and that rejection surfaces as Copilot's
+    # own error rather than being silently downgraded here.
+    copilot) case "$2" in none|minimal|low|medium|high|xhigh|max) ;; *) die "invalid --effort for copilot: $2" ;; esac ;;
     *) case "$2" in minimal|low|medium|high|xhigh|max|ultra) ;; *) die "invalid --effort: $2" ;; esac ;;
   esac
 }
@@ -181,12 +279,29 @@ resolve_claude_permission_mode() {
   return 0
 }
 
+resolve_copilot_permission_mode() {
+  # Sets PERMISSION_MODE for a copilot worker. Same reasoning as claude: a
+  # background `-p` job has no approval surface, so any rule that would prompt
+  # denies instead and the worker cannot run its own acceptance checks. There
+  # is deliberately no env override — naming an escape hatch nothing tells the
+  # user to reach for is not mitigation. --read-only is the supported way to
+  # run a copilot job that must not touch the repo.
+  if [ "$1" = "true" ]; then PERMISSION_MODE="plan"; else PERMISSION_MODE="allow-all-tools"; fi
+}
+
 warn_permission_bypass() {
-  [ "$PERMISSION_MODE" = "bypassPermissions" ] || return 0
-  echo "WARN $1 is a claude worker running with permission checks bypassed." >&2
+  case "$BACKEND:$PERMISSION_MODE" in
+    claude:bypassPermissions|copilot:allow-all-tools) ;;
+    *) return 0 ;;
+  esac
+  echo "WARN $1 is a $BACKEND worker running with permission checks bypassed." >&2
   echo "     A background job has no approval surface, so this is what lets it run its own" >&2
   echo "     acceptance checks — and it can run any command the packet leads it to." >&2
-  echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits to restore prompting instead." >&2
+  if [ "$BACKEND" = "claude" ]; then
+    echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=acceptEdits to restore prompting instead." >&2
+  else
+    echo "     Submit with --read-only for a job that must not touch the repo instead." >&2
+  fi
 }
 
 make_job_id() {
@@ -247,7 +362,10 @@ try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            for key in ("thread_id", "session_id"):
+            # sessionId is Copilot's spelling, and it arrives only on the
+            # terminal event. A Handoff-submitted copilot job has the cache
+            # populated at submit already; this covers one submitted by hand.
+            for key in ("thread_id", "session_id", "sessionId"):
                 found = event.get(key) or (event.get("thread") or {}).get("id")
                 if found:
                     sid = found
@@ -284,7 +402,7 @@ cmd_submit() {
   require_repo
   [ -n "$PROMPT_FILE" ] && [ -f "$PROMPT_FILE" ] || die "--prompt-file is required and must exist"
   case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier) ;; *) die "invalid --role: $ROLE" ;; esac
-  case "$BACKEND" in codex|claude) ;; *) die "invalid --backend: $BACKEND" ;; esac
+  case "$BACKEND" in codex|claude|copilot) ;; *) die "invalid --backend: $BACKEND" ;; esac
 
   if [ -n "$WORKTREE_BRANCH" ]; then
     is_git_repo "$REPO" || die "--worktree requires --repo to be a git repository"
@@ -327,10 +445,17 @@ cmd_submit() {
   [ "$MODEL_EXPLICIT" = "false" ] || MODEL_SOURCE="explicit"
   [ "$EFFORT_EXPLICIT" = "false" ] || EFFORT_SOURCE="explicit"
   if [ "$BACKEND_EXPLICIT" = "true" ] && [ -z "$ROLE" ]; then BACKEND_SOURCE="explicit"; fi
+  # An identity is a deliberate backend + model + effort choice, and `auto`
+  # hands the model choice back to the vendor per request — which would make
+  # this job's record name what Copilot picked, not what the repo configured.
+  if [ "$BACKEND" = "copilot" ] && [ "$MODEL" = "auto" ]; then
+    die "model 'auto' is refused on a copilot job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend copilot --model <model>'"
+  fi
   validate_effort "$BACKEND" "$EFFORT"
   resolve_worker_bin "$BACKEND"
   PERMISSION_MODE=""
   [ "$BACKEND" = "claude" ] && resolve_claude_permission_mode "$READ_ONLY"
+  [ "$BACKEND" = "copilot" ] && resolve_copilot_permission_mode "$READ_ONLY"
 
   LABEL="$(echo "$LABEL" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//;s/-$//')"
   if [ "$DRY_RUN" = "true" ]; then
@@ -348,6 +473,17 @@ cmd_submit() {
   mkdir -p "$JOB"
   cp "$PROMPT_FILE" "$JOB/prompt.md"
 
+  # Copilot emits `sessionId` only in its terminal event, so a job that dies
+  # mid-run would have no id to resume from. --session-id sets the UUID for a
+  # new session, so assign it here and persist it before launch; a crashed
+  # copilot job then has the same resume parity the other two backends get for
+  # free.
+  if [ "$BACKEND" = "copilot" ]; then
+    NEW_SESSION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')" \
+      || die "failed to generate a session id for the copilot job"
+    printf '%s' "$NEW_SESSION_ID" >"$JOB/session_id"
+  fi
+
   WORKDIR="$REPO"
   if [ -n "$WORKTREE_BRANCH" ]; then
     WORKDIR="$REPO/.handoff/worktrees/$JOB_ID"
@@ -361,6 +497,10 @@ cmd_submit() {
       "$LABEL" "$EFFORT" "${MODEL:-default}" "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
       "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$(now_utc)"
   } >"$JOB/meta"
+
+  if [ -n "$NEW_SESSION_ID" ]; then
+    printf 'session_id_source=assigned\n' >>"$JOB/meta"
+  fi
 
   if [ -n "$WORKTREE_BRANCH" ]; then
     printf 'worktree=%s\nbranch=%s\nbase_commit=%s\n' \
@@ -414,7 +554,12 @@ cmd_resume() {
   local EFFORT
   EFFORT="$(meta_value effort "$PARENT_JOB")"
   CODEX_BIN="$(meta_value codex_bin "$PARENT_JOB")"
-  if [ -n "$CODEX_BIN" ] && [ -x "$CODEX_BIN" ]; then
+  # The recorded path is reused only if it still identifies as the same tool.
+  # On copilot that is not a formality: `copilot` is also AWS Copilot CLI's
+  # binary name, so a path that was GitHub Copilot CLI at submit can be a
+  # different program by the fix round.
+  if [ -n "$CODEX_BIN" ] && [ -x "$CODEX_BIN" ] \
+     && { [ "$BACKEND" != "copilot" ] || is_github_copilot_bin "$CODEX_BIN"; }; then
     CODEX_BIN_SOURCE="parent"
     CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
     CODEX_VERSION="${CODEX_VERSION:-unknown}"
@@ -423,6 +568,7 @@ cmd_resume() {
   fi
   PERMISSION_MODE=""
   [ "$BACKEND" = "claude" ] && resolve_claude_permission_mode "$READ_ONLY"
+  [ "$BACKEND" = "copilot" ] && resolve_copilot_permission_mode "$READ_ONLY"
   local ROUND=2
   case "$PARENT_ID" in *-r[0-9]*) ROUND=$(( ${PARENT_ID##*-r} + 1 )) ;; esac
   local JOB_ID="${PARENT_ID%-r[0-9]*}-r${ROUND}"
@@ -464,6 +610,8 @@ write_run_script() {
     # forever with no further JSONL events.
     if [ "$BACKEND" = "claude" ]; then
       write_claude_exec_line "$effort" "$model" "$session_id"
+    elif [ "$BACKEND" = "copilot" ]; then
+      write_copilot_exec_line "$effort" "$model" "$read_only" "$session_id"
     elif [ -n "$session_id" ]; then
       # `codex exec resume` accepts no -C/-s flags: cwd comes from the shell,
       # sandbox and effort go through -c config overrides.
@@ -509,12 +657,81 @@ write_claude_exec_line() {
   printf '"$CODEX_BIN" %s -- "$PROMPT" >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
 }
 
+write_copilot_exec_line() {
+  local effort="$1" model="$2" read_only="$3" session_id="$4"
+  # Egress defaults are overridden explicitly. Session export to GitHub web and
+  # mobile is on by default, and a delegated job carries the prompt and the
+  # repository contents. --share, --share-gist, --yolo, --allow-all,
+  # --worktree, and --enable-memory are never passed: Handoff owns the worktree
+  # protocol, pinned to an immutable base SHA.
+  local args="--output-format json --effort $effort --no-ask-user"
+  args="$args --no-remote --no-remote-export --no-auto-update"
+  # --mode plan and --allow-all-tools are mutually exclusive here, and that is a
+  # correctness requirement rather than a preference. Probed together, plan mode
+  # still won on disk, but the worker attempted only its read, emitted ZERO
+  # denial events, exited 0, and its final answer claimed two writes that never
+  # happened. Nothing in the event stream marks that failure, so the monitor has
+  # nothing to catch and the exclusivity is the only defence.
+  if [ "$read_only" = "true" ]; then
+    args="$args --mode plan"
+  else
+    args="$args --allow-all-tools"
+  fi
+  # Job evidence lives with the rest of the job state. cmd_cleanup keeps the job
+  # directory, so this co-locates the logs without making them disposable.
+  args="$args --usage-output-file \"\$JOB/usage.json\" --log-dir \"\$JOB/copilot-logs\""
+  if [ -n "$session_id" ]; then
+    # `copilot --resume` takes cwd from the shell and the session already
+    # carries its model, same shape as the codex resume path.
+    echo 'cd "$WORKDIR"'
+    args="$args --resume $session_id"
+  else
+    args="-C \"\$WORKDIR\" $args --session-id $NEW_SESSION_ID"
+    [ -n "$model" ] && args="$args --model \"$model\""
+  fi
+  echo 'mkdir -p "$JOB/copilot-logs"'
+  printf '"$CODEX_BIN" -p "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
+}
+
 launch_job() {
   local job="$1"
   nohup bash "$job/run.sh" >/dev/null 2>&1 &
   echo $! >"$job/pid"
   disown || true
 }
+
+# Reads a job log once and prints the last event type and the denial count, one
+# per line. Held as a string rather than a heredoc so it can run inside a
+# command substitution.
+STATUS_SCAN_PY="$(cat <<'SCAN'
+import json, sys
+
+path, backend = sys.argv[1], sys.argv[2]
+last, denied = "", 0
+with open(path, encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        etype = event.get("type", "")
+        if etype:
+            last = etype
+        if backend == "copilot":
+            # Typed, not pattern-matched: tool.execution_complete carries the
+            # rule that caused the refusal under data.error.
+            error = (event.get("data") or {}).get("error") or {}
+            if etype == "tool.execution_complete" and error.get("code") == "denied":
+                denied += 1
+        elif event.get("subtype") == "permission_denied":
+            denied += 1
+print(last)
+print(denied)
+SCAN
+)"
 
 cmd_status() {
   local JOB_ID="$1"; shift
@@ -540,11 +757,17 @@ cmd_status() {
     done
   fi
 
-  local last_event=""
+  BACKEND="$(meta_value backend)"
+  BACKEND="${BACKEND:-codex}"
+  # One parsed pass over the log for both the last event type and the denial
+  # count. Counting denials by grep would miss valid JSON with whitespace after
+  # a colon and would match an unrelated `code` field anywhere on the line; the
+  # denial shapes also differ per backend, which a pattern cannot tell apart.
+  local last_event="" denied=0 scan=""
   if [ -s "$JOB/log.jsonl" ]; then
-    last_event="$(tail -1 "$JOB/log.jsonl" | python3 -c 'import json,sys
-try: print(json.loads(sys.stdin.read()).get("type",""))
-except Exception: print("")' 2>/dev/null || true)"
+    scan="$(python3 -c "$STATUS_SCAN_PY" "$JOB/log.jsonl" "$BACKEND" 2>/dev/null || true)"
+    last_event="$(printf '%s\n' "$scan" | sed -n 1p)"
+    denied="$(printf '%s\n' "$scan" | sed -n 2p)"
   fi
   echo "job: $JOB_ID"
   echo "state: $state"
@@ -553,8 +776,6 @@ except Exception: print("")' 2>/dev/null || true)"
   # Reported only when non-zero: status is polled in a loop, so a clean job
   # stays quiet. A blocked check does not move the exit code, so this is the
   # only signal the monitor gets that the worker could not verify its work.
-  local denied=0
-  [ -s "$JOB/log.jsonl" ] && denied="$(grep -c '"subtype":"permission_denied"' "$JOB/log.jsonl" || true)"
   [ "${denied:-0}" -gt 0 ] && echo "permission_denied: $denied (worker blocked; its self-report is not evidence)"
   if [ "$state" = "RUNNING" ] && [ "$WAIT" = "true" ]; then
     echo "note: timed out after ${TIMEOUT}s while still running"
@@ -577,11 +798,21 @@ cmd_result() {
   require_job "$JOB_ID"
   extract_session_id >/dev/null || true
 
-  python3 - "$JOB/log.jsonl" "$JOB/session_id" "$AS_JSON" <<'PY'
+  BACKEND="$(meta_value backend)"
+  BACKEND="${BACKEND:-codex}"
+
+  python3 - "$JOB/log.jsonl" "$JOB/session_id" "$AS_JSON" "$BACKEND" <<'PY'
 import json, sys
 
+# The backend is an input, never sniffed from the event shape: Copilot's
+# terminal event is `type: "result"`, the same type name Claude's stream-json
+# uses with a completely different payload, so a backend-blind parser mis-reads
+# a copilot log without erroring.
 log_path, sid_path, as_json = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+backend = sys.argv[4]
 messages, commands, reasoning, usage, denied = [], [], [], {}, []
+errors = []
+copilot_tools = {}
 try:
     with open(log_path, encoding="utf-8") as fh:
         for line in fh:
@@ -593,6 +824,36 @@ try:
             except json.JSONDecodeError:
                 continue
             etype = event.get("type", "")
+            if backend == "copilot":
+                # Streaming noise: one small job produced 82 ephemeral deltas.
+                if event.get("ephemeral"):
+                    continue
+                data = event.get("data") or {}
+                if etype == "assistant.message":
+                    # A tool-calling turn also carries assistant.message with
+                    # empty content, so select on the phase, not on text.
+                    if data.get("phase") == "final_answer" and data.get("content"):
+                        messages.append(data["content"])
+                elif etype == "tool.execution_start":
+                    copilot_tools[data.get("toolCallId")] = data.get("toolName") or ""
+                    command = (data.get("arguments") or {}).get("command")
+                    if command:
+                        commands.append(command)
+                elif etype == "tool.execution_complete":
+                    if (data.get("error") or {}).get("code") == "denied":
+                        # Typed rather than pattern-matched, and named from the
+                        # matching start event.
+                        denied.append(copilot_tools.get(data.get("toolCallId")) or "unknown")
+                elif etype == "session.error":
+                    errors.append({
+                        "error_type": data.get("errorType") or "",
+                        "message": data.get("message") or "",
+                        "status_code": data.get("statusCode"),
+                    })
+                elif etype == "result":
+                    # Copilot's terminal event is flat, not nested under data.
+                    usage = event.get("usage") or usage
+                continue
             if etype == "system" and event.get("subtype") == "permission_denied":
                 # A denied tool call still leaves exit 0 behind, so without this
                 # the driver reads a blocked acceptance check as a passed one.
@@ -640,6 +901,10 @@ if as_json:
         "permission_denied": len(denied),
         "denied_tools": sorted(set(denied)),
         "usage": usage,
+        # Copilot's API failures can arrive with an empty stderr, so a JSON
+        # consumer has nowhere else to see them. Present on every backend so the
+        # payload shape does not vary by vendor.
+        "errors": errors,
     }, ensure_ascii=False))
 else:
     print(f"session_id: {session_id or 'unknown'}")
@@ -647,6 +912,11 @@ else:
         print(f"usage: {json.dumps(usage)}")
     if commands:
         print(f"commands_run: {len(commands)}")
+    for error in errors:
+        status = error["status_code"]
+        print(f"session_error: {error['error_type'] or 'unknown'}"
+              + (f" (status {status})" if status is not None else "")
+              + f": {error['message']}")
     # Always printed, including the zero: the driver needs positive evidence
     # that nothing was blocked, not merely the absence of a warning.
     print(f"permission_denied: {len(denied)}"
@@ -735,6 +1005,8 @@ REPO="${REPO:-}"
 WORKDIR="$REPO"
 # Which CLI runs the job; submit and resume set it from config or parent meta.
 BACKEND="codex"
+# Set only for a fresh copilot job, whose session id is assigned at submit.
+NEW_SESSION_ID=""
 
 case "$COMMAND" in
   submit) cmd_submit "$@" ;;

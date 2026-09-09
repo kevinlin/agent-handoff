@@ -232,10 +232,13 @@ Each result written back into the research document as a `[probed]` line.
   worker resolves a different binary. `cmd_resume` at `delegate-codex.sh:416` currently reuses the
   parent's recorded path whenever it is still executable, with no identity check — for copilot it
   must re-verify identity, since the path may now point at a different tool.
-- `validate_effort copilot`: `minimal|low|medium|high|xhigh|max`.
-- `cmd_submit`: refuse `model = "auto"` on a copilot job. For a fresh copilot job, set
-  `NEW_SESSION_ID="$(uuidgen | tr 'A-Z' 'a-z')"`, write it to `$JOB/session_id` before launch, and
-  record `session_id_source=assigned` in `meta`.
+- `validate_effort copilot`: `none|minimal|low|medium|high|xhigh|max`, the CLI's own enum.
+  *This bullet said `minimal|low|medium|high|xhigh|max` until the effort decision was reversed;
+  the Decisions section is authoritative.*
+- `cmd_submit`: refuse `model = "auto"` on a copilot job. For a fresh copilot job, generate
+  `NEW_SESSION_ID` with `python3 -c 'import uuid; print(uuid.uuid4())'` (not `uuidgen` — the script
+  already shells to `python3`), write it to `$JOB/session_id` before launch, and record
+  `session_id_source=assigned` in `meta`.
 - `write_run_script`: third branch calling `write_copilot_exec_line`.
 - New `write_copilot_exec_line`. Fresh job:
   `-p "$PROMPT" --output-format json -C "$WORKDIR" --model <m> --effort <e> --no-ask-user
