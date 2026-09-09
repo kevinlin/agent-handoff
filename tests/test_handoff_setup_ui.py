@@ -147,6 +147,7 @@ class SetupUITests(unittest.TestCase):
             {
                 "claude": ["low", "medium", "high", "xhigh", "max"],
                 "codex": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+                "copilot": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
             },
             state["efforts_by_backend"],
         )
@@ -391,6 +392,96 @@ class SetupUITests(unittest.TestCase):
         self.assertIn("spec_review: $('specReview').checked", source)
         self.assertIn("box ? box.checked : state.initial_spec_review", source)
         self.assertIn("identity === state.spec_review_identity ? reviewAddon()", source)
+
+
+COPILOT_FAKE = """#!/bin/sh
+printf '%s\\n' "$@" >> "$HANDOFF_TEST_COPILOT_ARGS"
+case "$1" in
+  --version) printf 'GitHub Copilot CLI 1.0.83.\\n'; exit 0 ;;
+esac
+printf 'HANDOFF_SMOKE_OK\\n'
+"""
+
+
+class CopilotSetupUITests(SetupUITests):
+    """Task 5: typed model entry, validated against the CLI, with no probe."""
+
+    def setUp(self):
+        super().setUp()
+        self.copilot_log = self.root / "copilot-ui-args.txt"
+        copilot = self.bin / "copilot"
+        copilot.write_text(COPILOT_FAKE, encoding="utf-8")
+        copilot.chmod(0o755)
+        self.env["HANDOFF_TEST_COPILOT_ARGS"] = str(self.copilot_log)
+
+    def copilot_payload(self, model="mai-code-1.1-flash", effort="medium"):
+        return {
+            "mode": "custom",
+            "identities": {
+                "deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"},
+                "fast_worker": {"backend": "copilot", "model": model, "effort": effort},
+                "arbiter": {"backend": "codex", "model": "gpt-detected", "effort": "xhigh"},
+            },
+            "scope": "project",
+            "exclude_choice": "track",
+            "routing_action": "none",
+            "write_agents": False,
+            "smoke": False,
+        }
+
+    def test_opening_the_wizard_makes_no_copilot_subprocess_call(self):
+        # There is no catalog to read, so a Codex-and-Claude user pays nothing
+        # for Copilot support: no discovery probe, no cache, no refresh.
+        state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertFalse(
+            self.copilot_log.exists(),
+            self.copilot_log.read_text(encoding="utf-8") if self.copilot_log.exists() else "",
+        )
+        self.assertNotIn("copilot", state["clis"])
+        self.assertNotIn("copilot", state["model_options"])
+        self.assertNotIn("copilot", state["model_discovery"])
+        # and nothing catalog-shaped crept into the state
+        self.assertEqual(
+            {"claude", "codex", "copilot"}, set(state["efforts_by_backend"])
+        )
+
+    def test_controller_construction_makes_no_copilot_subprocess_call(self):
+        handoff_setup_ui.SetupController(self.repo, self.env)
+        self.assertFalse(self.copilot_log.exists())
+
+    def test_the_page_types_the_copilot_model_and_labels_its_source(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("const TYPED_MODEL_BACKENDS = ['copilot'];", source)
+        self.assertIn("'typed':'Typed; validated against the CLI',", source)
+        self.assertIn("copilot:'GitHub Copilot'", source)
+        # the disabling <select> is not reused for a backend with no options
+        self.assertIn('type="text" spellcheck="false"', source)
+        self.assertNotIn("state.clis.copilot", source)
+
+    def test_preview_refuses_auto_with_the_engine_message_and_writes_nothing(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        result = controller.preview(self.copilot_payload(model="auto"))
+        self.assertFalse(result["ok"], result)
+        self.assertIn("'auto', which is refused on copilot", result["error"])
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+        # the refusal is the engine's; the UI process ran no validation itself
+        self.assertFalse(self.copilot_log.exists())
+
+    def test_apply_is_blocked_without_a_matching_preview(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        with self.assertRaises(handoff_setup_ui.UIError):
+            controller.apply(self.copilot_payload())
+
+    def test_normalize_accepts_the_full_copilot_effort_enum(self):
+        for effort in handoff_setup_ui.engine.COPILOT_EFFORTS:
+            payload = handoff_setup_ui.normalize_payload(
+                self.copilot_payload(effort=effort), repo=self.repo, env=self.env
+            )
+            self.assertEqual(effort, payload["identities"]["fast_worker"]["effort"])
+        with self.assertRaises(handoff_setup_ui.UIError):
+            handoff_setup_ui.normalize_payload(
+                self.copilot_payload(effort="ultra"), repo=self.repo, env=self.env
+            )
 
 
 if __name__ == "__main__":

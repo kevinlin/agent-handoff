@@ -32,7 +32,7 @@ PHASES = {"planning", "codex implementation", "delegated implementation", "revie
 SCOPES = {"project", "global", "n/a"}
 CONFIG_SOURCES = {"session", "project", "global", "default", "n/a"}
 # The CLI that executed a role, not the runtime that loaded SKILL.md.
-ROLE_HOSTS = {"claude_code", "codex"}
+ROLE_HOSTS = {"claude_code", "codex", "copilot"}
 ROLES = {"deep_reasoner", "fast_worker", "arbiter", "e2e_specifier", "e2e_verifier"}
 # Only make-receipt.py writes these, so the shape is exact: "74min 05sec".
 _DURATION = r"\d+min [0-5]\dsec"
@@ -50,6 +50,8 @@ REQUIRED_FIELDS = [
     "codex_job_durations",
     "cc_jobs",
     "cc_job_durations",
+    "copilot_jobs",
+    "copilot_job_durations",
     "scope",
     "config_source",
     "roles_used",
@@ -123,11 +125,12 @@ def validate(fields: dict[str, object]) -> list[str]:
     if not DURATION.fullmatch(as_text("duration")):
         failures.append(f"duration must look like '74min 05sec', got {as_text('duration')!r}")
 
-    for count_field in ("codex_jobs", "cc_jobs"):
+    for count_field in ("codex_jobs", "cc_jobs", "copilot_jobs"):
         if not re.fullmatch(r"\d+", as_text(count_field)):
             failures.append(f"{count_field} must be an integer, got {as_text(count_field)!r}")
 
-    for durations_field in ("codex_job_durations", "cc_job_durations"):
+    for durations_field in ("codex_job_durations", "cc_job_durations",
+                            "copilot_job_durations"):
         if not JOB_DURATIONS.fullmatch(as_text(durations_field)):
             failures.append(
                 f"{durations_field} must be 'none' or 'jobId=74min 05sec' entries joined by '; ', "
@@ -146,8 +149,8 @@ def validate(fields: dict[str, object]) -> list[str]:
         failures.append(f"roles_used is invalid: {error}")
 
     version_text = as_text("receipt_schema_version")
-    if version_text != "5":
-        failures.append(f"receipt_schema_version must be 5, got {version_text!r}")
+    if version_text != "6":
+        failures.append(f"receipt_schema_version must be 6, got {version_text!r}")
 
     for placeholder_field in ("phase", "claude_session", "checks", "anomalies"):
         value = as_text(placeholder_field)

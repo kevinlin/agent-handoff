@@ -10,10 +10,11 @@ Usage:
     python3 make-receipt.py --start --repo PATH        # Phase 0: stamp the start
     python3 make-receipt.py --phase "final fix" --claude-session abc123 \
         --checks "npm test; bash lint.sh" --codex-jobs 2 --cc-jobs 1 \
+        --copilot-jobs 1 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
         [--anomalies none] [--started-at ISO8601] [--save] [--repo PATH]
 
-Tip: get --codex-jobs and --cc-jobs from the job directories under
+Tip: get --codex-jobs, --cc-jobs and --copilot-jobs from the job directories under
 <repo>/.handoff/jobs/ instead of recalling how many were submitted; each job's
 meta names the backend that executed it.
 
@@ -59,14 +60,18 @@ def format_duration(seconds: float) -> str:
     return f"{whole // 60}min {whole % 60:02d}sec"
 
 
+BACKENDS = ("codex", "claude", "copilot")
+
+
 def job_durations(repo: str, started: datetime) -> dict[str, str]:
     """Per-job wall clock from job state, oldest first, split by backend.
 
-    Returns {"codex": ..., "claude": ...}. A job directory written before
-    backend dispatch carries no `backend=` line and is codex by construction.
+    Keyed by BACKENDS. A job directory written before backend dispatch carries
+    no `backend=` line and is codex by construction, as is one naming a backend
+    this version does not know.
     """
 
-    measured: dict[str, list[tuple[datetime, str]]] = {"codex": [], "claude": []}
+    measured: dict[str, list[tuple[datetime, str]]] = {b: [] for b in BACKENDS}
     for meta in Path(repo).resolve().glob(".handoff/jobs/job-*/meta"):
         text = meta.read_text(encoding="utf-8")
         found = re.search(r"^submitted_at=(.+)$", text, re.M)
@@ -82,7 +87,8 @@ def job_durations(repo: str, started: datetime) -> dict[str, str]:
             else "running"
         )
         backend = re.search(r"^backend=(.+)$", text, re.M)
-        bucket = "claude" if backend and backend.group(1).strip() == "claude" else "codex"
+        named = backend.group(1).strip() if backend else ""
+        bucket = named if named in BACKENDS else "codex"
         measured[bucket].append((submitted, f"{meta.parent.name}={value}"))
 
     return {
@@ -100,6 +106,7 @@ def main() -> int:
     parser.add_argument("--anomalies", default="none")
     parser.add_argument("--codex-jobs", default="0", help="Number of codex-backed delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--cc-jobs", default="0", help="Number of claude-backed delegate-codex.sh jobs including fix rounds.")
+    parser.add_argument("--copilot-jobs", default="0", help="Number of copilot-backed delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--scope", default="n/a", help="project | global | n/a (default: n/a, when no configured role was touched).")
     parser.add_argument("--config-source", default="n/a", help="session | project | global | default | n/a.")
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
@@ -149,10 +156,12 @@ def main() -> int:
         "codex_job_durations": durations["codex"],
         "cc_jobs": args.cc_jobs,
         "cc_job_durations": durations["claude"],
+        "copilot_jobs": args.copilot_jobs,
+        "copilot_job_durations": durations["copilot"],
         "scope": args.scope,
         "config_source": args.config_source,
         "roles_used": args.roles_used,
-        "receipt_schema_version": "5",
+        "receipt_schema_version": "6",
     }
 
     validator = load_validator()

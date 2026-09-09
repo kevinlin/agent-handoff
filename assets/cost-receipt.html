@@ -277,20 +277,43 @@ function render() {
     card.appendChild(metrics(counters, counters.map(c => figureCell(fig.usage[c]))));
   });
 
+  const credits = data.summary.copilot_credits;
+  const creditCard = section("card lead");
+  const creditHead = el("h2", "Ran on the Copilot AI-credit meter ");
+  creditHead.appendChild(el("span", jobCount(credits.jobs), "count"));
+  creditCard.appendChild(creditHead);
+  creditCard.appendChild(el("p", credits.jobs
+    ? "Premium requests and nano-AIU are AI credits, not a currency figure."
+    : "No job ran on the Copilot AI-credit meter, so no premium requests or "
+      + "nano-AIU were metered.", "note"));
+  if (credits.jobs) {
+    const dl = el("dl", null, "metrics");
+    [["Premium requests", credits.premium_requests],
+     ["Nano-AIU", credits.nano_aiu]].forEach(([label, col]) => {
+      const pair = el("div");
+      pair.appendChild(el("dt", label));
+      const cell = figureCell(col);
+      pair.appendChild(el("dd", cell.text, cell.cls));
+      dl.appendChild(pair);
+    });
+    creditCard.appendChild(dl);
+  }
+
   const overlap = section("card");
   overlap.appendChild(el("h2", "Reading the two figures"));
   overlap.appendChild(el("p", "Codex jobs are counted in both figures above. They are "
     + "not addends, and no difference between them is a saving.", "note caveat"));
   if (data.summary.denials !== null) {
-    overlap.appendChild(el("p", `Permission denials across claude-backed jobs: `
-      + `${data.summary.denials}. A denied tool call does not move a job's exit code.`,
-      "note"));
+    overlap.appendChild(el("p", "Permission denials across claude-backed and "
+      + `copilot-backed jobs: ${data.summary.denials}. A denied tool call does `
+      + "not move a job's exit code.", "note"));
   }
 
   const jobs = section("card");
   jobs.appendChild(el("h2", "Delegated jobs"));
   jobs.appendChild(table(
-    ["Job", "Role", "Backend", "Model", "State", ...counterHeads, "CLI-reported cost"],
+    ["Job", "Role", "Backend", "Model", "State", ...counterHeads,
+     "Premium requests", "Nano-AIU", "CLI-reported cost"],
     data.jobs.map(j => {
       const state = j.state.toLowerCase();
       return [measured(j.job_id),
@@ -298,7 +321,11 @@ function render() {
         measured(j.backend), measured(j.model),
         {text: state, cls: "", pill: STATE_TONE[state] || "off"},
         ...counters.map(c => num(j.usage[c])),
+        ...(j.backend === "copilot"
+            ? [num(j.premium_requests), num(j.nano_aiu)]
+            : [absent("n/a"), absent("n/a")]),
         j.backend === "codex" ? absent("n/a - subscription")
+          : j.backend === "copilot" ? absent("n/a - AI credits")
           : (j.cost_usd === null ? absent("unknown") : measured(j.cost_usd))];
     }), "Delegated jobs, per-job telemetry", "jobs"));
 

@@ -42,9 +42,14 @@ ordered = handoff_config.ordered
 BACKENDS = handoff_config.BACKENDS
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
+# Copilot's own CLI enum, which is a superset: which efforts a given model
+# accepts is decided per model, and that rejection surfaces as Copilot's own
+# error rather than being downgraded here.
+COPILOT_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 BACKEND_EFFORTS = {
     "claude": CLAUDE_EFFORTS,
     "codex": CODEX_EFFORTS,
+    "copilot": COPILOT_EFFORTS,
 }
 BEGIN_MARKER = "<!-- BEGIN HANDOFF MANAGED ROUTING (do not edit; managed by agent-handoff) -->"
 END_MARKER = "<!-- END HANDOFF MANAGED ROUTING -->"
@@ -101,6 +106,100 @@ def validate_backend_efforts(identities: Mapping[str, Mapping[str, Any]]) -> Non
                 f"--role-effort for {identity} with backend={backend} must be one of "
                 f"{', '.join(supported)}"
             )
+
+
+def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None:
+    """Refuse ``model = "auto"`` on a copilot identity, at setup time.
+
+    ``delegate-codex.sh`` refuses it at submit too, but that is the first real
+    job - late enough that a config naming ``auto`` applies cleanly and then
+    fails on the first delegation. The reason is conceptual, not mechanical:
+    an identity is a deliberate backend+model+effort choice, and ``auto`` hands
+    the model choice back to the vendor per request, which also makes the
+    receipt's model field a record of what the vendor picked.
+    """
+
+    for identity, values in identities.items():
+        if values["backend"] != "copilot":
+            continue
+        model = str(values.get("model") or "").strip()
+        if model == "auto":
+            raise SetupError(
+                f"--role-model for {identity} is 'auto', which is refused on copilot: "
+                "an identity is a deliberate backend+model+effort choice and 'auto' "
+                "resolves per request. Change the config to name a concrete model."
+            )
+        if not model:
+            raise SetupError(
+                f"--role-model for {identity} with backend=copilot must name a model; "
+                "no model name is guessed. (A role-less ad-hoc copilot job passes no "
+                "--model at all and runs on Copilot's own default; a configured "
+                "identity does not get that latitude.)"
+            )
+
+
+def is_github_copilot_bin(path: str, env: Mapping[str, str]) -> bool:
+    """Mirror of ``is_github_copilot_bin`` in ``scripts/delegate-codex.sh``.
+
+    ``copilot`` is also the binary name of AWS Copilot CLI, an unrelated ECS
+    deployment tool, and the two are distinguishable only by ``--version``
+    output. One contract, checked identically here and in the shell, so setup
+    cannot reject an install the worker would happily resolve.
+    """
+
+    try:
+        result = subprocess.run(
+            [path, "--version"],
+            env=dict(env),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    first = (result.stdout or "").splitlines()[:1]
+    return bool(first) and "GitHub Copilot CLI" in first[0]
+
+
+def copilot_bin(env: Mapping[str, str]) -> Optional[str]:
+    """Resolve GitHub Copilot CLI with delegate-codex.sh's precedence.
+
+    ``HANDOFF_COPILOT_BIN`` first, then every PATH match rather than only the
+    first, so a GitHub Copilot CLI sitting behind AWS Copilot on PATH still
+    resolves - and resolves to the same binary the worker will launch.
+    """
+
+    configured = env.get("HANDOFF_COPILOT_BIN", "")
+    if configured:
+        candidate = (
+            configured
+            if "/" in configured
+            else shutil.which(configured, path=env.get("PATH"))
+        )
+        if not candidate or not os.access(candidate, os.X_OK):
+            return None
+        return candidate if is_github_copilot_bin(candidate, env) else None
+    for directory in (env.get("PATH") or "").split(os.pathsep):
+        if not directory:
+            continue
+        candidate = os.path.join(directory, "copilot")
+        if os.access(candidate, os.X_OK) and is_github_copilot_bin(candidate, env):
+            return candidate
+    return None
+
+
+def cli_available(backend: str, env: Mapping[str, str]) -> bool:
+    """True when the backend's CLI resolves the way a job would resolve it.
+
+    ``shutil.which`` is enough for codex and claude, which have no name
+    collision, but it cannot tell the two ``copilot`` binaries apart.
+    """
+
+    if backend == "copilot":
+        return copilot_bin(env) is not None
+    return shutil.which(backend, path=env.get("PATH")) is not None
+
 
 @dataclass
 class FileChange:
@@ -287,6 +386,7 @@ def choose_identities(
             sources[identity] = {field: "custom" for field in ("backend", "model", "effort")}
         apply_spec_review(identities, args)
         validate_backend_efforts(identities)
+        validate_backend_models(identities)
         return identities, sources, notes
 
     codex_detected = detect_codex(env)
@@ -338,6 +438,7 @@ def choose_identities(
         )
     apply_spec_review(identities, args)
     validate_backend_efforts(identities)
+    validate_backend_models(identities)
     return identities, sources, notes
 
 def preserve_verification(
@@ -521,11 +622,7 @@ def _cli_unavailable(
     desired: Mapping[str, Mapping[str, Any]],
     env: Mapping[str, str],
 ) -> List[str]:
-    path = env.get("PATH")
-    available = {
-        backend: shutil.which(backend, path=path) is not None
-        for backend in BACKENDS
-    }
+    available = {backend: cli_available(backend, env) for backend in BACKENDS}
     return [
         identity
         for identity in desired
@@ -708,12 +805,143 @@ def _require_available(plan: Plan) -> None:
         f"required backend CLI unavailable: {details}; install the CLI or change backend"
     )
 
+def validate_copilot_pair(
+    binary: str,
+    model: str,
+    effort: str,
+    env: Mapping[str, str],
+    *,
+    cwd: Path,
+) -> Tuple[bool, str]:
+    """Check one copilot model-and-effort pair against the real CLI.
+
+    The cost is asymmetric. A wrong model, or an effort that model does not
+    support, is refused at the CLI layer before any session exists: plain-text
+    stderr, exit 1, a zeroed usage file, no premium request. A pair this
+    account *can* use starts a real session and costs one premium request -
+    the same cost profile ``smoke_claude_identity`` already has, which is why
+    this runs on the apply and smoke paths and never on page load.
+
+    Rejection arrives at two different layers and only one of them writes
+    stderr, so an API-layer refusal is read back out of the JSON stream. The
+    CLI's own wording is returned verbatim: `Reasoning effort "max" is not
+    supported for model "mai-code-1.1-flash".` names exactly what to change,
+    and a Handoff-authored rewording would lose the pair.
+    """
+
+    command = [
+        binary,
+        "-p",
+        "This is a configuration smoke test. Reply with exactly "
+        "HANDOFF_SMOKE_OK and nothing else. Do not use tools.",
+        "--output-format",
+        "json",
+        "--model",
+        model,
+        "--effort",
+        effort,
+        "--mode",
+        "plan",
+        "--no-ask-user",
+        "--no-remote",
+        "--no-remote-export",
+        "--no-auto-update",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            env=dict(env),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "copilot model check timed out after 120 seconds"
+    except OSError as error:
+        return False, f"copilot model check could not start: {error}"
+    if result.returncode == 0:
+        return True, ""
+    detail = (result.stderr or "").strip()
+    if not detail:
+        detail = _copilot_stream_error(result.stdout)
+    return False, detail or f"copilot CLI exited {result.returncode}"
+
+
+def _copilot_stream_error(stdout: str) -> str:
+    """Pull an API-layer ``session.error`` out of a copilot JSON stream.
+
+    A CLI-layer rejection lands on stderr, but an API-layer one can arrive with
+    stderr empty and the detail only here.
+    """
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") != "session.error":
+            continue
+        data = event.get("data") or {}
+        message = str(data.get("message") or "").strip()
+        status = data.get("statusCode")
+        if message:
+            return f"{message} (statusCode {status})" if status else message
+    return ""
+
+
+def _require_copilot_pairs(
+    desired: Mapping[str, Mapping[str, Any]],
+    env: Mapping[str, str],
+    repo: Path,
+) -> None:
+    """Refuse the whole apply when a copilot pair the CLI rejects is configured.
+
+    A config whose pair was refused is never written: the wizard would
+    otherwise hand the user a clean install that fails on its first job.
+    """
+
+    pairs = {
+        identity: values
+        for identity, values in desired.items()
+        if values["backend"] == "copilot"
+    }
+    if not pairs:
+        return
+    binary = copilot_bin(env)
+    if not binary:
+        raise SetupError(
+            "copilot CLI not found; install GitHub Copilot CLI or set HANDOFF_COPILOT_BIN"
+        )
+    checked: Dict[Tuple[str, str], Tuple[bool, str]] = {}
+    for identity, values in pairs.items():
+        key = (str(values["model"]), str(values["effort"]))
+        if key not in checked:
+            checked[key] = validate_copilot_pair(
+                binary, key[0], key[1], env, cwd=repo
+            )
+        passed, detail = checked[key]
+        if not passed:
+            raise SetupError(
+                f"copilot refused {identity} (model={key[0]} effort={key[1]}); "
+                f"nothing was written. The CLI reported:\n{detail}"
+            )
+
+
 def apply_plan(
     args: argparse.Namespace,
     env: Mapping[str, str],
     preflight: Optional[Plan] = None,
 ) -> int:
-    _require_available(preflight or build_plan(args, env))
+    plan = preflight or build_plan(args, env)
+    _require_available(plan)
+    _require_copilot_pairs(
+        choose_identities(args, env)[0], env, args.repo
+    )
     lock_path = config_path(args.scope, args.repo, env)
     with handoff_config.ConfigLock(lock_path):
         plan = build_plan(args, env)
@@ -872,12 +1100,40 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 ],
                 cwd=ROOT, env=dict(env), text=True, capture_output=True, check=False,
             )
-            if result.returncode == 0:
-                successes.append(identity)
-                print(f"{identity}: PASS")
-            else:
+            if result.returncode != 0:
                 failures = True
                 print(f"{identity}: FAIL\n{result.stderr.rstrip()}", file=sys.stderr)
+                continue
+            if configured[identity]["backend"] == "copilot":
+                # The dry-run above only exercises Handoff's own argument
+                # handling. Ask the CLI whether this account can actually use
+                # the configured pair, rather than leaving the user to find out
+                # on their first real job.
+                binary = copilot_bin(env)
+                if not binary:
+                    failures = True
+                    print(
+                        f"{identity}: FAIL\ncopilot CLI not found; install GitHub "
+                        "Copilot CLI or set HANDOFF_COPILOT_BIN",
+                        file=sys.stderr,
+                    )
+                    continue
+                passed, detail = validate_copilot_pair(
+                    binary,
+                    str(configured[identity]["model"]),
+                    str(configured[identity]["effort"]),
+                    env,
+                    cwd=args.repo,
+                )
+                if not passed:
+                    failures = True
+                    print(f"{identity}: FAIL\n{detail}", file=sys.stderr)
+                    continue
+                successes.append(identity)
+                print(f"{identity}: PASS (model and effort accepted by Copilot)")
+                continue
+            successes.append(identity)
+            print(f"{identity}: PASS")
     if successes:
         timestamp = args.timestamp or utc_now()
         path = config_path(args.scope, args.repo, env)
@@ -968,11 +1224,9 @@ def uninstall(args: argparse.Namespace, env: Mapping[str, str]) -> int:
 def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     if not sys.stdin.isatty():
         raise SetupError("--interactive requires a TTY; use --preview/--apply with explicit parameters")
-    search_path = env.get("PATH")
     print(
         "Available CLIs: "
-        f"claude={bool(shutil.which('claude', path=search_path))}, "
-        f"codex={bool(shutil.which('codex', path=search_path))}"
+        + ", ".join(f"{backend}={cli_available(backend, env)}" for backend in BACKENDS)
     )
     native = detect_claude(env)
     print(

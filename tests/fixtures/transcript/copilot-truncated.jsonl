@@ -1,0 +1,5 @@
+{"type":"assistant.turn_start","data":{"turnId":"0"},"id":"t1","timestamp":"2026-09-09T13:00:00.000Z"}
+{"type":"assistant.message_delta","data":{"delta":"wait"},"ephemeral":true,"id":"t2","timestamp":"2026-09-09T13:00:01.000Z"}
+{"type":"session.error","data":{"errorType":"query","message":"Execution failed: 400 Unsupported value: 'none' is not supported with this model.","statusCode":400},"id":"t3","timestamp":"2026-09-09T13:00:02.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_Z","toolName":"bash","arguments":{"command":"sleep 300","mode":"sync"},"turnId":"0"},"id":"t4","timestamp":"2026-09-09T13:00:03.000Z"}
+{"type":"tool.execution_comp

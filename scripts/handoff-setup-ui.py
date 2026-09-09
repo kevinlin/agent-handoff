@@ -1022,7 +1022,7 @@ HTML = r'''<!doctype html>
       <div class="config-grid">
         <section class="matrix-panel" aria-labelledby="matrixTitle">
           <div class="main-heading">
-            <div><h2 id="matrixTitle">The three Agent Handoff roles</h2><p>Codex models are read from your local account; Claude models use the official CLI aliases.</p></div>
+            <div><h2 id="matrixTitle">The three Agent Handoff roles</h2><p>Codex models are read from your local account and Claude models use the official CLI aliases. Copilot exposes no model catalog, so you type its model name and the CLI checks it when you install.</p></div>
             <span class="current-mode" id="currentMode">Current mode: loading</span>
           </div>
           <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
@@ -1089,7 +1089,12 @@ HTML = r'''<!doctype html>
       cost:'Codex runs most of it, Claude backs it up',
       custom:'Set each role by hand',
     };
+    const BACKEND_LABELS = {claude:'Claude Code', codex:'Codex', copilot:'GitHub Copilot'};
+    const BACKEND_LABELS_ORDER = ['claude','codex','copilot'];
+    // Copilot publishes no model catalog, so its model is typed rather than picked.
+    const TYPED_MODEL_BACKENDS = ['copilot'];
     const EFFORT_LABELS = {
+      none:'None',
       minimal:'Minimal',
       low:'Low',
       medium:'Medium',
@@ -1134,6 +1139,7 @@ HTML = r'''<!doctype html>
         'local claude config':'Local Claude config',
         'custom (required)':'Not detected yet',
         'built-in':'Built-in value',
+        'typed':'Typed; validated against the CLI',
       })[source] || source;
     }
     function modelCatalog(backend, current, source) {
@@ -1164,7 +1170,7 @@ HTML = r'''<!doctype html>
     function syncReadiness() {
       const ready = Object.values(matrix).every(values => values.model);
       $('previewBtn').disabled = !ready;
-      if (!ready) $('status').textContent = 'No models available. Check your CLI login, then refresh.';
+      if (!ready) $('status').textContent = 'Every role needs a model. Type one for Copilot, or check your CLI login and refresh for Claude and Codex.';
     }
     function syncModeControls() {
       document.querySelectorAll('.mode').forEach(el => {
@@ -1190,7 +1196,7 @@ HTML = r'''<!doctype html>
           node.title = 'Not configured';
           continue;
         }
-        const backend = values.backend === 'claude' ? 'Claude Code' : 'Codex';
+        const backend = BACKEND_LABELS[values.backend] || values.backend;
         const summary = `${backend} / ${values.model || 'not set'} / ${values.effort}`;
         node.textContent = summary;
         node.title = summary;
@@ -1227,13 +1233,16 @@ HTML = r'''<!doctype html>
         const verified = modelOption(values.backend, values.model);
         const source = verified ? verified.source : (values.model_source || 'existing config');
         const models = modelCatalog(values.backend, values.model, source);
+        const typed = TYPED_MODEL_BACKENDS.includes(values.backend);
         const modelOptions = models.length
           ? models.map(option => `<option value="${esc(option.value)}" ${values.model === option.value ? 'selected' : ''}>${esc(modelOptionLabel(option))}</option>`).join('')
           : '<option value="">No models available</option>';
         return `<article class="identity" data-identity="${identity}">
           <div class="identity-head"><h3>${esc(meta.label)}</h3><small>${esc(meta.hint)}</small><code class="identity-code">${identity}</code></div>
-          <div class="field"><label for="${identity}-backend">Runs on</label><select id="${identity}-backend" data-field="backend"><option value="claude" ${values.backend === 'claude' ? 'selected' : ''}>Claude Code</option><option value="codex" ${values.backend === 'codex' ? 'selected' : ''}>Codex</option></select></div>
-          <div class="field model-field"><label for="${identity}-model">Model</label><select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select><div class="source" id="${identity}-source">Source: ${esc(sourceLabel(source))}</div></div>
+          <div class="field"><label for="${identity}-backend">Runs on</label><select id="${identity}-backend" data-field="backend">${BACKEND_LABELS_ORDER.map(b => `<option value="${b}" ${values.backend === b ? 'selected' : ''}>${BACKEND_LABELS[b]}</option>`).join('')}</select></div>
+          <div class="field model-field"><label for="${identity}-model">Model</label>${typed
+            ? `<input id="${identity}-model" data-field="model" type="text" spellcheck="false" autocomplete="off" placeholder="Model name, exactly as Copilot names it" value="${esc(values.model || '')}" aria-describedby="${identity}-source">`
+            : `<select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select>`}<div class="source" id="${identity}-source">Source: ${esc(sourceLabel(typed ? 'typed' : source))}</div></div>
           <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
           ${identity === state.spec_review_identity ? reviewAddon() : ''}
         </article>`;
@@ -1251,21 +1260,30 @@ HTML = r'''<!doctype html>
     }
     function bindIdentityInputs() {
       $('specReview').addEventListener('change', invalidate);
-      document.querySelectorAll('.identity select').forEach(control => control.addEventListener('input', event => {
+      document.querySelectorAll('.identity select, .identity input[type=text]').forEach(control => control.addEventListener('input', event => {
         const card = event.target.closest('.identity');
         const identity = card.dataset.identity;
         const field = event.target.dataset.field;
         matrix[identity][field] = event.target.value;
         if (field === 'backend') {
-          const options = modelCatalog(event.target.value, '', '');
-          const selected = options.find(option => option.is_default) || options[0];
-          matrix[identity].model = selected ? selected.value : '';
-          matrix[identity].model_source = selected ? selected.source : 'custom (required)';
+          if (TYPED_MODEL_BACKENDS.includes(event.target.value)) {
+            matrix[identity].model = '';
+            matrix[identity].model_source = 'typed';
+          } else {
+            const options = modelCatalog(event.target.value, '', '');
+            const selected = options.find(option => option.is_default) || options[0];
+            matrix[identity].model = selected ? selected.value : '';
+            matrix[identity].model_source = selected ? selected.source : 'custom (required)';
+          }
           syncEffort(matrix[identity]);
         } else if (field === 'model') {
-          const selected = modelOption(matrix[identity].backend, event.target.value);
-          matrix[identity].model_source = selected ? selected.source : 'existing config';
-          syncEffort(matrix[identity]);
+          if (TYPED_MODEL_BACKENDS.includes(matrix[identity].backend)) {
+            matrix[identity].model_source = 'typed';
+          } else {
+            const selected = modelOption(matrix[identity].backend, event.target.value);
+            matrix[identity].model_source = selected ? selected.source : 'existing config';
+            syncEffort(matrix[identity]);
+          }
         }
         mode = 'custom';
         syncModeControls();
