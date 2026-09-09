@@ -2,8 +2,9 @@
 """Render a Handoff Session Receipt and its job state as a cost receipt.
 
 Numbers come only from measurement: codex jobs yield token counters, claude
-jobs yield the CLI's own cost figure, and the driver row is scoped to the
-run interval. Nothing is estimated, and no saving is computed.
+jobs yield the CLI's own cost figure, copilot jobs yield token counters plus an
+AI-credit meter, and the driver row is scoped to the run interval. Nothing is
+estimated, and no saving is computed.
 """
 
 from __future__ import annotations
@@ -24,9 +25,17 @@ from handoff_runtime import inject, job_state, read_meta  # noqa: E402
 
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "cost-receipt.html"
 RECEIPT_HEADER = "[Handoff session receipt]"
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 FIELD_LINE = re.compile(r"^([a-z_]+):\s*(.+)$")
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+# Backend -> its receipt count and durations fields. A fourth backend is a row.
+BACKEND_FIELDS = {
+    "codex": ("codex_jobs", "codex_job_durations"),
+    "claude": ("cc_jobs", "cc_job_durations"),
+    "copilot": ("copilot_jobs", "copilot_job_durations"),
+}
 
 
 class ReceiptError(Exception):
@@ -79,9 +88,7 @@ def load_receipt(text: str, repo: Path) -> dict:
     jobs_root = (repo / ".handoff" / "jobs").resolve()
     jobs: list[dict] = []
     seen: set[str] = set()
-    for backend, count_field, durations_field in (
-            ("codex", "codex_jobs", "codex_job_durations"),
-            ("claude", "cc_jobs", "cc_job_durations")):
+    for backend, (count_field, durations_field) in BACKEND_FIELDS.items():
         entries = _entries(fields.get(durations_field, "none"))
         if fields.get(count_field, "") != str(len(entries)):
             raise ReceiptError(
@@ -109,19 +116,24 @@ def load_receipt(text: str, repo: Path) -> dict:
 
 COUNTERS = ("input", "cache_read", "cache_write", "output", "reasoning")
 
-CODEX_FIELDS = {
-    "input": "input_tokens",
-    "cache_read": "cached_input_tokens",
-    "cache_write": "cache_write_input_tokens",
-    "output": "output_tokens",
-    "reasoning": "reasoning_output_tokens",
+# Counter -> the field each backend's telemetry calls it. Copilot's own key
+# names already match COUNTERS, so it needs no row here.
+USAGE_FIELDS = {
+    "codex": {
+        "input": "input_tokens",
+        "cache_read": "cached_input_tokens",
+        "cache_write": "cache_write_input_tokens",
+        "output": "output_tokens",
+        "reasoning": "reasoning_output_tokens",
+    },
+    "claude": {
+        "input": "input_tokens",
+        "cache_read": "cache_read_input_tokens",
+        "cache_write": "cache_creation_input_tokens",
+        "output": "output_tokens",
+    },
 }
-CLAUDE_FIELDS = {
-    "input": "input_tokens",
-    "cache_read": "cache_read_input_tokens",
-    "cache_write": "cache_creation_input_tokens",
-    "output": "output_tokens",
-}
+CREDITS = ("premium_requests", "nano_aiu")
 
 
 def read_events(job_dir: Path) -> list[dict]:
@@ -150,7 +162,59 @@ def _add(total: dict, counter: str, value) -> None:
     total[counter] = value if total[counter] is None else total[counter] + value
 
 
-def fold_usage(events: list[dict], backend: str) -> dict:
+def read_usage_json(job_dir: Path):
+    """copilot only: the CLI's --usage-output-file. None means the file is
+    absent, which is unknown; a file of zeros is a measured zero, and the two
+    are different facts. A job killed outright writes no file at all."""
+    path = job_dir / "usage.json"
+    if not path.is_file():
+        return None
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _fold_copilot(events: list[dict], usage_json: dict | None) -> dict:
+    """Tokens and credits are read from usage.json, denials from the log.
+
+    Both meters live in one file but do not have one scope. tokenDetails and
+    modelMetrics are per invocation, so a parent and its fix round sum. The
+    top-level totalPremiumRequestCost and totalNanoAiu are cumulative for the
+    whole session, so summing them across a resume double-counts the parent;
+    the per-invocation figures under modelMetrics are read instead.
+    """
+    denials = sum(
+        1 for event in events
+        if event.get("type") == "tool.execution_complete"
+        and ((event.get("data") or {}).get("error") or {}).get("code") == "denied")
+    if usage_json is None:
+        return {"usage": _blank_usage(), "cost_usd": None, "denials": denials,
+                "models": [], "repeated": False,
+                "credits": {key: None for key in CREDITS}}
+
+    # The file is the CLI's own final accounting, so an absent sub-key inside
+    # it is a zero rather than a gap.
+    usage = _blank_usage()
+    token_details = usage_json.get("tokenDetails") or {}
+    for counter in COUNTERS:
+        _add(usage, counter, (token_details.get(counter) or {}).get("tokenCount", 0))
+    credits = {key: 0 for key in CREDITS}
+    model_metrics = usage_json.get("modelMetrics") or {}
+    for entry in model_metrics.values():
+        entry = entry or {}
+        _add(usage, "reasoning", (entry.get("usage") or {}).get("reasoningTokens", 0))
+        _add(credits, "premium_requests", (entry.get("requests") or {}).get("cost", 0))
+        _add(credits, "nano_aiu", entry.get("totalNanoAiu", 0))
+    return {"usage": usage, "cost_usd": None, "denials": denials,
+            "models": sorted(model_metrics), "repeated": False, "credits": credits}
+
+
+def fold_usage(events: list[dict], backend: str, usage_json: dict | None = None) -> dict:
+    if backend == "copilot":
+        return _fold_copilot(events, usage_json)
+
     usage = _blank_usage()
     cost_usd = None
     denials = None
@@ -163,7 +227,7 @@ def fold_usage(events: list[dict], backend: str) -> dict:
                 continue
             raw = event.get("usage") or {}
             seen_terminal += 1
-            for counter, field in CODEX_FIELDS.items():
+            for counter, field in USAGE_FIELDS["codex"].items():
                 _add(usage, counter, raw.get(field))
     else:
         # Only the last result is authoritative; an earlier one is a repeat.
@@ -173,7 +237,7 @@ def fold_usage(events: list[dict], backend: str) -> dict:
             seen_terminal += 1
             usage = _blank_usage()
             raw = event.get("usage") or {}
-            for counter, field in CLAUDE_FIELDS.items():
+            for counter, field in USAGE_FIELDS["claude"].items():
                 _add(usage, counter, raw.get(field))
             details = raw.get("output_tokens_details") or {}
             _add(usage, "reasoning", details.get("thinking_tokens"))
@@ -184,7 +248,8 @@ def fold_usage(events: list[dict], backend: str) -> dict:
             denials = len(event.get("permission_denials") or [])
 
     return {"usage": usage, "cost_usd": cost_usd, "denials": denials,
-            "models": models, "repeated": seen_terminal > 1}
+            "models": models, "repeated": seen_terminal > 1,
+            "credits": {key: None for key in CREDITS}}
 
 
 def resolve_model(repo: Path, job_id: str, seen: set[str] | None = None) -> str:
@@ -206,7 +271,9 @@ def resolve_model(repo: Path, job_id: str, seen: set[str] | None = None) -> str:
 def job_row(repo: Path, job: dict) -> dict:
     job_dir = repo / ".handoff" / "jobs" / job["job_id"]
     meta = read_meta(job_dir)
-    folded = fold_usage(read_events(job_dir), job["backend"])
+    usage_json = read_usage_json(job_dir) if job["backend"] == "copilot" else None
+    folded = fold_usage(read_events(job_dir), job["backend"], usage_json)
+    credits = folded.pop("credits")
     return {
         "job_id": job["job_id"],
         "label": meta.get("label", ""),
@@ -215,6 +282,7 @@ def job_row(repo: Path, job: dict) -> dict:
         "model": resolve_model(repo, job["job_id"]),
         "state": job_state(job_dir),
         **folded,
+        **credits,
     }
 
 
@@ -274,7 +342,7 @@ def driver_row(session_id: str, interval, projects_root: Path = DEFAULT_PROJECTS
             stamp = _parse_ts(event.get("timestamp", ""))
             if stamp is None or not (interval[0] <= stamp <= interval[1]):
                 continue
-        for counter, field in CLAUDE_FIELDS.items():
+        for counter, field in USAGE_FIELDS["claude"].items():
             _add(usage, counter, raw.get(field))
         details = raw.get("output_tokens_details") or {}
         _add(usage, "reasoning", details.get("thinking_tokens"))
@@ -309,14 +377,36 @@ def _figure(rows: list[dict], with_cost: bool) -> dict:
     }
 
 
+def _credit_figure(rows: list[dict]) -> dict:
+    """The copilot meter, in the same column shape as _figure's counters.
+
+    Each row already holds its own per-invocation reading, so these sum across
+    a parent and its fix round without double-counting the session.
+    """
+    copilot_rows = [r for r in rows if r["backend"] == "copilot"]
+    figure = {"jobs": len(copilot_rows)}
+    for key in CREDITS:
+        values = [r.get(key) for r in copilot_rows]
+        measured = [v for v in values if v is not None]
+        figure[key] = {
+            "value": sum(measured) if measured else None,
+            "complete": len(measured) == len(values) and bool(values),
+            "measured": len(measured),
+            "total": len(values),
+        }
+    return figure
+
+
 def summarize(rows: list[dict]) -> dict:
     """Two figures whose populations overlap by design: codex jobs are in both.
-    They are never added together, and neither is a saving."""
+    They are never added together, and neither is a saving. The copilot credit
+    meter is a third kind of reading, in neither of them."""
     codex_rows = [r for r in rows if r["backend"] == "codex"]
     denials = [r["denials"] for r in rows if r["denials"] is not None]
     return {
         "codex_subscription": _figure(codex_rows, with_cost=False),
         "outside_driver": _figure(rows, with_cost=True),
+        "copilot_credits": _credit_figure(rows),
         "denials": sum(denials) if denials else None,
     }
 
@@ -368,6 +458,18 @@ def _cost_sentence(figure: dict) -> str:
             f"{repr(figure['cost_usd'])}{partial}.")
 
 
+def _credit_sentence(figure: dict) -> str:
+    """Premium requests and nano-AIU are AI credits. They are not a currency
+    figure, and turning them into one would be a fabrication."""
+    if not figure["jobs"]:
+        return ("No job ran on the Copilot AI-credit meter, so no premium "
+                "requests or nano-AIU were metered.")
+    return (f"**Ran on the Copilot AI-credit meter** ({_job_count(figure['jobs'])}). "
+            f"Premium requests: {_figure_cell(figure['premium_requests'])}; "
+            f"nano-AIU: {_figure_cell(figure['nano_aiu'])}. These are AI credits, "
+            "not a currency figure.")
+
+
 def _relative_source(source: str, repo: Path | None) -> str:
     """Both outputs are committed artifacts, so no absolute path may reach them:
     a home directory in the Method list would outlive the run in the repository."""
@@ -395,7 +497,9 @@ def build_payload(receipt: dict, rows: list[dict], driver: dict,
         "jobs": [{"job_id": r["job_id"], "label": r["label"], "role": r["role"],
                   "backend": r["backend"], "model": r["model"], "state": r["state"],
                   "usage": r["usage"], "cost_usd": r["cost_usd"],
-                  "denials": r["denials"], "repeated": r["repeated"]}
+                  "denials": r["denials"], "repeated": r["repeated"],
+                  "premium_requests": r["premium_requests"],
+                  "nano_aiu": r["nano_aiu"]}
                  for r in rows],
         # The state word alone does not say what unscoped means; the note the
         # markdown prints travels with the payload so both outputs say it once.
@@ -435,21 +539,30 @@ def render_markdown(payload: dict) -> str:
             "Codex jobs are counted in both figures. They are **not addends**, and "
             "no difference between them is a saving.",
             ""]
+    out += [_credit_sentence(summary["copilot_credits"]), ""]
     if summary["denials"] is not None:
-        out += [f"Permission denials across claude-backed jobs: **{summary['denials']}**. "
+        out += ["Permission denials across claude-backed and copilot-backed jobs: "
+                f"**{summary['denials']}**. "
                 "A denied tool call does not move a job's exit code.", ""]
 
     out += ["## Delegated jobs", "",
             "| Job | Role | Backend | Model | State | "
-            + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " | CLI-reported cost |",
-            "|---|---|---|---|---|" + "---|" * (len(COUNTERS) + 1)]
+            + " | ".join(COUNTER_LABELS[c] for c in COUNTERS)
+            + " | Premium requests | Nano-AIU | CLI-reported cost |",
+            "|---|---|---|---|---|" + "---|" * (len(COUNTERS) + 3)]
     for job in payload["jobs"]:
         counters = " | ".join(md_cell(job["usage"][c]) for c in COUNTERS)
-        cost_cell = "n/a - subscription" if job["backend"] == "codex" else (
+        # Neither codex nor copilot reports a currency figure, so neither cell
+        # is an unknown reading: there is nothing there to read.
+        cost_cell = {"codex": "n/a - subscription",
+                     "copilot": "n/a - AI credits"}.get(job["backend"]) or (
             repr(job["cost_usd"]) if job["cost_usd"] is not None else "unknown")
+        credits = " | ".join(
+            "n/a" if job["backend"] != "copilot" else md_cell(job[key])
+            for key in CREDITS)
         out.append(f"| `{md_cell(job['job_id'])}` | {md_cell(job['role'])} | "
                    f"{job['backend']} | {md_cell(job['model'])} | "
-                   f"{job['state'].lower()} | {counters} | {cost_cell} |")
+                   f"{job['state'].lower()} | {counters} | {credits} | {cost_cell} |")
 
     driver = payload["driver"]
     out += ["", "## Driver session", "",

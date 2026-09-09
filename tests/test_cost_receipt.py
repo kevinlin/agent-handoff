@@ -28,10 +28,12 @@ def receipt_text(**overrides) -> str:
         "codex_job_durations": "job-a=1min 00sec",
         "cc_jobs": "1",
         "cc_job_durations": "job-b=2min 00sec",
+        "copilot_jobs": "1",
+        "copilot_job_durations": "job-c=3min 00sec",
         "scope": "project",
         "config_source": "project",
         "roles_used": "none",
-        "receipt_schema_version": "5",
+        "receipt_schema_version": "6",
     }
     base.update(overrides)
     body = "\n".join(f"{k}: {v}" for k, v in base.items())
@@ -51,7 +53,7 @@ def make_repo(tmp: Path, jobs: dict[str, str]) -> Path:
 class LoadReceiptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        make_repo(self.tmp, {"job-a": "codex", "job-b": "claude"})
+        make_repo(self.tmp, {"job-a": "codex", "job-b": "claude", "job-c": "copilot"})
 
     def assert_refused(self, text, needle, repo=None):
         with self.assertRaises(rcr.ReceiptError) as caught:
@@ -60,9 +62,10 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_valid_receipt_loads_jobs_in_order(self):
         loaded = rcr.load_receipt(receipt_text(), self.tmp)
-        self.assertEqual([j["job_id"] for j in loaded["jobs"]], ["job-a", "job-b"])
-        self.assertEqual([j["backend"] for j in loaded["jobs"]], ["codex", "claude"])
-        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, False])
+        self.assertEqual([j["job_id"] for j in loaded["jobs"]], ["job-a", "job-b", "job-c"])
+        self.assertEqual([j["backend"] for j in loaded["jobs"]],
+                         ["codex", "claude", "copilot"])
+        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, False, False])
 
     def test_two_receipt_blocks_are_refused(self):
         self.assert_refused(receipt_text() + "\n" + receipt_text(), "exactly one")
@@ -70,8 +73,8 @@ class LoadReceiptTests(unittest.TestCase):
     def test_duplicate_field_key_is_refused(self):
         self.assert_refused(receipt_text() + "phase: review\n", "duplicate field")
 
-    def test_schema_version_four_is_refused(self):
-        self.assert_refused(receipt_text(receipt_schema_version="4"), "schema_version")
+    def test_schema_version_five_is_refused(self):
+        self.assert_refused(receipt_text(receipt_schema_version="5"), "schema_version")
 
     def test_job_id_with_path_separator_is_refused(self):
         self.assert_refused(
@@ -80,6 +83,9 @@ class LoadReceiptTests(unittest.TestCase):
     def test_job_id_duplicated_across_lists_is_refused(self):
         self.assert_refused(
             receipt_text(cc_job_durations="job-a=2min 00sec"), "duplicate job")
+
+    def test_a_copilot_count_disagreeing_with_entries_is_refused(self):
+        self.assert_refused(receipt_text(copilot_jobs="2"), "copilot_jobs")
 
     def test_count_disagreeing_with_entries_is_refused(self):
         self.assert_refused(receipt_text(codex_jobs="2"), "codex_jobs")
@@ -95,13 +101,19 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_running_entry_is_carried_not_dropped(self):
         loaded = rcr.load_receipt(receipt_text(cc_job_durations="job-b=running"), self.tmp)
-        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, True])
+        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, True, False])
 
     def test_none_contributes_no_jobs(self):
         loaded = rcr.load_receipt(
             receipt_text(codex_jobs="0", codex_job_durations="none",
-                         cc_jobs="0", cc_job_durations="none"), self.tmp)
+                         cc_jobs="0", cc_job_durations="none",
+                         copilot_jobs="0", copilot_job_durations="none"), self.tmp)
         self.assertEqual(loaded["jobs"], [])
+
+    def test_a_copilot_job_listed_under_the_wrong_pair_is_refused(self):
+        self.assert_refused(
+            receipt_text(cc_job_durations="job-c=2min 00sec",
+                         copilot_job_durations="job-b=3min 00sec"), "backend")
 
 
 CODEX_TURN = {"type": "turn.completed", "usage": {
@@ -161,6 +173,147 @@ class FoldUsageTests(unittest.TestCase):
         zeroed = {"type": "turn.completed", "usage": {"input_tokens": 0, "output_tokens": 0}}
         folded = rcr.fold_usage([zeroed], "codex")
         self.assertEqual(folded["usage"]["input"], 0)
+
+
+# Probe-log 11: one parent copilot job and its fix round on the same session.
+# tokenDetails and modelMetrics are per invocation; the top-level
+# totalPremiumRequestCost and totalNanoAiu are cumulative for the session.
+COPILOT_PARENT_USAGE = {
+    "totalPremiumRequestCost": 1, "totalUserRequests": 1, "totalNanoAiu": 84828000,
+    "tokenDetails": {"input": {"tokenCount": 587}, "cache_read": {"tokenCount": 31744},
+                     "cache_write": {"tokenCount": 0}, "output": {"tokenCount": 80}},
+    "modelMetrics": {"mai-code-1.1-flash": {
+        "requests": {"count": 1, "cost": 1},
+        "usage": {"reasoningTokens": 0},
+        "totalNanoAiu": 84828000}},
+}
+COPILOT_RESUME_USAGE = {
+    "totalPremiumRequestCost": 2, "totalUserRequests": 1, "totalNanoAiu": 130944000,
+    "tokenDetails": {"input": {"tokenCount": 231}, "cache_read": {"tokenCount": 16128},
+                     "cache_write": {"tokenCount": 0}, "output": {"tokenCount": 77}},
+    "modelMetrics": {"mai-code-1.1-flash": {
+        "requests": {"count": 1, "cost": 1},
+        "usage": {"reasoningTokens": 0},
+        "totalNanoAiu": 46116000}},
+}
+# Probe-log 12 and 15: a rejection before any session writes a real file of zeros.
+COPILOT_ZEROED_USAGE = {
+    "totalPremiumRequestCost": 0, "totalUserRequests": 0, "totalNanoAiu": 0,
+    "modelMetrics": {}, "agentMetrics": {},
+    "lastCallInputTokens": 0, "lastCallOutputTokens": 0,
+}
+COPILOT_DENIAL = {"type": "tool.execution_complete", "data": {
+    "toolCallId": "t1",
+    "error": {"message": "Permission to run this tool was denied", "code": "denied"}}}
+COPILOT_OK_TOOL = {"type": "tool.execution_complete",
+                   "data": {"toolCallId": "t2", "error": None}}
+
+
+class CopilotFoldTests(unittest.TestCase):
+    def test_tokens_come_from_token_details_and_model_metrics(self):
+        folded = rcr.fold_usage([], "copilot", COPILOT_PARENT_USAGE)
+        self.assertEqual(folded["usage"]["input"], 587)
+        self.assertEqual(folded["usage"]["cache_read"], 31744)
+        self.assertEqual(folded["usage"]["output"], 80)
+        self.assertEqual(folded["usage"]["reasoning"], 0)
+        self.assertEqual(folded["models"], ["mai-code-1.1-flash"])
+
+    def test_a_copilot_job_reports_no_usd(self):
+        self.assertIsNone(rcr.fold_usage([], "copilot", COPILOT_PARENT_USAGE)["cost_usd"])
+
+    def test_credits_are_the_per_invocation_model_metrics(self):
+        folded = rcr.fold_usage([], "copilot", COPILOT_RESUME_USAGE)
+        # NOT the cumulative top-level 130944000.
+        self.assertEqual(folded["credits"]["nano_aiu"], 46116000)
+        self.assertEqual(folded["credits"]["premium_requests"], 1)
+
+    def test_tokens_sum_across_a_parent_and_its_fix_round_credits_do_not(self):
+        """Probe-log 11. Tokens are per invocation, so they add. The top-level
+        credit meter is cumulative, so adding it double-counts the parent."""
+        parent = rcr.fold_usage([], "copilot", COPILOT_PARENT_USAGE)
+        resume = rcr.fold_usage([], "copilot", COPILOT_RESUME_USAGE)
+        self.assertEqual(parent["usage"]["input"] + resume["usage"]["input"], 818)
+
+        session_total = parent["credits"]["nano_aiu"] + resume["credits"]["nano_aiu"]
+        self.assertEqual(session_total, COPILOT_RESUME_USAGE["totalNanoAiu"])
+        self.assertNotEqual(
+            session_total,
+            COPILOT_PARENT_USAGE["totalNanoAiu"] + COPILOT_RESUME_USAGE["totalNanoAiu"])
+
+    def test_absent_usage_file_is_unknown(self):
+        folded = rcr.fold_usage([], "copilot", None)
+        self.assertEqual(set(folded["usage"].values()), {None})
+        self.assertIsNone(folded["credits"]["nano_aiu"])
+        self.assertIsNone(folded["credits"]["premium_requests"])
+
+    def test_a_zeroed_usage_file_is_a_measured_zero_not_unknown(self):
+        folded = rcr.fold_usage([], "copilot", COPILOT_ZEROED_USAGE)
+        self.assertEqual(folded["usage"]["input"], 0)
+        self.assertEqual(folded["credits"]["nano_aiu"], 0)
+        self.assertEqual(folded["credits"]["premium_requests"], 0)
+
+    def test_denials_are_counted_from_the_typed_event(self):
+        folded = rcr.fold_usage([COPILOT_DENIAL, COPILOT_OK_TOOL, COPILOT_DENIAL],
+                                "copilot", COPILOT_PARENT_USAGE)
+        self.assertEqual(folded["denials"], 2)
+
+    def test_denials_are_counted_even_with_no_usage_file(self):
+        self.assertEqual(rcr.fold_usage([COPILOT_DENIAL], "copilot", None)["denials"], 1)
+
+    def test_a_copilot_result_event_is_not_read_as_a_claude_one(self):
+        """Copilot's terminal event is also type "result", with a different
+        payload. The backend decides the parser, never the event shape."""
+        copilot_result = {"type": "result", "sessionId": "s1", "exitCode": 0,
+                          "usage": {"premiumRequests": 1}}
+        folded = rcr.fold_usage([copilot_result], "copilot", None)
+        self.assertEqual(set(folded["usage"].values()), {None})
+        self.assertIsNone(folded["cost_usd"])
+
+
+class CopilotJobRowTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def write(self, job_id, usage=None, events=()):
+        job = self.tmp / ".handoff" / "jobs" / job_id
+        job.mkdir(parents=True)
+        (job / "meta").write_text("backend=copilot\nmodel=mai-code-1.1-flash\n"
+                                  "role=fast_worker\nlabel=impl\n")
+        (job / "exit_code").write_text("0\n")
+        if usage is not None:
+            (job / "usage.json").write_text(json.dumps(usage))
+        if events:
+            (job / "log.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n")
+        return {"job_id": job_id, "backend": "copilot", "running": False}
+
+    def test_row_carries_tokens_credits_and_denials(self):
+        row = rcr.job_row(self.tmp, self.write("job-cp", COPILOT_PARENT_USAGE,
+                                               [COPILOT_DENIAL]))
+        self.assertEqual(row["usage"]["input"], 587)
+        self.assertEqual(row["premium_requests"], 1)
+        self.assertEqual(row["nano_aiu"], 84828000)
+        self.assertEqual(row["denials"], 1)
+        self.assertEqual(row["model"], "mai-code-1.1-flash")
+
+    def test_missing_usage_file_leaves_the_credits_unknown(self):
+        row = rcr.job_row(self.tmp, self.write("job-killed"))
+        self.assertIsNone(row["nano_aiu"])
+        self.assertIsNone(row["usage"]["input"])
+
+    def test_a_corrupt_usage_file_is_unknown_not_a_crash(self):
+        job = self.write("job-bad", COPILOT_PARENT_USAGE)
+        (self.tmp / ".handoff" / "jobs" / "job-bad" / "usage.json").write_text('{"tok')
+        self.assertIsNone(rcr.job_row(self.tmp, job)["nano_aiu"])
+
+    def test_a_codex_row_reports_no_credits(self):
+        job = self.tmp / ".handoff" / "jobs" / "job-cx"
+        job.mkdir(parents=True)
+        (job / "meta").write_text("backend=codex\nmodel=m\n")
+        (job / "exit_code").write_text("0\n")
+        row = rcr.job_row(self.tmp, {"job_id": "job-cx", "backend": "codex",
+                                     "running": False})
+        self.assertIsNone(row["premium_requests"])
+        self.assertIsNone(row["nano_aiu"])
 
 
 class JobRowTests(unittest.TestCase):
@@ -293,12 +446,14 @@ class DriverRowTests(unittest.TestCase):
         self.assertEqual(row["state"], "unavailable")
 
 
-def row(job_id, backend, input_tokens, cost=None, state="DONE", denials=None):
+def row(job_id, backend, input_tokens, cost=None, state="DONE", denials=None,
+        premium_requests=None, nano_aiu=None):
     usage = {c: None for c in rcr.COUNTERS}
     usage["input"] = input_tokens
     return {"job_id": job_id, "label": "", "role": "", "backend": backend,
             "model": "m", "state": state, "usage": usage, "cost_usd": cost,
-            "denials": denials, "models": [], "repeated": False}
+            "denials": denials, "models": [], "repeated": False,
+            "premium_requests": premium_requests, "nano_aiu": nano_aiu}
 
 
 class SummaryTests(unittest.TestCase):
@@ -343,6 +498,37 @@ class SummaryTests(unittest.TestCase):
     def test_denials_sum_across_claude_jobs(self):
         summary = rcr.summarize([row("b", "claude", 1, denials=11),
                                  row("c", "claude", 1, denials=2)])
+        self.assertEqual(summary["denials"], 13)
+
+    def test_credit_figure_sums_the_per_invocation_readings(self):
+        summary = rcr.summarize([
+            row("job-cp", "copilot", 587, premium_requests=1, nano_aiu=84828000),
+            row("job-cp-r2", "copilot", 231, premium_requests=1, nano_aiu=46116000)])
+        credits = summary["copilot_credits"]
+        self.assertEqual(credits["jobs"], 2)
+        self.assertEqual(credits["nano_aiu"]["value"], 130944000)
+        self.assertEqual(credits["premium_requests"]["value"], 2)
+        self.assertTrue(credits["nano_aiu"]["complete"])
+
+    def test_an_unread_copilot_job_marks_the_credit_column_incomplete(self):
+        summary = rcr.summarize([
+            row("job-cp", "copilot", 587, premium_requests=1, nano_aiu=84828000),
+            row("job-dead", "copilot", None, state="FAILED")])
+        column = summary["copilot_credits"]["nano_aiu"]
+        self.assertEqual(column["value"], 84828000)
+        self.assertFalse(column["complete"])
+
+    def test_a_run_without_copilot_has_no_credit_jobs(self):
+        self.assertEqual(rcr.summarize([row("a", "codex", 1)])["copilot_credits"]["jobs"], 0)
+
+    def test_a_copilot_job_contributes_no_usd(self):
+        summary = rcr.summarize([row("job-cp", "copilot", 587, nano_aiu=1)])
+        self.assertFalse(summary["outside_driver"]["cost_applicable"])
+        self.assertIsNone(summary["outside_driver"]["cost_usd"])
+
+    def test_denials_sum_across_claude_and_copilot_jobs(self):
+        summary = rcr.summarize([row("b", "claude", 1, denials=11),
+                                 row("c", "copilot", 1, denials=2)])
         self.assertEqual(summary["denials"], 13)
 
     def test_denials_are_none_when_no_claude_job_reported_any(self):
@@ -426,6 +612,37 @@ class MarkdownTests(unittest.TestCase):
         out = rcr.render_markdown(self.payload(rows=[row("job-b", "claude", 1, cost=None)]))
         self.assertIn("cost of the claude-backed jobs: unknown", out)
 
+    def test_credit_meter_sentence_names_credits_not_dollars(self):
+        rows = [row("job-cp", "copilot", 587, premium_requests=1, nano_aiu=84828000)]
+        out = rcr.render_markdown(self.payload(rows=rows))
+        self.assertIn("Copilot AI-credit meter", out)
+        self.assertIn("84,828,000", out)
+        self.assertIn("AI credits", out)
+        self.assertNotIn("$", out)
+
+    def test_a_run_without_copilot_says_nothing_was_metered(self):
+        self.assertIn("No job ran on the Copilot AI-credit meter",
+                      rcr.render_markdown(self.payload()))
+
+    def test_job_table_carries_the_credit_columns(self):
+        rows = [row("job-cp", "copilot", 587, premium_requests=1, nano_aiu=84828000),
+                row("job-a", "codex", 100)]
+        out = rcr.render_markdown(self.payload(rows=rows))
+        self.assertIn("| Premium requests | Nano-AIU |", out)
+        # A codex row has no credit meter to read, which is not an unknown.
+        self.assertRegex(out, r"\| codex \|.*\| n/a \| n/a \|")
+
+    def test_a_copilot_job_reports_no_currency_rather_than_unknown(self):
+        rows = [row("job-cp", "copilot", 587, premium_requests=1, nano_aiu=1)]
+        out = rcr.render_markdown(self.payload(rows=rows))
+        job_line = next(l for l in out.splitlines() if l.startswith("| `job-cp`"))
+        self.assertTrue(job_line.endswith("| n/a - AI credits |"), job_line)
+
+    def test_denials_are_attributed_to_both_reporting_backends(self):
+        rows = [row("job-cp", "copilot", 1, denials=2)]
+        out = rcr.render_markdown(self.payload(rows=rows))
+        self.assertIn("claude-backed and copilot-backed jobs", out)
+
     def test_denial_command_strings_never_reach_the_output(self):
         rows = [row("job-b", "claude", 1, denials=11)]
         out = rcr.render_markdown(self.payload(rows=rows))
@@ -449,6 +666,16 @@ class TemplateTests(unittest.TestCase):
 
     def test_template_supports_both_themes(self):
         self.assertIn("light-dark(", self.html)
+
+    def test_template_renders_the_credit_columns_and_summary(self):
+        for needle in ("copilot_credits", "Premium requests", "Nano-AIU",
+                       "Copilot AI-credit meter", "j.premium_requests", "j.nano_aiu"):
+            self.assertIn(needle, self.html)
+
+    def test_template_attributes_denials_to_both_reporting_backends(self):
+        self.assertIn("claude-backed and ", self.html)
+        self.assertIn("copilot-backed jobs", self.html)
+        self.assertNotIn("denials across claude-backed jobs", self.html)
 
     def test_page_never_uses_inner_html(self):
         self.assertNotIn("innerHTML", self.html)
@@ -504,17 +731,36 @@ import io
 
 
 class CliTests(unittest.TestCase):
+    """One job per backend, so the CLI path exercises the three-way partition."""
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        job = self.tmp / ".handoff" / "jobs" / "job-a"
-        job.mkdir(parents=True)
-        (job / "meta").write_text("backend=codex\nmodel=m\nrole=r\nlabel=l\n")
-        (job / "exit_code").write_text("0\n")
-        (job / "log.jsonl").write_text(json.dumps(CODEX_TURN) + "\n")
+        jobs = self.tmp / ".handoff" / "jobs"
+        codex = jobs / "job-a"
+        codex.mkdir(parents=True)
+        (codex / "meta").write_text("backend=codex\nmodel=m\nrole=r\nlabel=l\n")
+        (codex / "exit_code").write_text("0\n")
+        (codex / "log.jsonl").write_text(json.dumps(CODEX_TURN) + "\n")
+        claude = jobs / "job-b"
+        claude.mkdir(parents=True)
+        (claude / "meta").write_text("backend=claude\nmodel=opus\nrole=r\nlabel=l\n")
+        (claude / "exit_code").write_text("0\n")
+        (claude / "log.jsonl").write_text(json.dumps(CLAUDE_RESULT) + "\n")
+        copilot = jobs / "job-c"
+        copilot.mkdir(parents=True)
+        (copilot / "meta").write_text(
+            "backend=copilot\nmodel=mai-code-1.1-flash\nrole=fast_worker\nlabel=l\n")
+        (copilot / "exit_code").write_text("0\n")
+        (copilot / "log.jsonl").write_text(json.dumps(COPILOT_DENIAL) + "\n")
+        (copilot / "usage.json").write_text(json.dumps(COPILOT_PARENT_USAGE))
         self.receipts = self.tmp / ".handoff" / "receipts"
         self.receipts.mkdir(parents=True)
-        self.text = receipt_text(codex_jobs="1", codex_job_durations="job-a=1min 00sec",
-                                 cc_jobs="0", cc_job_durations="none")
+        self.text = receipt_text(
+            codex_jobs="1", codex_job_durations="job-a=1min 00sec",
+            cc_jobs="1", cc_job_durations="job-b=2min 00sec",
+            copilot_jobs="1", copilot_job_durations="job-c=3min 00sec",
+            roles_used='[{"role":"fast_worker","host":"copilot",'
+                       '"model":"mai-code-1.1-flash","effort":"medium","verified":true}]')
 
     def write(self, name):
         path = self.receipts / name
@@ -574,14 +820,42 @@ class CliTests(unittest.TestCase):
         self.assertIn("Handoff Cost Receipt", out.read_text())
         self.assertEqual(first.splitlines()[0], out.read_text().splitlines()[0])
 
-    def test_html_output_carries_the_payload(self):
-        self.write("receipt-20260908T155001Z.md")
-        self.run_cli()
+    def payload_from_html(self):
         html = (self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.html").read_text()
         match = re.search(
             r'<script id="handoff-payload" type="application/json">(.*?)</script>',
             html, re.S)
-        self.assertEqual(json.loads(match.group(1))["jobs"][0]["job_id"], "job-a")
+        return json.loads(match.group(1))
+
+    def test_html_output_carries_the_payload(self):
+        self.write("receipt-20260908T155001Z.md")
+        self.run_cli()
+        self.assertEqual(self.payload_from_html()["jobs"][0]["job_id"], "job-a")
+
+    def test_a_mixed_three_backend_run_renders(self):
+        self.write("receipt-20260908T155001Z.md")
+        self.assertEqual(self.run_cli()[0], 0)
+        payload = self.payload_from_html()
+        self.assertEqual([j["backend"] for j in payload["jobs"]],
+                         ["codex", "claude", "copilot"])
+        copilot = payload["jobs"][2]
+        self.assertEqual(copilot["premium_requests"], 1)
+        self.assertEqual(copilot["nano_aiu"], 84828000)
+        self.assertEqual(copilot["denials"], 1)
+        self.assertEqual(payload["summary"]["copilot_credits"]["nano_aiu"]["value"],
+                         84828000)
+        # The copilot job contributes no USD; the figure is the claude job's.
+        self.assertEqual(payload["summary"]["outside_driver"]["cost_usd"],
+                         6.633623999999999)
+
+    def test_markdown_of_a_mixed_run_names_the_credit_meter(self):
+        self.write("receipt-20260908T155001Z.md")
+        self.run_cli()
+        out = (self.tmp / ".handoff" / "cost-receipts"
+               / "cost-receipt-20260908T155001Z.md").read_text()
+        self.assertIn("Copilot AI-credit meter", out)
+        self.assertIn("84,828,000", out)
+        self.assertIn("claude-backed and copilot-backed jobs", out)
 
 
 if __name__ == "__main__":
