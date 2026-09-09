@@ -322,52 +322,42 @@ Verify: `python3 -m unittest tests.test_handoff_config`.
 
 Verify: `python3 -m unittest tests.test_handoff_setup`.
 
-### 5. Setup UI — a probed model catalog
+### 5. Setup UI — typed model entry, validated against the CLI
 
-> **BLOCKED on a decision. Task 1 undercut this task's premise.** The probe design assumed
-> `availableModels` is the account's model catalog. It is not: it is the candidate set `auto` routes
-> among. On this account it moved from `mai-code-1.1-flash` to `gpt-5.6-luna` inside a day on one CLI
-> build, while `--model mai-code-1.1-flash` *kept working* — so the field both omits models the user
-> may name and changes without their configuration changing. A probe job therefore cannot build a
-> catalog, because no catalog is exposed. Task 1 also found that naming a model and effort is
-> validated for free before any session, which makes typed-and-validated entry cheaper than it
-> looked when this was decided. Settle this before implementing task 5; the text below is the
-> pre-probe design and is retained only for reference.
+*Rewritten after task 1. The probed-catalog design is dropped: `availableModels` is `auto`'s routing
+candidate set, not a catalog, and it moved on this account inside a day while the previously
+configured model kept working. There is no catalog to read, so the wizard stops pretending there is
+one.*
 
-- `scripts/handoff-setup-ui.py`: new `_copilot_model_options(path, env)` beside
-  `_codex_model_options` and `_claude_model_options`. It runs one throwaway `copilot -p` job and
-  reads `session.auto_mode_resolved.data.availableModels` from the JSONL.
-- **Discovery is on demand, not on page load.** *Changed after spec review.* `build_state` at
-  `handoff-setup-ui.py:344` constructs discovery state for every supported backend when the wizard
-  opens, so wiring copilot in there would spend a premium request for a user configuring only Codex
-  and Claude. Discovery fires when copilot is selected for an identity, behind a control that names
-  its cost before the first probe.
-- **The probe's own invocation is specified, not left to implementation.** The catalog event was
-  observed under `--model auto`, so the probe passes `--model auto` and **no** `--effort` (the pair
-  is rejected at the CLI layer). It also gets the same controls the generated jobs get:
-  `</dev/null`, `--no-ask-user`, `--no-remote --no-remote-export`, `--no-auto-update`, and a
-  timeout. A temp working directory does not establish that nothing is in reach to edit, so restrict
-  the tools explicitly for this answer-only probe rather than relying on the built-in baseline.
-- **Cache it as a dated snapshot.** Write the catalog to
-  `${XDG_CACHE_HOME:-$HOME/.cache}/handoff/copilot-models.json` with the `copilot --version` string
-  and a timestamp, and read it before probing. Version alone is not a validity key: the research
-  says the catalog is gated by account plan, org policy, and model rollout, all of which move
-  without the CLI version moving. Label the value in the UI with its age.
-- **Define the unhappy paths.** Failed discovery, an empty `availableModels`, and a failed refresh
-  each need stated behaviour, and none of them may discard a model already configured. Offer manual
-  model entry whenever discovery is unavailable — the selector at `handoff-setup-ui.py:1236`
-  disables itself when it has no options, which would otherwise strand the user.
-- **Refresh needs a server-side operation.** `/api/state` returns a copy of the startup state
-  (`handoff-setup-ui.py:539`), so re-fetching it cannot re-probe. Refresh must re-run discovery on
-  the controller and replace both the server-side catalog and the browser's copy.
-- Report the source honestly in the per-identity source label the UI already renders: the model
-  came from a probe job, whether the value was cached, and how old the cache is.
-- JavaScript: third backend option in the identity matrix, a `modelCatalog` branch for copilot, a
-  source-label map entry, and a rewrite of the "Codex models are read from your local account"
-  subtitle, which is now wrong for two of three backends.
+- **No discovery probe, no catalog cache, no refresh endpoint.** Nothing is added to `build_state`
+  at `handoff-setup-ui.py:344`, so opening the wizard costs a user nothing whether or not they use
+  Copilot. This deletes the cache file, the version key, the dated snapshot, and the server-side
+  refresh operation the earlier draft needed.
+- The UI renders Copilot's model field as a **text input**, not a `<select>`. The selector at
+  `handoff-setup-ui.py:1236` disables itself when it has no options, so it must not be reused here.
+  Source label: `typed; validated against the CLI`.
+- **One validation helper, in `handoff-setup.py`**, so the UI keeps delegating every check and write
+  to the engine as it does today: `validate_copilot_pair(bin, model, effort)` runs a minimal no-tool
+  `copilot -p` invocation and returns the CLI's own error text on rejection.
+- **Be exact about the cost, because it is asymmetric.** Task 1 measured only the negative case as
+  free. A wrong model or an unsupported effort-for-model pair is refused at the CLI layer before any
+  session exists — plain-text stderr, exit 1, two log lines, a zeroed `usage.json`, no premium
+  request (probe-log 15). A **correct** pair starts a real session and costs one request. That is
+  the same cost profile `smoke_claude_identity` already has, which is why this belongs in the smoke
+  and apply path rather than on page load. Say which case is free in the UI copy; do not claim
+  validation is free outright.
+- Surface the CLI's error verbatim rather than paraphrasing it. `Error: Reasoning effort "max" is
+  not supported for model "mai-code-1.1-flash".` tells the user exactly what to change; a
+  Handoff-authored rewording would lose the pair.
+- Never write a config whose pair failed validation, and never silently substitute a model or
+  downgrade an effort.
+- The JavaScript still needs a third backend option in the identity matrix and a source-label entry,
+  and the "Codex models are read from your local account" subtitle is now wrong for two of three
+  backends.
 
-Verify: `python3 -m unittest tests.test_handoff_setup_ui`, plus opening the wizard and confirming
-the catalog renders, that a second load hits the cache, and that Refresh busts it.
+Verify: `python3 -m unittest tests.test_handoff_setup_ui tests.test_handoff_setup`, plus opening the
+wizard, selecting copilot, and confirming a bad model is refused with the CLI's own message and no
+config written.
 
 ### 6. Receipt schema v6
 
@@ -645,6 +635,8 @@ now dates its results rather than only naming the CLI version:
   `--secret-env-vars`, `--max-ai-credits`, `--agent`, `--add-dir`, or MCP wiring. Handoff owns the
   worktree protocol, pinned to an immutable base SHA; handing that lifecycle to the CLI would give
   up the pinning and the cleanup.
+- No model catalog of any kind, probed or cached. Task 1 established that Copilot exposes none;
+  `availableModels` is `auto`'s routing set. The wizard takes a typed model and validates the pair.
 - No scavenging of `~/.copilot/logs` or `session-store.db` for a free model catalog. It would work
   today, but it depends on an undocumented on-disk layout that GitHub can change without notice.
 - No credential stripping in the copilot branch of `run.sh`.
