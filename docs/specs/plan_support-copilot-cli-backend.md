@@ -74,13 +74,20 @@ Settled during planning. Each is a decision, not an observation.
   that dies mid-run would have none. `--session-id` also sets the UUID for a new session, so
   Handoff generates one at submit, writes `$JOB/session_id` before launch, and records
   `session_id_source=assigned` in `meta`. This is the choice that keeps `resume` parity real
-  instead of documented with an exception.
+  instead of documented with an exception. Generate it with `python3 -c 'import uuid; ...'` rather
+  than `uuidgen`: the script already shells to `python3` throughout, and that removes a portability
+  question for one line. **Conditional on assumption 2 as strengthened below** — an echoed id proves
+  assignment, not that an interrupted session left resumable context behind.
 
-- **Effort excludes `none`.** The CLI accepts `none|minimal|low|medium|high|xhigh|max`, but `none`
-  is a literal value passed through to the API, not a sentinel meaning "omit the flag", and the API
-  rejected it on the observed model with a 400. An identity carrying `effort = "none"` is a config
-  that fails at runtime, so `validate_effort copilot` refuses it at submit, where the error is
-  cheap and legible. Handoff's copilot enum is `minimal|low|medium|high|xhigh|max`.
+- **Effort accepts the full CLI enum: `none|minimal|low|medium|high|xhigh|max`.** *Reversed after
+  spec review.* The first draft excluded `none` because the API rejected it on the observed model
+  with a 400. That reason does not survive reading the 400 itself: it says the supported values for
+  that model are `minimal`, `low`, `medium`, and `high`, so `xhigh` and `max` fail there too, and
+  the draft kept both. Effort validity is decided per model by the API and the CLI's enum is only a
+  superset; the plan's own principle is to pass the requested effort and surface the rejection,
+  never to downgrade silently. Excluding one of the three values that model rejects was arbitrary.
+  `validate_effort copilot` therefore mirrors the CLI enum, and a per-model rejection surfaces as
+  Copilot's own error.
 
 - **`model = "auto"` is refused for a configured identity.** Mechanically, `auto` plus any effort is
   rejected at the CLI layer, and every identity requires a non-empty effort. Conceptually, an
@@ -92,9 +99,12 @@ Settled during planning. Each is a decision, not an observation.
   default a delegated Claude job already gets, and the reasoning is the v3.5.1 retro. A background
   `-p` job has no approval surface, so any rule that would prompt denies instead; a denied tool call
   does not move the exit code; and the worker then reports that gates passed which it was in fact
-  refused. What bounds a delegated worker is its worktree and its packet. Copilot's typed
-  `error.code: "denied"` event is the safety net, and a job with denials is treated as failed
-  whatever its exit code says.
+  refused. Copilot's typed `error.code: "denied"` event is the safety net, and a job with denials
+  is treated as failed whatever its exit code says — see task 2 for what "failed" means concretely.
+  The worktree and the packet are **scope controls, not enforced containment**: an ordinary
+  `submit` runs in the main repo unless `--worktree` is passed (`delegate-codex.sh:351`), so a
+  worker under `--allow-all-tools` can reach the whole checkout. Say that plainly in the flow prose
+  rather than implying a sandbox that does not exist.
 
 - **No `HANDOFF_COPILOT_PERMISSION_MODE`.** The v3.5.1 retro concluded that naming an escape hatch
   is not mitigation when nothing tells the user to reach for it. The posture is the default, the
@@ -112,7 +122,8 @@ Settled during planning. Each is a decision, not an observation.
   generated `run.sh` passes `--no-remote --no-remote-export`, and never `--share`, `--share-gist`,
   `--yolo`, `--allow-all`, `--worktree`, or `--enable-memory`.
 
-- **No credential stripping for the copilot branch.** `handoff_runtime.clean_claude_env()` exists
+- **No credential stripping for the copilot branch**, on the narrow ground that Copilot needs no
+  Claude authentication handling. `handoff_runtime.clean_claude_env()` exists
   because a nested Claude Code host injects provider URLs and credentials that would override a
   child `claude`'s own login. Copilot authenticates through `gh auth` and `~/.copilot` and reads
   none of `ANTHROPIC_*` or `CLAUDE_CODE_*`, so mirroring that logic here would be ceremony.
@@ -146,11 +157,40 @@ scratch git repo with the real CLI, then write each result back into
 `docs/research/github-copilot-cli-specification.md` as a `[probed]` line with the evidence quoted,
 and amend this plan where a result contradicts it.
 
-Assumption 1 is the one that can change scope: if `--mode plan` is not read-only in a `-p` run,
-the copilot backend refuses `--read-only` in 3.7.0 and the flow says so, which removes spec
-review, arbiter blind-solve, and `e2e_specifier` from a copilot identity.
+**Task 1 is a hard stop.** Task 2 does not begin until all five results are recorded and this plan
+is amended where a result contradicts it. The plan can be handed over as conditional work now, but
+the capabilities behind assumptions 1, 2, and 5 cannot be promised as settled scope until probed.
 
-Verify: five recorded results, each with the command run and the observed output.
+Assumption 1 is the one that can change scope. If `--mode plan` is not read-only in a `-p` run, the
+copilot backend refuses `--read-only` in 3.7.0. That removes **any invocation that passes
+`--read-only`** — concretely the Phase 1 spec review, and the `--smoke` dry-run path in task 4.
+*Corrected after spec review:* the first draft also listed `e2e_specifier`, which is wrong.
+`e2e_specifier` is a writer — `references/e2e-gauntlet.md:35` submits it with `--worktree` and no
+`--read-only`, and its packet at `:81` asks for executable tests and a commit. The restriction
+belongs to the invocation's required capability, not to a fixed list of identities.
+
+Probe design, per assumption:
+
+- **1, read-only.** Do not accept the flag name. Under `--mode plan`, attempt a file write and a
+  shell write, confirm both are refused, and confirm useful repository reads still succeed. A plan
+  mode that also blocks reading is not a usable review channel.
+- **2, assigned id.** An echoed id after a clean run proves assignment only. Add an interrupted-run
+  probe: establish observable context, terminate the process before the terminal `result` event,
+  then `--resume` the assigned id and check the context came back. Probe failure *before* session
+  creation as a separate case.
+- **3, log dir.** Confirm `--log-dir` inside the job dir does not disturb `--output-format json` on
+  stdout.
+- **4, usage on failure.** Distinguish three failure classes: CLI-layer argument rejection, API
+  failure, and termination mid-run. Also probe whether a resumed session's `usage.json` counters are
+  **per invocation or cumulative across the session** — `render-cost-receipt.py:288` sums job rows,
+  so cumulative counters would double-count a parent plus its fix round.
+- **5, verification under `--allow-all-tools`.** Capture a concrete repository check actually
+  executing (`bash scripts/check-skill-repo.sh .`), with its output, not the worker's closing
+  statement that it passed. That distinction is the whole content of the v3.5.1 retro.
+
+Verify: for each of the five, the command run, the observed output, and for 1, 2, and 5 the
+observable outcome (files unchanged; context recovered after interruption; a real check's output).
+Each result written back into the research document as a `[probed]` line.
 
 ### 2. `scripts/delegate-codex.sh` — the copilot backend
 
@@ -165,6 +205,12 @@ Verify: five recorded results, each with the command run and the observed output
   `CODEX_BIN` / `CODEX_BIN_SOURCE` / `CODEX_VERSION` variables keep their names so `meta` keys and
   `resume`'s parent-binary reuse stay unchanged; `CODEX_VERSION` then records the real Copilot
   version string as job evidence.
+- **One resolution contract, used everywhere.** *Added after spec review.* Submit, resume, setup's
+  availability check, and the UI's discovery probe must apply the same precedence and the same
+  identity check, or setup can reject a valid install sitting behind AWS Copilot on PATH while the
+  worker resolves a different binary. `cmd_resume` at `delegate-codex.sh:416` currently reuses the
+  parent's recorded path whenever it is still executable, with no identity check — for copilot it
+  must re-verify identity, since the path may now point at a different tool.
 - `validate_effort copilot`: `minimal|low|medium|high|xhigh|max`.
 - `cmd_submit`: refuse `model = "auto"` on a copilot job. For a fresh copilot job, set
   `NEW_SESSION_ID="$(uuidgen | tr 'A-Z' 'a-z')"`, write it to `$JOB/session_id` before launch, and
@@ -177,23 +223,38 @@ Verify: five recorded results, each with the command run and the observed output
   `log.jsonl` and `stderr.log` with `</dev/null`. `--read-only` swaps `--allow-all-tools` for
   `--mode plan`. A fresh job passes `--session-id "$NEW_SESSION_ID"`; a resume passes
   `--resume "$session_id"`, drops `-C` and `--model`, and uses `cd "$WORKDIR"` like the codex resume
-  path. `--log-dir` points inside the job dir so `cleanup` takes Copilot's own logs with it instead
-  of leaving them under `~/.copilot/logs`.
+  path. `--log-dir` points inside the job dir to co-locate the evidence with the rest of the job
+  state. It does **not** cause cleanup to remove those logs: `cmd_cleanup` at
+  `delegate-codex.sh:698` only calls `remove_worktree` and keeps the job directory. Do not add
+  job-evidence deletion to this feature; correct the claim instead.
 - `warn_permission_bypass`: fires for a copilot job under `--allow-all-tools` as well, with the
   backend named in the message.
 - `extract_session_id`: add `sessionId` to the key tuple. The assigned id means the cache is
   already populated for a Handoff-submitted job; this covers a job submitted by hand.
-- `cmd_status` denial count: one expression covering both shapes,
-  `grep -cE '"subtype":"permission_denied"|"code":"denied"'`. No branch, correct on all three
-  backends, and over-reporting is the safe direction for a signal whose whole purpose is that exit 0
-  lies.
+- Denial count: **count it in the parsed pass, not with grep.** *Changed after spec review.* The
+  drafted `grep -cE '"subtype":"permission_denied"|"code":"denied"'` misses valid JSON with
+  whitespace after the colon and matches an unrelated `code` field anywhere in the line. `cmd_status`
+  already shells to `python3` for `last_event`, so count denials in that same pass against parsed
+  fields — `subtype == "permission_denied"` for claude, and
+  `type == "tool.execution_complete"` with `data.error.code == "denied"` for copilot. Fewer moving
+  parts than two greps, and correct regardless of formatting.
+- **Define what "treated as failed" means.** *Added after spec review.* `job_state` classifies exit
+  0 as `DONE` (`delegate-codex.sh:217`) and `status` prints its denial warning while still
+  succeeding (`:553`). This feature does **not** change that machine state: doing so would alter the
+  existing claude backend's behaviour too, which is a second dimension of change, and it would need
+  the Python mirror at `handoff_runtime.py:56` updated in lockstep. "Failed" here means
+  driver-facing rejection: `result` reports the denials, and the flow prose says the driver must
+  re-run the blocked checks itself and must not accept the diff on the worker's self-report.
 - `cmd_result`: pass the backend from `meta` into the Python heredoc as an argv, and add a copilot
   branch. Skip events with `ephemeral: true`. Message from `assistant.message` where
   `data.phase == "final_answer"`; commands from `tool.execution_start.data.arguments.command`;
   denials from `tool.execution_complete` where `data.error.code == "denied"`, named from the
-  matching `toolCallId`'s start event; `session.error` surfaced as a failure line with its
-  `statusCode`; usage from the flat terminal `result` event. Gating on backend is not tidiness: the
-  `result` type name collides with Claude's.
+  matching `toolCallId`'s start event; usage from the flat terminal `result` event. Gating on
+  backend is not tidiness: the `result` type name collides with Claude's.
+- `session.error` must reach **both** output modes. A human-readable failure line is not enough:
+  `result --json` has JSON consumers, so add the error type, message, and `statusCode` to the JSON
+  payload as well. Copilot's API failures can arrive with an empty stderr, so this is the only place
+  a caller can see them.
 
 Verify: `bash -n scripts/delegate-codex.sh`, `python3 -m unittest tests.test_delegate_role`.
 
@@ -215,9 +276,19 @@ Verify: `python3 -m unittest tests.test_handoff_config`.
   the two `copilot` binaries apart. Replace it with a `cli_available(backend)` helper: plain
   `which` for codex and claude, a `--version` identity match for copilot.
 - `--smoke`: route copilot through the existing codex path,
-  `delegate-codex.sh submit --read-only --dry-run`. That exercises binary identity resolution,
-  effort validation, and the `auto` refusal at zero request cost. The deliberate codex/claude smoke
-  asymmetry is out of scope, as it was in v3.5.0.
+  `delegate-codex.sh submit --read-only --dry-run` (`handoff-setup.py:866`). That exercises binary
+  identity resolution, effort validation, and the `auto` refusal at zero request cost. The
+  deliberate codex/claude smoke asymmetry is out of scope, as it was in v3.5.0.
+- **Smoke fallback, if assumption 1 fails.** *Added after spec review.* That command passes exactly
+  the flag copilot would then refuse, so smoke would fail every write-capable copilot identity — or,
+  worse, be made to skip the capability check under `--dry-run` and pass misleadingly. If copilot
+  cannot take `--read-only`, smoke drops the flag for copilot only and keeps `--dry-run`, and the
+  printed result says which capability was checked. Decide this in task 1, not at implementation
+  time.
+- **Refuse `model = "auto"` at setup validation too**, not only at submit. `validate_backend_efforts`
+  at `handoff-setup.py:94` checks effort alone, so a config naming `auto` currently applies cleanly
+  and fails later at the first job. Also define the behaviour for a role-less ad-hoc copilot job
+  that passes no `--model` at all.
 - `PRESETS` unchanged, per the decision above.
 
 Verify: `python3 -m unittest tests.test_handoff_setup`.
@@ -225,15 +296,33 @@ Verify: `python3 -m unittest tests.test_handoff_setup`.
 ### 5. Setup UI — a probed model catalog
 
 - `scripts/handoff-setup-ui.py`: new `_copilot_model_options(path, env)` beside
-  `_codex_model_options` and `_claude_model_options`. It runs one throwaway `copilot -p` job in a
-  temporary directory and reads `session.auto_mode_resolved.data.availableModels` from the JSONL.
-- **Cache it.** Write the catalog to `${XDG_CACHE_HOME:-$HOME/.cache}/handoff/copilot-models.json`
-  keyed on the `copilot --version` string, and read the cache before probing. Without this every
-  wizard load spends a premium request. The UI gets an explicit Refresh that busts the cache.
-- The probe runs in a temp directory with no `--allow-all-tools`, so the built-in baseline applies
-  and there is nothing in reach to edit. Bound it with a timeout.
+  `_codex_model_options` and `_claude_model_options`. It runs one throwaway `copilot -p` job and
+  reads `session.auto_mode_resolved.data.availableModels` from the JSONL.
+- **Discovery is on demand, not on page load.** *Changed after spec review.* `build_state` at
+  `handoff-setup-ui.py:344` constructs discovery state for every supported backend when the wizard
+  opens, so wiring copilot in there would spend a premium request for a user configuring only Codex
+  and Claude. Discovery fires when copilot is selected for an identity, behind a control that names
+  its cost before the first probe.
+- **The probe's own invocation is specified, not left to implementation.** The catalog event was
+  observed under `--model auto`, so the probe passes `--model auto` and **no** `--effort` (the pair
+  is rejected at the CLI layer). It also gets the same controls the generated jobs get:
+  `</dev/null`, `--no-ask-user`, `--no-remote --no-remote-export`, `--no-auto-update`, and a
+  timeout. A temp working directory does not establish that nothing is in reach to edit, so restrict
+  the tools explicitly for this answer-only probe rather than relying on the built-in baseline.
+- **Cache it as a dated snapshot.** Write the catalog to
+  `${XDG_CACHE_HOME:-$HOME/.cache}/handoff/copilot-models.json` with the `copilot --version` string
+  and a timestamp, and read it before probing. Version alone is not a validity key: the research
+  says the catalog is gated by account plan, org policy, and model rollout, all of which move
+  without the CLI version moving. Label the value in the UI with its age.
+- **Define the unhappy paths.** Failed discovery, an empty `availableModels`, and a failed refresh
+  each need stated behaviour, and none of them may discard a model already configured. Offer manual
+  model entry whenever discovery is unavailable — the selector at `handoff-setup-ui.py:1236`
+  disables itself when it has no options, which would otherwise strand the user.
+- **Refresh needs a server-side operation.** `/api/state` returns a copy of the startup state
+  (`handoff-setup-ui.py:539`), so re-fetching it cannot re-probe. Refresh must re-run discovery on
+  the controller and replace both the server-side catalog and the browser's copy.
 - Report the source honestly in the per-identity source label the UI already renders: the model
-  came from a probe job, and whether the value was cached.
+  came from a probe job, whether the value was cached, and how old the cache is.
 - JavaScript: third backend option in the identity matrix, a `modelCatalog` branch for copilot, a
   source-label map entry, and a rewrite of the "Codex models are read from your local account"
   subtitle, which is now wrong for two of three backends.
@@ -250,8 +339,13 @@ the catalog renders, that a second load hits the cache, and that Refresh busts i
 - `scripts/make-receipt.py`: `job_durations()` loops over a backend tuple instead of a hardcoded
   two-key dict. A job directory with no `backend=` line still buckets as codex, as it does today.
   New `--copilot-jobs` argument.
-- `scripts/validate-receipt.py`: two fields into `REQUIRED_FIELDS` reusing `JOB_DURATIONS`;
-  version gate `5` → `6`.
+- `scripts/validate-receipt.py` has three hardcoded spots, not one. *Expanded after spec review:
+  the first draft named only the JSON schema and would have shipped a validator that rejects its own
+  new receipts.* `ROLE_HOSTS = {"claude_code", "codex"}` at `:35` gains `copilot`; the count loop
+  and the durations loop at `:126` each enumerate two backends explicitly and must enumerate three;
+  two fields join `REQUIRED_FIELDS` reusing `JOB_DURATIONS`; the version gate goes `5` → `6`. Add
+  negative cases for an invalid copilot count, an invalid copilot duration string, and an unknown
+  `roles_used[].host`.
 - `SKILL.md`: the Output Contract text block gains the pair after `cc_job_durations`, and the prose
   below it explains the three-way partition and the `6`.
 - Regenerate `examples/session-receipt.md`. Leave the archived
@@ -261,10 +355,17 @@ the catalog renders, that a second load hits the cache, and that Refresh busts i
   illustrative and never carried `cc_jobs` either; the ledger is a workload pressure model, not a
   receipt contract. Confirm the reproducibility check still shows no diff.
 
-Verify: `python3 -m unittest tests.test_receipt`, plus the receipt roundtrip in `CLAUDE.md`.
+Verify: `python3 -m unittest tests.test_receipt`, plus a **mixed receipt** generated from a repo
+holding one job per backend and a `roles_used` entry with `host: copilot`, pushed through both
+`validate-receipt.py` and `render-cost-receipt.py`. The roundtrip in `CLAUDE.md` uses
+`--roles-used '[]'` and no copilot job, so on its own it cannot detect a missing host enum value or
+prove the three-way partition.
 
 ### 7. Cost receipt — keyed internals and the credit meter
 
+- **`SCHEMA_VERSION = "5"` at `render-cost-receipt.py:27` gates the whole renderer.** *Added after
+  spec review; the first draft missed it entirely.* Left at `5` it rejects every v6 receipt before
+  any copilot code is reached, which would make task 7 untestable end to end.
 - `scripts/render-cost-receipt.py`: collapse `CODEX_FIELDS` and `CLAUDE_FIELDS` into one
   `USAGE_FIELDS` dict keyed by backend, and replace the two-branch job partitioning at `:82` with a
   loop over a backend tuple.
@@ -276,15 +377,27 @@ Verify: `python3 -m unittest tests.test_receipt`, plus the receipt roundtrip in 
   `totalPremiumRequestCost` and `totalNanoAiu`. Denials from the typed
   `tool.execution_complete` event.
 - Job rows gain `premium_requests` and `nano_aiu`, `None` on the other two backends, rendered as
-  two columns in the delegated-jobs table.
+  two columns in the delegated-jobs table. The export at `render-cost-receipt.py:395` is a
+  **deliberate field-by-field whitelist**, so the two new keys must be added there or they never
+  reach the page.
+- **`assets/cost-receipt.html` has to change too.** *Added after spec review; the first draft did
+  not mention the template at all.* It renders the payload, so without an edit the HTML output drops
+  the new meter and keeps attributing denials to Claude alone (`assets/cost-receipt.html:284`).
 - One Summary sentence: how many jobs ran on the Copilot AI-credit meter, with the premium-request
   and nano-AIU totals, named as credits. Reporting them as a dollar figure would be a fabrication;
   they are neither codex's "subscription, no number" nor claude's `total_cost_usd`.
 - `_figure`'s USD filter stays claude-only, which is already correct: Copilot reports no currency.
 - The denials sentence stops saying "across claude-backed jobs" and names both backends that
-  report denials.
+  report denials, in the Markdown and in the HTML.
+- **Unknown stays distinct from zero.** `_add` already keeps `None` apart from a measured zero
+  (`render-cost-receipt.py:142`); missing or truncated `usage.json` must read unknown, with partial
+  totals marked, never as zeros.
+- **Resumed-job accounting.** Whether a resumed session's counters are per invocation or cumulative
+  is probed in task 1. If cumulative, summing a parent and its fix round double-counts both tokens
+  and credits, and the fold needs to take the last reading rather than add.
 
-Verify: `python3 -m unittest tests.test_cost_receipt`.
+Verify: `python3 -m unittest tests.test_cost_receipt`, covering the credit columns in the payload
+and in the HTML, unknown and partial telemetry, and parent-plus-resume accounting.
 
 ### 8. Transcript viewer
 
@@ -296,10 +409,18 @@ Verify: `python3 -m unittest tests.test_cost_receipt`.
   viewer already does by `item.id` and `tool_use_id`. Map `assistant.message` with
   `phase == "final_answer"` to an agent row, `session.error` to an error row, and the turn events to
   lifecycle rows.
-- `scripts/render-transcript.py` needs no parsing change; all log parsing lives in the page.
+- `scripts/render-transcript.py` needs no parsing change; a generated payload already carries
+  `meta.backend` (`render-transcript.py:96`).
+- **The drag-and-drop path has no metadata.** *Added after spec review.* Dropping a raw log mounts
+  it with `meta: {}` (`assets/transcript-viewer.html:748`), so a parser that requires
+  `meta.backend` breaks Copilot raw-log viewing and risks regressing older logs. Give that path a
+  backend selector, or infer from an unambiguous event — `assistant.turn_start` or
+  `tool.execution_start` for copilot, `item.completed` for codex. Never infer from `result`, which
+  is the colliding type.
 
-Verify: `node tests/test_transcript_viewer.mjs`,
-`python3 -m unittest tests.test_render_transcript`.
+Verify: `node --test tests/test_transcript_viewer.mjs`,
+`python3 -m unittest tests.test_render_transcript`, with copilot fixtures covering the
+metadata-free drop path, a failed tool call, ephemeral events, and a truncated log.
 
 ### 9. Prose, diagrams, and regression prompts
 
@@ -313,7 +434,18 @@ Verify: `node tests/test_transcript_viewer.mjs`,
   `references/handoff-template.md`, `references/e2e-gauntlet.md`, `references/tryout.md`: sweep for
   two-backend enumerations. Most of the v3.5.0 wording is already backend-neutral; the failure mode
   is a stray "codex or claude" pair.
-- `README.md` badge and identity table, `CHANGELOG.md` `## v3.7.0`, a `docs/releases/` entry.
+- `README.md` badge and identity table, **and its live receipt example at `README.md:135`**, which
+  carries the field list.
+- `CHANGELOG.md` `## v3.7.0`, a `docs/releases/` entry.
+- `references/setup.md:14` — its discovery, effort-selection, and automatic-smoke contract all
+  change.
+- `CLAUDE.md` — *added after spec review.* It already says "schema v4" and "Codex executes
+  delegated work on its own subscription" (`CLAUDE.md:53`), both stale since v3.5.0. This plan moves
+  the schema again, so correct the implementation-facing guidance rather than leaving it two
+  versions behind.
+- `references/claude-driven.md:98` — the monitor is told to read stderr on a failure. Copilot's API
+  errors can arrive with stderr empty and the detail only in the JSONL `session.error` event, so
+  that instruction has to name the log.
 - `docs/user-guide/agent-handoff.html`: version and reviewed date, backend enumerations, the job
   primitive table, the receipt v6 field list, and the cost-receipt section's credit meter.
 - Diagrams, text-only edits with no coordinate shifts: `phase1-plan-split.svg`,
@@ -325,8 +457,11 @@ Verify: `node tests/test_transcript_viewer.mjs`,
   than folding copilot into either existing one.
 
 Verify: `bash scripts/check-skill-repo.sh .`, `python3 scripts/english-only-scan.py`,
-`python3 scripts/run-test-prompts.py`,
-`python3 -c "import xml.dom.minidom,glob;[xml.dom.minidom.parse(f) for f in glob.glob('docs/user-guide/diagrams/*.svg')]"`.
+`python3 scripts/run-test-prompts.py`, and the SVG well-formedness parse
+(`python3 -c "import xml.dom.minidom,glob;[xml.dom.minidom.parse(f) for f in glob.glob('docs/user-guide/diagrams/*.svg')]"`).
+Two caveats on what those establish: `run-test-prompts.py` validates the file's structure, not agent
+behaviour, and the XML parse proves well-formedness, not that a longer label still fits its card. The
+diagrams need an eyeball pass for clipping after the text edits.
 
 ### 10. Tests — three-backend parity, asserted
 
@@ -338,8 +473,16 @@ only for the plumbing.
 - `tests/test_delegate_role.py`: `make_env` gains a fake `copilot` whose `--version` prints
   `GitHub Copilot CLI 1.0.83.`, **and a second fake printing `copilot version: v1.34.1`** so the
   binary-identity guard is tested rather than asserted in prose. Cover both orderings on PATH.
-- A copilot subclass of the backend-agnostic `WorktreeTests` base v3.5.0 introduced, so all eight
-  lifecycle assertions run on the third backend too.
+- A copilot subclass of the backend-agnostic mixin v3.5.0 introduced. *Corrected after spec
+  review:* it is `BackendLifecycle` at `tests/test_delegate_role.py:277`, inherited by
+  `CodexWorktreeTests` and `ClaudeWorktreeTests`, and it holds 12 shared tests, not 8.
+- **A third subclass alone will not cover the assigned id.** The lifecycle fixture deletes
+  `session_id` before parsing its synthetic log (`tests/test_delegate_role.py:393`), so add a case
+  that preserves the assigned cache and omits the terminal event — that is exactly the crashed-job
+  shape the decision exists for.
+- **Binary discovery tests:** an explicit `HANDOFF_COPILOT_BIN`, an AWS-only install (must fail
+  closed with an actionable message), both PATH orderings with the two fakes present, and a resume
+  whose recorded parent path now resolves to a different tool.
 - Argv assertions must include `--allow-all-tools`, `--no-remote`, `--no-remote-export`,
   `--usage-output-file`, `--session-id` on a fresh job and `--resume` on a resume, and the
   **absence** of `--share`, `--share-gist`, `--yolo`, `--allow-all`, and `--worktree`. The egress
@@ -361,16 +504,24 @@ Verify: `python3 -m unittest discover -s tests` fully green.
 
 ## Verification
 
+Everything `.github/workflows/checks.yml` runs, which the first draft under-listed:
+
 ```bash
+bash -n install.sh
+bash -n scripts/check-skill-repo.sh
+bash -n scripts/delegate-codex.sh
 python3 -m unittest discover -s tests
+node --test tests/test_transcript_viewer.mjs
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
 python3 scripts/english-only-scan.py
-node tests/test_transcript_viewer.mjs
+bash install.sh --dry-run
 
 SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown
 git diff --exit-code -- examples/showcase-cost-ledger.json
 ```
+
+Plus the receipt roundtrip from `CLAUDE.md`, run against a mixed-backend repo per task 6.
 
 Live end-to-end, needing a real `copilot` CLI and a scratch repo with a copilot-backed identity:
 
@@ -381,27 +532,39 @@ bash scripts/delegate-codex.sh status <jobId> --repo <tmp> --wait --timeout 300
 bash scripts/delegate-codex.sh result <jobId> --repo <tmp>
 ```
 
-Confirm the job edited files, `meta` records `backend=copilot` and the assigned session id, a fix
-round resumes that same session, `usage.json` carries token counts, and the receipt counts the job
-under `copilot_jobs` rather than either existing field.
+Name a concrete packet with one expected edit and one repository check the worker must run, then
+confirm: the expected file changed; the named check actually executed, with its output in the log;
+`meta` records `backend=copilot`, `session_id_source=assigned`, and an id matching
+`$JOB/session_id`; `usage.json` carries token counts; `result --json` reports zero denials; a
+`resume` round lands on the same session and its accounting does not double-count the parent; a
+`--worktree` job pins its base SHA and cleans up; and a generated receipt counts the job under
+`copilot_jobs` rather than either existing field. The first draft only submitted, polled, and read
+one job, which established none of the resume, worktree, or receipt claims.
 
 ## Assumptions to probe
 
 Planning chose spec-first, so these are stated rather than verified. Task 1 closes them and writes
-each result back into the research document.
+each result back into the research document. Three of the five are **gates**: they decide what the
+feature can claim, and the plan is conditional until they resolve.
 
-1. **`--mode plan` is genuinely read-only in a `-p` run**, and composes sensibly with the fact that
-   a read-only job does not pass `--allow-all-tools`. Highest risk of the five: spec review,
-   arbiter blind-solve, and `e2e_specifier` all ride on `--read-only`. The research marked this
-   `[open]` and explicitly warned against trusting the flag name.
-2. **`--session-id <uuid>` sets the id for a new `-p` session**, and the terminal `result` echoes
-   the same id back. This is `[help]` text, not a probed behaviour, and the whole resume-parity
-   decision rests on it.
-3. **`--log-dir` inside the job dir works** without fighting `--output-format json` on stdout.
-4. **`--usage-output-file` is written on a non-zero exit too.** If it is only written on success, a
-   failed job has no token counters and the cost receipt has to say so rather than report zeros.
-5. **A repository's own verification command runs under `--allow-all-tools`** in a background `-p`
-   job with no tty. This is the capability that made v3.5.1 necessary on the claude backend.
+1. **Gate. `--mode plan` is genuinely read-only in a `-p` run**, and composes sensibly with the fact
+   that a read-only job does not pass `--allow-all-tools`. Highest risk of the five. The research
+   marked this `[open]` and explicitly warned against trusting the flag name. Resolving it fixes
+   both the affected-invocation list in task 1 and the smoke fallback in task 4.
+2. **Gate. `--session-id <uuid>` sets the id for a new `-p` session**, the terminal `result` echoes
+   it back, **and an interrupted session is genuinely resumable from it.** This is `[help]` text,
+   not probed behaviour, and the entire justification for assigning rather than extracting is
+   crash-resumability — which a clean run cannot demonstrate.
+3. **`--log-dir` inside the job dir works** without fighting `--output-format json` on stdout. Fits
+   inside task 1; the cleanup expectation is already corrected above.
+4. **`--usage-output-file` on failure, and the scope of a resumed session's counters.** Written on a
+   non-zero exit, across all three failure classes? And are a resumed session's counters per
+   invocation or cumulative? Fits inside task 1 with an explicit unknown-or-partial fallback in the
+   cost receipt, but the cumulative case changes how the fold works.
+5. **Gate. A repository's own verification command runs under `--allow-all-tools`** in a background
+   `-p` job with no tty. This is the capability that made v3.5.1 necessary on the claude backend,
+   and without it a delegated Copilot job cannot be promised as usable. Evidence is the check's
+   own output, not the worker's closing claim.
 
 ## Not doing
 
@@ -445,3 +608,40 @@ each result back into the research document.
   worktree lifecycle against stub binaries. That a real Copilot worker completes a real task and
   runs the repo's own checks is covered only by the live smoke run and assumption 5, both of which
   need a human to trigger them.
+
+## Spec Review
+
+Reviewed once by `deep_reasoner` (codex / gpt-6-astra / xhigh, read-only) as job
+`job-2026-09-09T18-08-31-75493-spec-review`. Zero permission denials, 18 commands run. Findings
+were checked against the repository before folding, and every claim below verified.
+
+**Accepted and folded in.** Nine findings, the three worst being gaps that would have broken the
+implementation:
+
+- `validate-receipt.py` carries `ROLE_HOSTS` and two explicit two-backend loops that the draft
+  never mentioned, so the validator would have rejected the receipts this plan generates.
+- `render-cost-receipt.py:27` pins `SCHEMA_VERSION = "5"`, which rejects every v6 receipt before
+  reaching any copilot code.
+- `assets/cost-receipt.html` was missing from the plan entirely, along with the field-by-field
+  export whitelist at `render-cost-receipt.py:395`.
+
+Also folded: one shared binary-resolution contract across submit, resume, setup, and the UI, with
+`cmd_resume`'s unchecked parent-path reuse closed; denial counting moved from a grep to the parsed
+pass; a concrete definition of "treated as failed" that does not change machine state; on-demand
+rather than page-load model discovery, with the probe's own invocation and tool restriction
+specified; a dated cache instead of a version-keyed one, plus the unhappy paths and a server-side
+refresh; a backend selector for the viewer's metadata-free drag-and-drop path; the CI gates the
+Verification block had under-listed.
+
+**Three factual corrections to the draft.** `e2e_specifier` is a writer, not a `--read-only`
+consumer, so a failing assumption 1 does not remove it. `cmd_cleanup` keeps the job directory, so
+`--log-dir` co-locates evidence but does not cause its removal. The lifecycle mixin is
+`BackendLifecycle` with 12 shared tests, not `WorktreeTests` with 8.
+
+**One decision reversed.** The draft excluded `none` from the copilot effort enum because the API
+rejected it on the observed model. Reading that 400 again, the same model also rejects `xhigh` and
+`max`, which the draft kept — so the stated reason excluded one of three arbitrarily. The enum now
+mirrors the CLI's and a per-model rejection surfaces as Copilot's own error, which is what the
+plan's own no-silent-downgrade principle already required.
+
+**Nothing rejected.** Every finding either verified or was a correction of the plan.
