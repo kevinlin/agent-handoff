@@ -763,5 +763,220 @@ class SpecReviewToggleTests(SetupTests):
         self.assertIn("spec_review=false", self.run_cli(*self.claude_args("--status"))[1])
 
 
+COPILOT_FAKE = """#!/bin/sh
+case "$1" in
+  --version) printf 'GitHub Copilot CLI 1.0.83.\\n'; exit 0 ;;
+esac
+if [ -n "${HANDOFF_TEST_COPILOT_ARGS:-}" ]; then
+  printf '%s\\n' "$@" >> "$HANDOFF_TEST_COPILOT_ARGS"
+fi
+if [ -n "${HANDOFF_TEST_COPILOT_STDERR:-}" ]; then
+  printf '%s\\n' "$HANDOFF_TEST_COPILOT_STDERR" >&2
+  exit 1
+fi
+if [ -n "${HANDOFF_TEST_COPILOT_STREAM:-}" ]; then
+  printf '%s\\n' "$HANDOFF_TEST_COPILOT_STREAM"
+  exit 1
+fi
+printf 'HANDOFF_SMOKE_OK\\n'
+"""
+
+# AWS Copilot CLI shares the binary name and is the whole reason the identity
+# check exists.
+AWS_COPILOT_FAKE = "#!/bin/sh\nprintf 'copilot version: v1.34.1\\n'\nexit 0\n"
+
+
+class CopilotSetupTests(SetupTests):
+    """Task 4: the copilot backend in the setup engine and the smoke path."""
+
+    def setUp(self):
+        super().setUp()
+        self.copilot_args_log = self.root / "copilot-args.txt"
+        self.write_copilot(self.bin / "copilot", COPILOT_FAKE)
+        self.env["HANDOFF_TEST_COPILOT_ARGS"] = str(self.copilot_args_log)
+
+    def write_copilot(self, path, body):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def copilot_choices(self, model="mai-code-1.1-flash", effort="medium"):
+        return {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("copilot", model, effort),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+        }
+
+    def copilot_invocations(self):
+        if not self.copilot_args_log.exists():
+            return []
+        return self.copilot_args_log.read_text(encoding="utf-8").splitlines()
+
+    def test_copilot_effort_enum_is_the_cli_superset(self):
+        self.assertEqual(
+            ("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+            handoff_setup.BACKEND_EFFORTS["copilot"],
+        )
+        status, _, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(effort="none"), action="--preview")
+        )
+        self.assertEqual((0, ""), (status, error))
+        # ultra is codex-only; the enums are per CLI, never one shared list.
+        status, _, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(effort="ultra"), action="--preview")
+        )
+        self.assertEqual(2, status)
+        self.assertIn("--role-effort for fast_worker with backend=copilot", error)
+        # and none stays rejected on the backends whose enum lacks it
+        choices = self.copilot_choices()
+        choices["deep_reasoner"] = ("claude", "opus", "none")
+        status, _, error = self.run_cli(*self.custom_args(choices, action="--preview"))
+        self.assertEqual(2, status)
+        self.assertIn("backend=claude", error)
+
+    def test_model_auto_is_refused_at_setup_validation_before_apply(self):
+        before = self.snapshot()
+        status, _, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(model="auto"), action="--preview")
+        )
+        self.assertEqual(2, status)
+        self.assertIn("'auto', which is refused on copilot", error)
+        status, _, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(model="auto"))
+        )
+        self.assertEqual(2, status)
+        self.assertIn("'auto', which is refused on copilot", error)
+        self.assertEqual(before, self.snapshot())
+        # refused on the config, never on the CLI: no request was spent finding out
+        self.assertEqual([], self.copilot_invocations())
+
+    def test_availability_uses_the_version_identity_check_not_which(self):
+        aws_only = self.root / "aws-only-bin"
+        aws_only.mkdir()
+        self.write_copilot(aws_only / "copilot", AWS_COPILOT_FAKE)
+        for name in ("claude", "codex"):
+            shutil_source = self.bin / name
+            (aws_only / name).write_bytes(shutil_source.read_bytes())
+            (aws_only / name).chmod(0o755)
+        self.env["PATH"] = f"{aws_only}:/usr/bin:/bin"
+        self.assertFalse(handoff_setup.cli_available("copilot", self.env))
+        before = self.snapshot()
+        status, output, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(), action="--preview")
+        )
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("availability=unavailable", output)
+        status, _, error = self.run_cli(*self.custom_args(self.copilot_choices()))
+        self.assertEqual(2, status)
+        self.assertIn("required backend CLI unavailable", error)
+        self.assertIn("copilot", error)
+        self.assertEqual(before, self.snapshot())
+
+    def test_github_copilot_is_found_behind_aws_copilot_on_path(self):
+        first = self.root / "aws-first"
+        first.mkdir()
+        self.write_copilot(first / "copilot", AWS_COPILOT_FAKE)
+        real = str(self.bin / "copilot")
+        self.env["PATH"] = f"{first}:{self.bin}:/usr/bin:/bin"
+        self.assertEqual(real, handoff_setup.copilot_bin(self.env))
+        self.env["PATH"] = f"{self.bin}:{first}:/usr/bin:/bin"
+        self.assertEqual(real, handoff_setup.copilot_bin(self.env))
+
+    def test_handoff_copilot_bin_override_runs_through_the_same_identity_check(self):
+        aws = self.write_copilot(self.root / "aws" / "copilot", AWS_COPILOT_FAKE)
+        self.env["HANDOFF_COPILOT_BIN"] = str(aws)
+        self.assertIsNone(handoff_setup.copilot_bin(self.env))
+        self.assertFalse(handoff_setup.cli_available("copilot", self.env))
+        self.env["HANDOFF_COPILOT_BIN"] = str(self.bin / "copilot")
+        self.assertEqual(str(self.bin / "copilot"), handoff_setup.copilot_bin(self.env))
+
+    def test_apply_never_writes_a_config_whose_pair_the_cli_refused(self):
+        refusal = (
+            'Error: Reasoning effort "max" is not supported for model '
+            '"mai-code-1.1-flash".'
+        )
+        self.env["HANDOFF_TEST_COPILOT_STDERR"] = refusal
+        status, _, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(effort="max"))
+        )
+        self.assertEqual(2, status)
+        # the CLI's own wording reaches the user, not a Handoff rewording:
+        # it names the exact pair to change.
+        self.assertIn(refusal, error)
+        self.assertIn("nothing was written", error)
+        self.assertEqual([], list(self.repo.rglob("*")))
+
+    def test_apply_surfaces_an_api_layer_session_error_with_empty_stderr(self):
+        # The API-layer rejection shape: stderr empty, the detail only in the
+        # JSON stream.
+        message = (
+            "Execution failed: 400 Unsupported value: 'none' is not supported "
+            "with the 'mai-code-1-flash-2026-06-02' model."
+        )
+        self.env["HANDOFF_TEST_COPILOT_STREAM"] = json.dumps(
+            {
+                "type": "session.error",
+                "data": {"message": message, "statusCode": 400},
+            }
+        )
+        status, _, error = self.run_cli(
+            *self.custom_args(self.copilot_choices(effort="none"))
+        )
+        self.assertEqual(2, status)
+        self.assertIn(message, error)
+        self.assertIn("statusCode 400", error)
+        self.assertEqual([], list(self.repo.rglob("*")))
+
+    def test_apply_checks_each_distinct_pair_once(self):
+        choices = self.copilot_choices()
+        choices["arbiter"] = ("copilot", "mai-code-1.1-flash", "medium")
+        status, _, error = self.run_cli(*self.custom_args(choices))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual(1, self.copilot_invocations().count("-p"))
+
+    def test_copilot_smoke_validates_the_pair_and_records_verified(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
+        self.copilot_args_log.unlink()
+        status, output, error = self.run_cli(
+            "--smoke",
+            "--repo",
+            str(self.repo),
+            "--timestamp",
+            "2026-07-20T01:02:03Z",
+        )
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("fast_worker: PASS (model and effort accepted by Copilot)", output)
+        arguments = self.copilot_invocations()
+        # read-only: plan mode, never --allow-all-tools, and egress stays off
+        self.assertIn("--mode", arguments)
+        self.assertIn("plan", arguments)
+        self.assertNotIn("--allow-all-tools", arguments)
+        self.assertIn("--no-remote", arguments)
+        self.assertIn("--no-remote-export", arguments)
+        self.assertIn("mai-code-1.1-flash", arguments)
+        self.assertIn("medium", arguments)
+        self.assertTrue(self.configured()["fast_worker"]["verified"])
+
+    def test_copilot_smoke_failure_keeps_only_that_identity_unverified(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
+        refusal = 'Error: Model "mai-code-1.1-flash" from --model flag is not available.'
+        self.env["HANDOFF_TEST_COPILOT_STDERR"] = refusal
+        status, output, error = self.run_cli(
+            "--smoke",
+            "--repo",
+            str(self.repo),
+            "--timestamp",
+            "2026-07-20T01:02:03Z",
+        )
+        self.assertEqual(1, status)
+        self.assertIn("fast_worker: FAIL", error)
+        self.assertIn(refusal, error)
+        self.assertEqual(2, output.count("PASS"))
+        identities = self.configured()
+        self.assertFalse(identities["fast_worker"]["verified"])
+        self.assertTrue(identities["arbiter"]["verified"])
+
+
 if __name__ == "__main__":
     unittest.main()
