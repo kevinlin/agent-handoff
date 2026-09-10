@@ -54,7 +54,7 @@ Before first real use, say `/agent-handoff config`. Handoff opens a local single
 **A whole run, replayed on one page (v3.7.2)**
 
 <div align="center">
-<img src="examples/session-visualise-demo.gif" alt="Walkthrough of the Handoff session page: the run's timeline with hotspots shown, the failed flake-fix job's transcript, the measured cost receipt, the receipt facts, and the denials and anomalies tab" width="720" />
+<img src="assets/session-visualise-demo.gif" alt="Walkthrough of the Handoff session page: the run's timeline with hotspots shown, the failed flake-fix job's transcript, the measured cost receipt, the receipt facts, and the denials and anomalies tab" width="720" />
 <p><sub>Recorded from <code>/agent-handoff visualise</code> on a real receipt: the run that added Copilot as a third backend, 283 minutes, nine delegated jobs.</sub></p>
 </div>
 
