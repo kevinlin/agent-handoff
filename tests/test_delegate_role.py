@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -448,6 +449,113 @@ class BackendLifecycle:
         result = self.submit_raw(*arguments)
         self.assertEqual(0, result.returncode, result.stderr)
         return result.stdout.strip()
+
+    def resume(self, job_id: str):
+        return self.delegate(
+            "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
+        )
+
+    def configure_review(self, spec: int, implementation: int):
+        path = self.repo / ".handoff" / "config.toml"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            "schema_version = 2\nrevision = 0\n"
+            f"[review]\nspec_max_rounds = {spec}\nimplementation_max_rounds = {implementation}\n",
+            encoding="utf-8",
+        )
+
+    def test_implementation_chain_stops_at_the_default_cap(self):
+        job_id = self.submit("--label", "T1")
+        self.finish(job_id)
+        second = self.resume(job_id)
+        self.assertEqual(0, second.returncode, second.stderr)
+        self.assertEqual(f"{job_id}-r2", second.stdout.strip())
+        self.finish(f"{job_id}-r2")
+        third = self.resume(f"{job_id}-r2")
+        self.assertEqual(0, third.returncode, third.stderr)
+        self.assertEqual(f"{job_id}-r3", third.stdout.strip())
+        self.finish(f"{job_id}-r3")
+        refused = self.resume(f"{job_id}-r3")
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("review cap reached", refused.stderr)
+        self.assertIn("implementation gate", refused.stderr)
+        self.assertIn("escalate to the arbiter", refused.stderr)
+        self.assertFalse(self.job_dir(f"{job_id}-r4").exists())
+
+    def test_spec_review_chain_uses_the_spec_cap(self):
+        job_id = self.submit("--label", "spec-review", "--read-only")
+        self.finish(job_id)
+        refused = self.resume(job_id)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("spec gate", refused.stderr)
+        self.assertFalse(self.job_dir(f"{job_id}-r2").exists())
+
+    def test_configured_caps_are_honoured(self):
+        self.configure_review(spec=2, implementation=1)
+        spec = self.submit("--label", "spec-review", "--read-only")
+        self.finish(spec)
+        allowed = self.resume(spec)
+        self.assertEqual(0, allowed.returncode, allowed.stderr)
+        implementation = self.submit("--label", "T2")
+        self.finish(implementation)
+        self.assertIn("implementation gate", self.resume(implementation).stderr)
+
+    def test_a_fresh_label_ending_in_a_round_suffix_is_round_one(self):
+        job_id = self.submit("--label", "fix-r2")
+        self.finish(job_id)
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(f"{job_id}-r2", result.stdout.strip())
+
+    def test_a_missing_ancestor_fails_closed(self):
+        job_id = self.submit("--label", "T3")
+        self.finish(job_id)
+        child = self.resume(job_id).stdout.strip()
+        self.finish(child)
+        shutil.rmtree(self.job_dir(job_id))
+        refused = self.resume(child)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("ancestor job", refused.stderr)
+
+    def test_a_resume_with_no_parent_fails_closed(self):
+        job_id = self.submit("--label", "T5")
+        self.finish(job_id)
+        child = self.resume(job_id).stdout.strip()
+        self.finish(child)
+        meta = self.job_dir(child) / "meta"
+        meta.write_text(
+            "".join(
+                line for line in meta.read_text(encoding="utf-8").splitlines(True)
+                if not line.startswith("parent=")
+            ),
+            encoding="utf-8",
+        )
+        refused = self.resume(child)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("no parent", refused.stderr)
+
+    def test_a_parent_cycle_fails_closed(self):
+        job_id = self.submit("--label", "T6")
+        self.finish(job_id)
+        child = self.resume(job_id).stdout.strip()
+        self.finish(child)
+        root_meta = self.job_dir(job_id) / "meta"
+        root_meta.write_text(
+            root_meta.read_text(encoding="utf-8").replace("mode=fresh", "mode=resume")
+            + f"parent={child}\n",
+            encoding="utf-8",
+        )
+        refused = self.resume(child)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("loops", refused.stderr)
+
+    def test_an_invalid_config_blocks_a_fix_round(self):
+        job_id = self.submit("--label", "T4")
+        self.finish(job_id)
+        self.configure_review(spec=0, implementation=3)
+        refused = self.resume(job_id)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("review caps", refused.stderr)
 
     def configure_posture(self, posture):
         path = self.repo / ".handoff" / "config.toml"

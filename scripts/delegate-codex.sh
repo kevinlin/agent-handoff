@@ -67,6 +67,11 @@ identity's backend decides which CLI executes the job — always. --backend is
 for role-less ad-hoc jobs only: passing one that contradicts a named role is
 refused rather than silently overriding the config.
 
+resume refuses a round past the review cap in Handoff config: [review]
+spec_max_rounds for a chain whose first job is labelled spec-review,
+implementation_max_rounds for any other. A round is a review pass; the first
+job is round 1. Escalate to the arbiter instead.
+
 Efforts are per CLI, never one shared enum: codex takes
 minimal|low|medium|high|xhigh|max|ultra, claude takes low|medium|high|xhigh|max,
 copilot takes none|minimal|low|medium|high|xhigh|max. Copilot's enum is the
@@ -553,6 +558,36 @@ cmd_resume() {
   [ "$(job_state)" = "RUNNING" ] && die "parent job still running; wait or cancel first"
 
   local PARENT_JOB="$JOB"
+  # The review cap counts real resume ancestry. The -r<n> suffix is label text
+  # a fresh job can carry too, so walk parent= back to the chain's first job,
+  # failing closed on anything that would make the count wrong.
+  local ROOT_JOB="$PARENT_JOB" ROUND=2 ANCESTOR SEEN=" $PARENT_ID "
+  while :; do
+    [ -f "$ROOT_JOB/meta" ] || die "cannot count review rounds: $(basename "$ROOT_JOB") has no meta"
+    ANCESTOR="$(meta_value parent "$ROOT_JOB")"
+    if [ -z "$ANCESTOR" ]; then
+      [ "$(meta_value mode "$ROOT_JOB")" != "resume" ] \
+        || die "cannot count review rounds: $(basename "$ROOT_JOB") is a resume with no parent"
+      break
+    fi
+    case "$SEEN" in *" $ANCESTOR "*) die "cannot count review rounds: the parent chain loops at $ANCESTOR" ;; esac
+    SEEN="$SEEN$ANCESTOR "
+    ROOT_JOB="$(job_dir "$ANCESTOR")"
+    [ -d "$ROOT_JOB" ] || die "cannot count review rounds: ancestor job $ANCESTOR is missing"
+    ROUND=$((ROUND + 1))
+  done
+  local ROOT_ID GATE="implementation" CAP
+  ROOT_ID="$(basename "$ROOT_JOB")"
+  if [ "$(meta_value label "$ROOT_JOB")" = "spec-review" ]; then
+    GATE="spec"
+  fi
+  if ! CAP="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve \
+      | python3 -c 'import json, sys; print(json.load(sys.stdin)["review"][sys.argv[1] + "_max_rounds"])' "$GATE")"; then
+    die "failed to resolve the review caps from Handoff config; run 'python3 scripts/handoff-config.py validate'"
+  fi
+  if [ "$ROUND" -gt "$CAP" ]; then
+    die "review cap reached: $ROOT_ID has had $CAP review passes ($GATE gate, [review] ${GATE}_max_rounds = $CAP); escalate to the arbiter instead of resuming (references/claude-driven.md, Phase 4)"
+  fi
   if [ "$READ_ONLY" != "true" ]; then
     READ_ONLY="$(meta_value read_only "$PARENT_JOB")"
     READ_ONLY="${READ_ONLY:-false}"
@@ -600,9 +635,7 @@ cmd_resume() {
     resolve_worker_bin "$BACKEND"
   fi
   resolve_permission_mode
-  local ROUND=2
-  case "$PARENT_ID" in *-r[0-9]*) ROUND=$(( ${PARENT_ID##*-r} + 1 )) ;; esac
-  local JOB_ID="${PARENT_ID%-r[0-9]*}-r${ROUND}"
+  local JOB_ID="${ROOT_ID}-r${ROUND}"
   JOB="$(job_dir "$JOB_ID")"
   [ -e "$JOB" ] && die "job dir already exists: $JOB"
   mkdir -p "$JOB"
