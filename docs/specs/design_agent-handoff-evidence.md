@@ -64,7 +64,7 @@ Nothing in Phase 5 collects anything the run did not already write. Each job's o
 
 ### Two writes that are ordered, and one that is contended
 
-Phase 0 stamps `.handoff/session-start` **before** any job is submitted. `make-receipt.py` excludes any job whose `submitted_at` predates the marker, on the grounds that it belongs to an earlier run, so a marker stamped after the fact produces a structurally valid receipt indexing nothing. With no marker and no explicit `--started-at`, the tool refuses to emit rather than accept a remembered start time.
+Phase 0 stamps `.handoff/session-start` **before** any job is submitted. `make-receipt.py` counts only jobs whose `submitted_at` falls inside the session window, on the grounds that anything outside it belongs to another run. A marker stamped after the fact therefore drops the run's own early jobs, which used to produce a structurally valid receipt indexing fewer jobs than it counted; the declared `*_jobs` counts are now checked against the measured `*_job_durations` and a mismatch refuses to emit, because that receipt is the one input the cost renderer cannot work around. With no marker and no explicit `--started-at`, the tool refuses to emit rather than accept a remembered start time. `--ended-at` pins the far end of the window in place of the current clock, so a past run's receipt can be regenerated without its elapsed time growing to today.
 
 `.handoff/goal.md` is written by both the driver and the Phase 3 monitor loop, so `goal-sync.py` reads and writes it under a `--expect-sha256` compare-and-set. A lost status update is a silent evidence loss, which is why this is not a plain file edit.
 

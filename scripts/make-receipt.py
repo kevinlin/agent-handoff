@@ -12,7 +12,8 @@ Usage:
         --checks "npm test; bash lint.sh" --codex-jobs 2 --cc-jobs 1 \
         --copilot-jobs 1 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
-        [--anomalies none] [--started-at ISO8601] [--save] [--repo PATH]
+        [--anomalies none] [--started-at ISO8601] [--ended-at ISO8601] \
+        [--save] [--repo PATH]
 
 Tip: get --codex-jobs, --cc-jobs and --copilot-jobs from the job directories under
 <repo>/.handoff/jobs/ instead of recalling how many were submitted; each job's
@@ -20,9 +21,18 @@ meta names the backend that executed it.
 
 Duration is wall clock: --start writes <repo>/.handoff/session-start, and the
 receipt run measures against it, so time blocked on a human approval counts.
+--ended-at pins the far end instead of the current clock, which is what lets a
+past run's receipt be regenerated without the elapsed time growing to today.
 Per-job durations come from each job's meta submitted_at and the mtime of its
-exit_code, partitioned by that job's backend; jobs submitted before the session
-start belong to an earlier run and are left out.
+exit_code, partitioned by that job's backend; only jobs submitted inside the
+[start, end] window count, so an earlier or later run is left out.
+
+The declared --codex-jobs, --cc-jobs and --copilot-jobs counts are checked
+against those measured durations and a mismatch refuses to emit. A count that
+disagrees with the job directories means the window is wrong -- most often a
+session-start marker stamped after the run's first job -- and a receipt that
+indexes fewer jobs than it counts is the one failure the downstream cost
+renderer cannot work around.
 """
 
 from __future__ import annotations
@@ -63,7 +73,7 @@ def format_duration(seconds: float) -> str:
 BACKENDS = ("codex", "claude", "copilot")
 
 
-def job_durations(repo: str, started: datetime) -> dict[str, str]:
+def job_durations(repo: str, started: datetime, ended: datetime) -> dict[str, str]:
     """Per-job wall clock from job state, oldest first, split by backend.
 
     Keyed by BACKENDS. A job directory written before backend dispatch carries
@@ -78,7 +88,7 @@ def job_durations(repo: str, started: datetime) -> dict[str, str]:
         if not found:
             continue
         submitted = parse_iso(found.group(1))
-        if submitted < started:
+        if not started <= submitted <= ended:
             continue
         exit_code = meta.with_name("exit_code")
         value = (
@@ -97,6 +107,28 @@ def job_durations(repo: str, started: datetime) -> dict[str, str]:
     }
 
 
+def count_mismatches(fields: dict[str, str]) -> list[str]:
+    """Declared job counts that disagree with the measured durations."""
+
+    failures = []
+    for backend in BACKENDS:
+        count_field = "cc_jobs" if backend == "claude" else f"{backend}_jobs"
+        durations_field = count_field.replace("_jobs", "_job_durations")
+        declared = fields[count_field].strip()
+        if not declared.isdigit():
+            continue  # validate_receipt already reports a non-integer count
+        value = fields[durations_field].strip()
+        measured = 0 if value == "none" else len([e for e in value.split(";") if e.strip()])
+        if int(declared) != measured:
+            failures.append(
+                f"{count_field} is {declared} but {durations_field} has {measured} "
+                "measured entries; the session window is excluding jobs this run "
+                "submitted -- check .handoff/session-start against the job "
+                "directories, or pass --started-at/--ended-at"
+            )
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a valid Handoff Session Receipt.")
     parser.add_argument("--start", action="store_true", help="Stamp <repo>/.handoff/session-start and exit.")
@@ -111,6 +143,7 @@ def main() -> int:
     parser.add_argument("--config-source", default="n/a", help="session | project | global | default | n/a.")
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
     parser.add_argument("--started-at", help="ISO 8601 session start, overriding the .handoff/session-start marker.")
+    parser.add_argument("--ended-at", help="ISO 8601 receipt time, overriding the current clock; use it to regenerate a past run's receipt.")
     parser.add_argument("--save", action="store_true", help="Also write to <repo>/.handoff/receipts/.")
     parser.add_argument("--repo", default=".", help="Target repo holding .handoff/ (default: current directory).")
     args = parser.parse_args()
@@ -140,12 +173,16 @@ def main() -> int:
             )
             return 1
         started = parse_iso(marker.read_text(encoding="utf-8"))
-    elapsed = (now - started).total_seconds()
+    ended = parse_iso(args.ended_at) if args.ended_at else now
+    if ended > now:
+        print(f"FAIL receipt end {ended.isoformat()} is in the future; check the clock", file=sys.stderr)
+        return 1
+    elapsed = (ended - started).total_seconds()
     if elapsed < 0:
-        print(f"FAIL session start {started.isoformat()} is in the future; check the clock", file=sys.stderr)
+        print(f"FAIL session start {started.isoformat()} is after the receipt end; check the clock", file=sys.stderr)
         return 1
 
-    durations = job_durations(args.repo, started)
+    durations = job_durations(args.repo, started, ended)
     fields = {
         "phase": args.phase,
         "claude_session": args.claude_session,
@@ -165,7 +202,7 @@ def main() -> int:
     }
 
     validator = load_validator()
-    failures = validator.validate(dict(fields))
+    failures = validator.validate(dict(fields)) + count_mismatches(fields)
     if failures:
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
@@ -179,7 +216,7 @@ def main() -> int:
     if args.save:
         save_dir = Path(args.repo).resolve() / ".handoff" / "receipts"
         save_dir.mkdir(parents=True, exist_ok=True)
-        stamp = now.strftime("%Y%m%dT%H%M%SZ")
+        stamp = ended.strftime("%Y%m%dT%H%M%SZ")
         save_path = save_dir / f"receipt-{stamp}.md"
         save_path.write_text(receipt + "\n", encoding="utf-8")
         print(f"saved: {save_path}", file=sys.stderr)

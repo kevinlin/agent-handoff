@@ -2,6 +2,8 @@
 
 ## v3.7.1 (2026-09-10)
 
+- fix: `make-receipt.py` now checks each declared `--codex-jobs`/`--cc-jobs`/`--copilot-jobs` count against the durations it measured, and refuses to emit when they disagree. A `.handoff/session-start` marker stamped after the run's first job silently dropped that job from `*_job_durations` while the hand-passed count still claimed it; the result validated clean but made `render-cost-receipt.py` refuse, and would otherwise have omitted a real job's tokens from the cost report.
+- feat: `make-receipt.py --ended-at <ISO8601>` pins the receipt time instead of reading the current clock, so a past run's receipt can be regenerated without `duration` growing to today. Job durations now count only jobs submitted inside `[started, ended]`, and `--save` names the file from the pinned end.
 - Add per-identity `permission_mode` (`default` or `allow-all`) across config, delegation, terminal setup and browser setup.
 - Claude default now uses dontAsk with the worker tool set; Codex and Copilot default flags stay unchanged. Allow-all selects each provider's native unrestricted mode.
 - Resume preserves parent read-only state and posture; absent legacy posture means default.

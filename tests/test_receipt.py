@@ -171,8 +171,8 @@ def stamp(moment: datetime) -> str:
 
 RECEIPT_ARGS = (
     "--phase", "review", "--claude-session", "abc123",
-    "--checks", "unittest", "--codex-jobs", "1", "--cc-jobs", "1",
-    "--copilot-jobs", "1",
+    "--checks", "unittest", "--codex-jobs", "0", "--cc-jobs", "0",
+    "--copilot-jobs", "0",
     "--scope", "project", "--config-source", "project", "--roles-used", "[]",
 )
 
@@ -253,7 +253,8 @@ class MakeReceiptTests(unittest.TestCase):
                        started + timedelta(minutes=3, seconds=5))
         self.write_job(repo, "job-a-t1-r2", started + timedelta(minutes=2), None)
 
-        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started))
+        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started),
+                                           "--codex-jobs", "2")
         self.assertEqual(
             "job-a-t1=2min 05sec; job-a-t1-r2=running",
             emitted["codex_job_durations"],
@@ -275,7 +276,9 @@ class MakeReceiptTests(unittest.TestCase):
         self.write_job(repo, "job-cp", started + timedelta(minutes=7),
                        started + timedelta(minutes=8, seconds=15), backend="copilot")
 
-        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started))
+        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started),
+                                           "--codex-jobs", "1", "--cc-jobs", "2",
+                                           "--copilot-jobs", "1")
         self.assertEqual("job-cx=1min 00sec", emitted["codex_job_durations"])
         self.assertEqual("job-cc=2min 30sec; job-cc-r2=running", emitted["cc_job_durations"])
         self.assertEqual("job-cp=1min 15sec", emitted["copilot_job_durations"])
@@ -285,9 +288,75 @@ class MakeReceiptTests(unittest.TestCase):
         started = datetime.now(timezone.utc) - timedelta(hours=1)
         self.write_job(repo, "job-x", started + timedelta(minutes=1),
                        started + timedelta(minutes=2), backend="cursor")
-        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started))
+        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started),
+                                           "--codex-jobs", "1")
         self.assertEqual("job-x=1min 00sec", emitted["codex_job_durations"])
         self.assertEqual("none", emitted["copilot_job_durations"])
+
+    def test_ended_at_pins_the_far_end_of_the_duration(self):
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=9)
+        ended = started + timedelta(minutes=74)
+        emitted = self.make_receipt_fields(
+            repo, "--started-at", stamp(started), "--ended-at", stamp(ended))
+        self.assertEqual("74min 00sec", emitted["duration"])
+
+    def test_ended_at_in_the_future_refuses_to_emit(self):
+        made = self.run_make(
+            "--repo", str(self.temp_repo()), *RECEIPT_ARGS,
+            "--started-at", stamp(datetime.now(timezone.utc) - timedelta(hours=1)),
+            "--ended-at", stamp(datetime.now(timezone.utc) + timedelta(hours=1)),
+        )
+        self.assertEqual(1, made.returncode)
+        self.assertNotIn("[Handoff session receipt]", made.stdout)
+        self.assertIn("is in the future", made.stderr)
+
+    def test_a_job_submitted_after_the_end_is_a_later_run(self):
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=2)
+        ended = started + timedelta(minutes=30)
+        self.write_job(repo, "job-inside", started + timedelta(minutes=1),
+                       started + timedelta(minutes=4))
+        self.write_job(repo, "job-later-run", ended + timedelta(minutes=1),
+                       ended + timedelta(minutes=2))
+        emitted = self.make_receipt_fields(
+            repo, "--started-at", stamp(started), "--ended-at", stamp(ended),
+            "--codex-jobs", "1")
+        self.assertEqual("job-inside=3min 00sec", emitted["codex_job_durations"])
+
+    def test_a_count_the_durations_do_not_support_refuses_to_emit(self):
+        """The defect that produced receipt-20260910T022551Z: a session-start
+        marker stamped after the run's first job silently drops that job from
+        the durations while the hand-passed count still claims it."""
+
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        self.write_job(repo, "job-before-the-marker", started - timedelta(minutes=20),
+                       started - timedelta(minutes=14))
+        self.write_job(repo, "job-after", started + timedelta(minutes=1),
+                       started + timedelta(minutes=3))
+
+        made = self.run_make("--repo", str(repo), *RECEIPT_ARGS,
+                             "--started-at", stamp(started), "--codex-jobs", "2")
+        self.assertEqual(1, made.returncode)
+        self.assertNotIn("[Handoff session receipt]", made.stdout)
+        self.assertIn("codex_jobs is 2 but codex_job_durations has 1", made.stderr)
+
+    def test_widening_the_window_makes_that_receipt_emit(self):
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        self.write_job(repo, "job-first", started - timedelta(minutes=20),
+                       started - timedelta(minutes=14))
+        self.write_job(repo, "job-after", started + timedelta(minutes=1),
+                       started + timedelta(minutes=3))
+
+        emitted = self.make_receipt_fields(
+            repo, "--started-at", stamp(started - timedelta(minutes=20)),
+            "--codex-jobs", "2")
+        self.assertEqual(
+            "job-first=6min 00sec; job-after=2min 00sec",
+            emitted["codex_job_durations"],
+        )
 
 
 if __name__ == "__main__":
