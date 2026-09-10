@@ -378,7 +378,8 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
                     backend,
                 )
     initial_mode = "custom" if current else "balanced"
-    initial_matrix = current or presets["balanced"]
+    # Identities absent from config (usually the optional e2e pair) start from Balanced.
+    initial_matrix = {**presets["balanced"], **current}
     return {
         "repo": str(repo),
         "config_source": resolved["source"],
@@ -665,6 +666,8 @@ HTML = r'''<!doctype html>
       --accent-strong-hover:#6f2312;
       --accent-soft:#f7d9d0;
       --accent-soft-ink:#6b4c43;
+      --danger:#b3261e;
+      --on-danger:#ffffff;
       /* The hero map and code blocks stay dark slabs in both themes. */
       --slab:#171915;
       --slab-raised:#242720;
@@ -710,6 +713,7 @@ HTML = r'''<!doctype html>
       --accent-strong-hover:#8f2f19;
       --accent-soft:#38201a;
       --accent-soft-ink:#f0c7b8;
+      --danger:#d32f2f;
       --slab:#0f110c;
       --slab-raised:#23271e;
       --switch-bg:#0f110c;
@@ -843,6 +847,16 @@ HTML = r'''<!doctype html>
     label,.field-label { display:block; margin:0 0 6px; color:var(--muted-v2); font-size:11px; letter-spacing:.02em; }
     select,input[type=text] { width:100%; min-height:44px; padding:9px 10px; border:1px solid var(--line-v2); border-radius:11px; background:var(--field); color:var(--ink); font:13px var(--mono-v2); outline:none; }
     .source { margin-top:5px; color:var(--muted-v2); font-size:11px; overflow-wrap:anywhere; }
+    /* Permission switch: the track carries the current value's label and turns red on allow-all. */
+    .perm-switch { position:relative; margin:0; cursor:pointer; }
+    .perm-switch input { position:absolute; width:1px; height:1px; margin:0; opacity:0; }
+    .perm-track { position:relative; display:flex; align-items:center; min-height:44px; padding:0 12px 0 44px; border:1px solid var(--line-v2); border-radius:22px; background:var(--field); color:var(--ink); font:13px var(--mono-v2); white-space:nowrap; transition:background-color .2s,padding .2s var(--ease-out); }
+    .perm-track::before { content:""; position:absolute; left:5px; top:50%; width:32px; height:32px; border-radius:50%; background:var(--line-strong); transform:translateY(-50%); transition:left .2s var(--ease-out); }
+    .perm-switch input:checked + .perm-track { padding:0 44px 0 12px; border-color:var(--danger); background:var(--danger); color:var(--on-danger); font-weight:650; }
+    .perm-switch input:checked + .perm-track::before { left:calc(100% - 37px); background:var(--on-danger); }
+    .perm-switch input:checked + .perm-track [data-value="default"],
+    .perm-switch input:not(:checked) + .perm-track [data-value="allow-all"] { display:none; }
+    .perm-switch input:focus-visible + .perm-track { outline:3px solid rgba(231,91,56,.55); outline-offset:2px; }
 
     .settings-panel { position:sticky; top:18px; }
     .settings-head { background:var(--accent-soft); }
@@ -1257,7 +1271,7 @@ HTML = r'''<!doctype html>
             ? `<input id="${identity}-model" data-field="model" type="text" spellcheck="false" autocomplete="off" placeholder="Model name, exactly as Copilot names it" value="${esc(values.model || '')}" aria-describedby="${identity}-source">`
             : `<select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select>`}<div class="source" id="${identity}-source">Source: ${esc(sourceLabel(typed ? 'typed' : source))}</div></div>
           <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
-          <div class="field"><label for="${identity}-permission">Permission</label><select id="${identity}-permission" data-field="permission_mode">${state.permission_modes.map(p => `<option value="${p}" ${(values.permission_mode || 'default') === p ? 'selected' : ''}>${esc(state.permission_labels[p])}</option>`).join('')}</select></div>
+          <div class="field"><label for="${identity}-permission">Permission</label><label class="perm-switch"><input type="checkbox" role="switch" id="${identity}-permission" data-field="permission_mode" ${(values.permission_mode || 'default') === 'allow-all' ? 'checked' : ''}><span class="perm-track">${state.permission_modes.map(p => `<span data-value="${p}">${esc(state.permission_labels[p])}</span>`).join('')}</span></label></div>
           ${identity === state.spec_review_identity ? reviewAddon() : ''}
         </article>`;
       }).join('');
@@ -1274,11 +1288,13 @@ HTML = r'''<!doctype html>
     }
     function bindIdentityInputs() {
       $('specReview').addEventListener('change', invalidate);
-      document.querySelectorAll('.identity select, .identity input[type=text]').forEach(control => control.addEventListener('input', event => {
+      document.querySelectorAll('.identity select, .identity input[type=text], .identity input[role=switch]').forEach(control => control.addEventListener('input', event => {
         const card = event.target.closest('.identity');
         const identity = card.dataset.identity;
         const field = event.target.dataset.field;
-        matrix[identity][field] = event.target.value;
+        matrix[identity][field] = field === 'permission_mode'
+          ? (event.target.checked ? 'allow-all' : 'default')
+          : event.target.value;
         if (field === 'backend') {
           if (TYPED_MODEL_BACKENDS.includes(event.target.value)) {
             matrix[identity].model = '';

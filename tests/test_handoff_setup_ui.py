@@ -136,6 +136,8 @@ class SetupUITests(unittest.TestCase):
         self.assertIn("permission_mode: matrix[identity].permission_mode", page)
         self.assertIn("state.permission_labels[p]", page)
         self.assertIn("values.permission_mode || 'default'", page)
+        self.assertIn('role="switch"', page)
+        self.assertIn("event.target.checked ? 'allow-all' : 'default'", page)
 
     def test_state_shows_exact_detected_models_and_full_presets(self):
         state = handoff_setup_ui.build_state(self.repo, self.env)
@@ -433,6 +435,17 @@ class SetupUITests(unittest.TestCase):
         seeded = handoff_setup_ui.SetupController(self.repo, self.env).state()
         self.assertTrue(seeded["initial_spec_review"])
         self.assertEqual("deep_reasoner", seeded["spec_review_identity"])
+
+    def test_state_fills_unconfigured_e2e_identities_from_balanced(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            handoff_setup_ui.engine.main(
+                ["--apply", "--repo", str(self.repo), "--exclude-choice", "track", "--no-write-agents"],
+                env=self.env,
+            )
+        state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertEqual("custom", state["initial_mode"])
+        for identity in state["optional_identities"]:
+            self.assertEqual(state["presets"]["balanced"][identity], state["initial_matrix"][identity])
 
     def test_the_page_wires_the_checkbox(self):
         source = SCRIPT.read_text(encoding="utf-8")
