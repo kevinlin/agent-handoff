@@ -60,7 +60,7 @@
 - Modify: `docs/config-schema.md`
 
 **Interfaces:**
-- Produces: `REVIEW_FIELDS = ("spec_max_rounds", "implementation_max_rounds")`, `DEFAULT_REVIEW: Dict[str, int]`, `update_review(text: str, review: Mapping[str, int], host: str = HOST, *, path: Optional[Path] = None) -> str`, `write_review_config(path: Path, review: Mapping[str, int]) -> str`. `resolve_config(...)` returns a top-level `"review"` mapping with both keys always present. `parse_config`/`validate_config` return `"review"` only when the file has the section.
+- Produces: `REVIEW_FIELDS = ("spec_max_rounds", "implementation_max_rounds")`, `DEFAULT_REVIEW: Dict[str, int]`, `update_review(text: str, review: Mapping[str, int], host: str = HOST, *, path: Optional[Path] = None) -> str`, `write_review_config(path: Path, review: Mapping[str, int]) -> str`. `resolve_config(...)` returns a top-level `"review"` mapping with both keys always present, and raises `ConfigError` when `session_override` carries `review`. No writer (`update_host`, `update_review`, `emit_host_sections`) ever emits `auto_review_spec`. `parse_config`/`validate_config` return `"review"` only when the file has the section.
 - Removed: `auto_review_spec` from `IDENTITY_FIELD_ORDER` and `BOOLEAN_FIELDS`; the `set --spec-review/--no-spec-review` flags. `SPEC_REVIEW_IDENTITY` stays in this task (setup and the wizard still import it) and is deleted at the end of Task 2.
 
 - [ ] **Step 1: Write the failing tests.** Delete `class SpecReviewFieldTests` (it asserts the old toggle) and add:
@@ -101,6 +101,34 @@ class RetiredSpecReviewFieldTests(unittest.TestCase):
                 )
             self.assertEqual(0, status)
             self.assertNotIn("auto_review_spec", path.read_text(encoding="utf-8"))
+
+    def test_set_review_removes_it_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".handoff" / "config.toml"
+            path.parent.mkdir()
+            path.write_text(self.LEGACY, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                status = handoff_config.main(
+                    ["--repo", directory, "set-review", "--spec-max-rounds", "2"]
+                )
+            self.assertEqual(0, status)
+            written = path.read_text(encoding="utf-8")
+            self.assertNotIn("auto_review_spec", written)
+            self.assertIn("[review]\nspec_max_rounds = 2\n", written)
+
+    def test_the_public_writer_never_emits_it(self):
+        text = handoff_config.update_host(
+            "",
+            identities={
+                "deep_reasoner": {
+                    "backend": "claude",
+                    "model": "opus",
+                    "effort": "high",
+                    "auto_review_spec": True,
+                }
+            },
+        )
+        self.assertNotIn("auto_review_spec", text)
 
     def test_override_and_cli_flag_are_refused(self):
         with self.assertRaisesRegex(handoff_config.ConfigError, "IDENTITY.FIELD"):
@@ -204,9 +232,17 @@ class ReviewSectionTests(unittest.TestCase):
         text = handoff_config.update_review("", {"spec_max_rounds": 1, "implementation_max_rounds": 3})
         self.assertEqual(1, handoff_config.validate_config(text)["review"]["spec_max_rounds"])
 
-    def test_override_cannot_target_review(self):
+    def test_review_caps_have_no_session_override(self):
         with self.assertRaisesRegex(handoff_config.ConfigError, "IDENTITY.FIELD"):
             handoff_config._parse_override(["review.spec_max_rounds=2"])
+        # The public resolver is the boundary that matters: resume reads it.
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(handoff_config.ConfigError, "no session override"):
+                handoff_config.resolve_config(
+                    Path(directory),
+                    env=self.env_for(directory),
+                    session_override={"review": {"spec_max_rounds": 8}},
+                )
 
     def test_set_review_cli(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -300,6 +336,17 @@ and delete the whole `if "auto_review_spec" in fields:` block.
 
 `_host_overlay`: `for key in ("schema_version", "revision", "routing", "review"):`.
 
+`emit_host_sections`: skip retired keys so no caller can emit one — replace `fields = identities[identity]` with `fields = {key: value for key, value in identities[identity].items() if key not in RETIRED_IDENTITY_FIELDS}`.
+
+`resolve_config`: at the top of the `if session_override:` branch add
+
+```python
+        if "review" in session_override:
+            raise ConfigError(
+                "the review caps have no session override; set them with handoff-config.py set-review"
+            )
+```
+
 New functions after `update_host`:
 
 ```python
@@ -309,6 +356,17 @@ def emit_review_section(review: Mapping[str, int]) -> str:
     lines = ["[review]"]
     lines.extend(f"{key} = {_format_value(review[key])}" for key in REVIEW_FIELDS if key in review)
     return "\n".join(lines) + "\n"
+
+
+def _has_retired_fields(text: str, host: str = HOST) -> bool:
+    """Whether any identity chunk still carries a retired key, read from the raw text."""
+
+    prefix = f"hosts.{host}.identities."
+    pattern = re.compile(r"^[ \t]*(?:%s)[ \t]*=" % "|".join(RETIRED_IDENTITY_FIELDS), re.MULTILINE)
+    return any(
+        chunk.name and chunk.name.startswith(prefix) and pattern.search(chunk.text)
+        for chunk in split_sections(text)
+    )
 
 
 def update_review(
@@ -322,6 +380,12 @@ def update_review(
 
     if not text:
         text = update_host("", host, {}, path=path)
+    elif _has_retired_fields(text, host):
+        # Re-emit the identity sections so this write also drops the retired key.
+        # Only then: update_host normalizes blank lines, which would otherwise
+        # break byte preservation for files that need no cleanup.
+        identities = parse_config(text, host, path=path)["hosts"][host]["identities"]
+        text = update_host(text, host, identities, path=path)
     emitted = emit_review_section(review)
     kept: List[str] = []
     replaced = False
@@ -475,7 +539,22 @@ class ReviewCapsSetupTests(SetupTests):
         self.assertEqual(0, status)
         self.assertIn("review: spec_max_rounds=1 implementation_max_rounds=3", output)
         self.assertNotIn("spec_review=", output)
+
+    def test_a_bare_project_apply_keeps_inherited_global_caps(self):
+        global_path = handoff_setup.handoff_config.global_config_path(self.env)
+        global_path.parent.mkdir(parents=True, exist_ok=True)
+        global_path.write_text(
+            "schema_version = 2\nrevision = 0\n"
+            "[review]\nspec_max_rounds = 2\nimplementation_max_rounds = 5\n",
+            encoding="utf-8",
+        )
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual({"spec_max_rounds": 2, "implementation_max_rounds": 5}, self.resolved_review())
+        self.assertIn("[review]\nspec_max_rounds = 2\nimplementation_max_rounds = 5\n", self.config_text())
 ```
+
+Also update the existing `test_terminal_custom_wizard_asks_each_permission` (the terminal wizard now asks two cap questions where it asked the spec-review question): its answer list `["4", "1", "n", "n", "n", "n"]` becomes `["4", "1", "n", "n", "", "", "n"]` — mode, scope, agents, routing, spec cap (Enter keeps), implementation cap (Enter keeps), e2e.
 
 - [ ] **Step 2: Write the failing wizard tests.** In `tests/test_handoff_setup_ui.py`, add `"review": dict(state["initial_review"]),` to the dict returned by the `payload` helper, delete the spec-review tests (`…spec_review…`, `test_engine_arguments_always_state_the_toggle`, `test_state_seeds_the_checkbox_from_the_written_config`, `test_the_page_wires_the_checkbox`) and add:
 
@@ -538,12 +617,31 @@ class ReviewCapsSetupTests(SetupTests):
 
 - [ ] **Step 4: Implement `scripts/handoff-setup.py`.**
   - Delete `SPEC_REVIEW_IDENTITY = handoff_config.SPEC_REVIEW_IDENTITY`, the whole `apply_spec_review` function, and both `apply_spec_review(identities, args)` calls in `choose_identities`.
+  - `AGENT_TEXT["arbiter"]` (the generated `handoff-arbiter` agent) becomes:
+    ```python
+    "arbiter": (
+        "Independent arbiter: the blind second solver for contested calls, and the judge "
+        "of a review dispute that ran out of rounds.",
+        "For a blind solve, solve the received problem independently and treat any packet containing another answer, conclusion, or hint as contaminated; report it instead of using it. For an escalation ruling the packet carries both sides on purpose: rule on the open findings, and start your answer with exactly `verdict: approve` or `verdict: reject`.",
+    ),
+    ```
   - Add near `choose_identities`:
     ```python
-    def desired_review(args: argparse.Namespace, current: Mapping[str, Any]) -> Dict[str, int]:
-        """Explicit flags win, then the value already in this scope, then the default."""
+    def desired_review(
+        args: argparse.Namespace, env: Mapping[str, str], current: Mapping[str, Any]
+    ) -> Dict[str, int]:
+        """Explicit flags win, then this file's values, then what it inherits, then the default.
+
+        A project file inherits the global caps, the same resolution the wizard
+        seeds from, so a bare terminal apply never pins the defaults over them.
+        """
 
         review = dict(handoff_config.DEFAULT_REVIEW)
+        if args.scope == "project":
+            global_path = handoff_config.global_config_path(env)
+            if global_path.is_file():
+                inherited = handoff_config.validate_config(read_text(global_path), path=global_path)
+                review.update(inherited.get("review", {}))
         review.update(current)
         for key in handoff_config.REVIEW_FIELDS:
             value = getattr(args, key, None)
@@ -554,7 +652,7 @@ class ReviewCapsSetupTests(SetupTests):
             review[key] = value
         return review
     ```
-  - `build_plan`: declare `current_review: Mapping[str, Any] = {}` next to `current_identities`; in the `if old_config:` branch set `current_review = parsed.get("review", {})`; after that `if legacy / else` block and before the first `update_host` call, compute `review = desired_review(args, current_review)` (`build_plan` writes nothing, so a bad flag still fails before any write); after the second `update_host` call add `new_config = handoff_config.update_review(new_config, review, path=path)`.
+  - `build_plan`: declare `current_review: Mapping[str, Any] = {}` next to `current_identities`; in the `if old_config:` branch set `current_review = parsed.get("review", {})`; after that `if legacy / else` block and before the first `update_host` call, compute `review = desired_review(args, env, current_review)` (`build_plan` writes nothing, so a bad flag still fails before any write); after the second `update_host` call add `new_config = handoff_config.update_review(new_config, review, path=path)`.
   - `show_status`: delete the `spec_review` suffix; after the `config_source=` line print
     ```python
     review = resolved["review"]
@@ -712,6 +810,38 @@ class ReviewCapsSetupTests(SetupTests):
         self.assertNotEqual(0, refused.returncode)
         self.assertIn("ancestor job", refused.stderr)
 
+    def test_a_resume_with_no_parent_fails_closed(self):
+        job_id = self.submit("--label", "T5")
+        self.finish(job_id)
+        child = self.resume(job_id).stdout.strip()
+        self.finish(child)
+        meta = self.job_dir(child) / "meta"
+        meta.write_text(
+            "".join(
+                line for line in meta.read_text(encoding="utf-8").splitlines(True)
+                if not line.startswith("parent=")
+            ),
+            encoding="utf-8",
+        )
+        refused = self.resume(child)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("no parent", refused.stderr)
+
+    def test_a_parent_cycle_fails_closed(self):
+        job_id = self.submit("--label", "T6")
+        self.finish(job_id)
+        child = self.resume(job_id).stdout.strip()
+        self.finish(child)
+        root_meta = self.job_dir(job_id) / "meta"
+        root_meta.write_text(
+            root_meta.read_text(encoding="utf-8").replace("mode=fresh", "mode=resume")
+            + f"parent={child}\n",
+            encoding="utf-8",
+        )
+        refused = self.resume(child)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("loops", refused.stderr)
+
     def test_an_invalid_config_blocks_a_fix_round(self):
         job_id = self.submit("--label", "T4")
         self.finish(job_id)
@@ -729,9 +859,19 @@ If an existing test resumes one chain past round 3, call `self.configure_review(
 
 ```bash
   # The review cap counts real resume ancestry. The -r<n> suffix is label text
-  # a fresh job can carry too, so walk parent= back to the chain's first job.
-  local ROOT_JOB="$PARENT_JOB" ROUND=2 ANCESTOR
-  while ANCESTOR="$(meta_value parent "$ROOT_JOB")"; [ -n "$ANCESTOR" ]; do
+  # a fresh job can carry too, so walk parent= back to the chain's first job,
+  # failing closed on anything that would make the count wrong.
+  local ROOT_JOB="$PARENT_JOB" ROUND=2 ANCESTOR SEEN=" $PARENT_ID "
+  while :; do
+    [ -f "$ROOT_JOB/meta" ] || die "cannot count review rounds: $(basename "$ROOT_JOB") has no meta"
+    ANCESTOR="$(meta_value parent "$ROOT_JOB")"
+    if [ -z "$ANCESTOR" ]; then
+      [ "$(meta_value mode "$ROOT_JOB")" != "resume" ] \
+        || die "cannot count review rounds: $(basename "$ROOT_JOB") is a resume with no parent"
+      break
+    fi
+    case "$SEEN" in *" $ANCESTOR "*) die "cannot count review rounds: the parent chain loops at $ANCESTOR" ;; esac
+    SEEN="$SEEN$ANCESTOR "
     ROOT_JOB="$(job_dir "$ANCESTOR")"
     [ -d "$ROOT_JOB" ] || die "cannot count review rounds: ancestor job $ANCESTOR is missing"
     ROUND=$((ROUND + 1))
@@ -827,7 +967,7 @@ When a review gate reaches its cap without consensus (the spec gate with a block
 - Optionally run the gstack `/codex` review on the final combined diff as an independent third-party gate.
 ~~~~
 
-  (g) Phase 5, receipt bullet: append "Put every `## Arbitration` line into `--anomalies` as `arbitration: <task> approve|reject|no verdict (<jobId>)`, joined with any other anomalies by `; ` on one line; the receipt takes one line per field." In the next bullet, "E2E roles and a spec-review job appear in `roles_used`" becomes "E2E roles, the spec-review job, and any arbiter ruling appear in `roles_used`". Memory-protocol bullet: "rework rounds" becomes "rework rounds, escalations and their verdicts".
+  (g) Phase 5: the first bullet "- Mark tasks done in `.handoff/goal.md`; stop any remaining `/loop`." becomes "- Mark accepted tasks done in `.handoff/goal.md`; leave rows in `rejected` or `arbitration` as they are, because dependency holds and the user's decision on resume read them; stop any remaining `/loop`." Receipt bullet: append "Put every `## Arbitration` line into `--anomalies` as `arbitration: <task> approve|reject|no verdict (<jobId>)`, joined with any other anomalies by `; ` on one line; the receipt takes one line per field." In the next bullet, "E2E roles and a spec-review job appear in `roles_used`" becomes "E2E roles, the spec-review job, and any arbiter ruling appear in `roles_used`". Memory-protocol bullet: "rework rounds" becomes "rework rounds, escalations and their verdicts".
 
 - [ ] **Step 2: `references/handoff-template.md`.**
   - Intro: "Three packets, all bounded: …" becomes "Four packets, all bounded: the delegation packet the driver sends to a delegated job, the spec review packet it sends to `deep_reasoner` during planning, the arbitration packet it sends to `arbiter` when a review gate runs out of rounds, and the Goal Packet it sends to the user for authorization."
@@ -927,7 +1067,7 @@ Arbitration rules:
 
 - [ ] **Step 8: `docs/receipt-schema.json`.** The `anomalies` description becomes: "'none' or a short description: job stalled, job failed, takeback, failed check, arbitration, other. Several entries share this one line, joined with '; '; an escalation ruling reads 'arbitration: <task> approve|reject|no verdict (<jobId>)'." No other change; the schema stays v6.
 
-- [ ] **Step 9: Check.** `python3 -m json.tool docs/receipt-schema.json >/dev/null`; `bash scripts/check-skill-repo.sh .` → `fail=0`; `python3 scripts/english-only-scan.py` → PASS; `rg -n "auto_review_spec|--spec-review|two fix rounds|Maximum two" references SKILL.md CLAUDE.md` → no hits.
+- [ ] **Step 9: Check.** `python3 -m json.tool docs/receipt-schema.json >/dev/null`; `bash scripts/check-skill-repo.sh .` → `fail=0`; `python3 scripts/english-only-scan.py` → PASS; `rg -n "auto_review_spec|--spec-review|Maximum two fix rounds|take the task back and finish" references SKILL.md CLAUDE.md --glob '!references/setup.md'` → no hits. (`references/setup.md` belongs to R1, which runs in parallel; the new Phase 4 text says "the default allows two fix rounds" on purpose, so that phrase is not searched for.)
 
 ---
 
@@ -1048,27 +1188,32 @@ Replace the entry `spec-review-on-request-while-the-toggle-is-off` by:
 
 ### Task 6: User-facing docs and version 3.8.0
 
-**Files:** `README.md`, `docs/user-guide/agent-handoff.html`, `docs/user-guide/diagrams/{phase1-plan-split,flow-overview,feedback-loop,phase4-review-gate}.svg`, `CHANGELOG.md`, `docs/releases/v3.8.0.md` (create), `SKILL.md` (frontmatter only)
+**Files:** `README.md`, `docs/user-guide/agent-handoff.html`, `docs/user-guide/diagrams/{phase1-plan-split,flow-overview,feedback-loop,phase4-review-gate,handoff-packet-anatomy}.svg`, `CHANGELOG.md`, `docs/releases/v3.8.0.md` (create), `SKILL.md` (frontmatter only)
 
 - [ ] **Step 1: Version.** `SKILL.md` frontmatter `version: 3.8.0`. README line 8 badge: `Version: 3.8.0` and `version-3.8.0-ef6f4f`. Leave the "(v3.7.2)" heading of the session-page section alone; it dates that feature.
 
 - [ ] **Step 2: README.**
+  - "A diff that fails goes back to the same worker session as a fix round, at most two, and after that the driver finishes the task itself." becomes "A diff that fails goes back to the same worker session as a fix round, within the review cap (three passes by default); if findings are still open after the last pass, the arbiter rules on the dispute."
   - "A task gets two fix rounds at most, then comes back to Claude." becomes "A task gets three review passes by default (`implementation_max_rounds`); if findings are still open after the last one, the arbiter rules, and a rejection stops that task for you to pick up."
   - "- Plan review (`--spec-review`, off by default): `deep_reasoner` reads the plan once, read-only, before it reaches you." becomes "- Plan review (every run): `deep_reasoner` reads the plan, read-only, before it reaches you. A blocking finding the driver declines goes to the arbiter once `spec_max_rounds` (default 1) runs out."
   - Identity table: "| `arbiter` | blind second solve for contested calls | core |" becomes "| `arbiter` | blind second solve for contested calls; rules when a review gate runs out of rounds | core |".
 
 - [ ] **Step 3: `docs/user-guide/agent-handoff.html`.**
+  - `deep_reasoner` card: "Also the reviewer of the plan itself, when that toggle is on." becomes "Also the reviewer of every plan before it reaches the user."
+  - In the `<p>` starting "Everything above is the driver checking its own work.", "The optional spec review is what closes it: before the plan reaches the user, <code>deep_reasoner</code> reads it once on its own configured backend and reports what it would change." becomes "The spec review is what closes it: before any plan reaches the user, <code>deep_reasoner</code> reads it on its own configured backend and reports what it would change, each finding tagged blocking or advisory."
+  - Replace the whole `<p>` that starts "Three properties keep an optional extra job from turning into an argument that never ends." with `<p>Three properties keep a mandatory extra job from turning into an argument that never ends. It is <strong>capped</strong>: <code>spec_max_rounds</code> (default 1) bounds how many times the same reviewer reads the plan, and a blocking finding the driver still declines at the cap goes to the arbiter, whose ruling binds. It runs <strong>once per run</strong>: the goal file's <code>## Spec Review</code> block carries a status, any status other than <code>not run</code> means the automatic review is spent, and a resumed session finishes an open chain instead of starting a new one. And it is <strong>read-only</strong>: <code>--read-only</code> on the job, findings as the whole output, no edit to the spec, the goal file, or product code.</p>`
   - Replace the whole `<p>` that starts "One identity carries a sixth field." with `<p>No identity carries a spec-review toggle any more. Until 3.8.0 <code>deep_reasoner.auto_review_spec</code> decided whether the plan got a second read; now every plan does, and the engine drops the old key when it reads a config. The round caps for both review gates live in their own <code>[review]</code> section: <code>spec_max_rounds</code> (default 1) and <code>implementation_max_rounds</code> (default 3).</p>`
   - In the `<p>` starting "A fix round takes the same path at a smaller size.", `<code>&lt;parent&gt;-r2</code>` becomes `<code>&lt;root&gt;-r&lt;n&gt;</code>`, and before its closing `</p>` add " It refuses a round past the review cap before creating anything."
   - Stage 4 figcaption: "Rework is a resume carrying findings only, it is capped at two rounds, and the cap has a named consequence rather than a retry." becomes "Rework is a resume carrying findings only, capped at <code>implementation_max_rounds</code> review passes (default 3), and the cap has a named consequence: the arbiter rules."
   - Replace the `<li>` starting "<strong>Two rounds fail.</strong>" with `<li><strong>The last review pass still has findings open.</strong> The argument goes to the arbiter with both sides of it. An approval accepts the diff over the driver's findings; a rejection is final for the run: the row is marked <code>rejected</code>, its diff is set aside, and the ruling goes into the goal file's <code>## Arbitration</code> block, the notes, and the receipt, which is what lets the memory protocol learn that this task type does not delegate well.</li>`
   - Table cell "Two fix rounds maximum, each carrying only prioritized findings and the failed criteria; then the driver takes the task back" becomes "Review passes capped by <code>implementation_max_rounds</code> (default 3), each fix round carrying only prioritized findings and the failed criteria; then the arbiter rules".
-  - `rg -n "spec-review|auto_review_spec|two rounds|two fix rounds" docs/user-guide/agent-handoff.html` → no hits left; fix any the list above missed in the same voice.
+  - `rg -n "toggle is on|optional spec review|optional extra job|two rounds|two fix rounds|at most two" docs/user-guide/agent-handoff.html` → no hits. (`auto_review_spec` stays once, in the retirement paragraph above.)
 
 - [ ] **Step 4: SVG labels** (text content only; keep every element, attribute, and coordinate):
-  - `phase1-plan-split.svg`: "auto_review_spec on, or the user asks for a second reader" → "every plan; a declined blocking finding goes to the arbiter at the cap".
-  - `flow-overview.svg`: "max 2 rounds, then take the task back" → "3 review passes by default, then the arbiter"; "takeback noted in goal.md and receipt" → "ruling noted in goal.md and receipt".
-  - `feedback-loop.svg`: "rework ≤ 2 rounds — resume the same session, send findings + failed criteria only" → "rework within the cap (3 passes) — resume the same session, send findings + failed criteria only"; "max two fix rounds" → "cap: 3 review passes"; "Notes carry takebacks" → "Notes carry rulings"; the row group at y≈892–908 ("after two rounds" / "the argument ends: the driver takes the task back into" / the following line / "driver; status taken-back in goal.md," / "the takeback repeated in the receipt") says instead: "at the cap" / "the arbiter rules on the dispute; a rejection is final" / "for the run, and the task waits for the user" / "row rejected in goal.md," / "the ruling repeated in the receipt". Keep line lengths close to the originals so nothing overflows its box. The anomaly line "anomaly — cancel, read stderr.log, resubmit or take back" stays.
+  - `phase1-plan-split.svg`: "Spec review — optional, and only here" → "Spec review — every plan, capped"; "auto_review_spec on, or the user asks for a second reader" → "every plan; a declined blocking finding goes to the arbiter at the cap".
+  - `flow-overview.svg`: "optional: deep_reasoner reads it once" → "deep_reasoner reviews every plan"; "max 2 rounds, then take the task back" → "3 review passes by default, then the arbiter"; "takeback noted in goal.md and receipt" → "ruling noted in goal.md and receipt".
+  - `feedback-loop.svg`: subtitle "Rework is bounded; the end of the road is a recorded takeback." → "Rework is bounded; the end of the road is a recorded arbiter ruling."; "rework ≤ 2 rounds — resume the same session, send findings + failed criteria only" → "rework within the cap (3 passes) — resume the same session, send findings + failed criteria only"; "max two fix rounds" → "cap: 3 review passes"; "Notes carry takebacks" → "Notes carry rulings"; in the "still failing" row: "after two rounds" → "at the cap"; "the argument ends: the driver takes the task back into" → "the arbiter rules on the dispute, with both sides"; "its own session rather than sending a third round" → "in its packet; a rejection is final for the run"; "driver; status taken-back in goal.md," → "driver; status rejected in goal.md,"; "the takeback repeated in the receipt" → "the ruling repeated in the receipt". The anomaly line "anomaly — cancel, read stderr.log, resubmit or take back" stays.
+  - `handoff-packet-anatomy.svg`: "Claude &#8594; deep_reasoner &#183; planning, read-only, optional" → "Claude &#8594; deep_reasoner &#183; planning, read-only, every plan".
   - `phase4-review-gate.svg`: "two rounds maximum per task" → "cap: implementation_max_rounds (3)"; "Two rounds failed → take the task back" → "Cap reached → the arbiter rules"; "finish it in the driver; write the takeback into goal.md's" → "approve accepts; reject is final; record it in goal.md's".
   - Check: `python3 -c "import sys, xml.etree.ElementTree as E; [E.parse(f) for f in sys.argv[1:]]" docs/user-guide/diagrams/*.svg` exits 0; `rg -n "two rounds|two fix rounds|max 2 rounds|auto_review_spec|taken-back" docs/user-guide/diagrams` → no hits.
 
@@ -1114,8 +1259,9 @@ Limits: `resume` is the only script that counts rounds, so a fresh `submit` star
 ~~~~
 
 - [ ] **Step 7: Check.** `bash scripts/check-skill-repo.sh .` → `fail=0`; `python3 scripts/english-only-scan.py` → PASS; `rg -n "3\.7\.2" SKILL.md README.md | head` shows only the session-page section heading and its release link.
+- [ ] **Step 8: Behaviour audit beyond the listed phrases.** `rg -n -i "optional|toggle|take.{0,20}back|takeback|two rounds|once per run|second pair of eyes" README.md docs/user-guide` and read every hit. Fix any that still describe spec review as optional or the post-cap takeback, in the same voice. Leave the optional e2e pair and the monitoring-anomaly takeback alone; both are still true.
 
-- [ ] **Step 8 (driver, after review): commit** `feat: Agent Handoff 3.8.0 -- review gates`.
+- [ ] **Step 9 (driver, after review): commit** `feat: Agent Handoff 3.8.0 -- review gates`.
 
 ---
 
@@ -1137,4 +1283,4 @@ Limits: `resume` is the only script that counts rounds, so a fresh `submit` star
   Note the receipt roundtrip restamps `.handoff/session-start`; run it after this run's own receipt is saved, or pass `--started-at` to this run's receipt.
 - [ ] Manual check: `python3 scripts/handoff-setup-ui.py --repo <scratch repo>` opens; the Review gates fields show 1 and 3; preview shows a `[review]` section in the diff.
 - [ ] De-slop pass (the `declawed` skill) on the prose that ships: `CHANGELOG.md` entry, `docs/releases/v3.8.0.md`, the README and user-guide edits, and the new text in `references/` and `SKILL.md`.
-- [ ] Final check that nothing outside history still describes the old behaviour: `rg -n "auto_review_spec|--spec-review|two fix rounds|Maximum two" --glob '!docs/specs/**' --glob '!CHANGELOG.md' --glob '!docs/releases/**' --glob '!docs/research/**' --glob '!examples/**' .` → only the retired-field code, the tests that assert its removal, the one `must_not` prompt line, and the "retired in 3.8.0" notes in `docs/config-schema.md` and the user guide.
+- [ ] Final check that nothing outside history still describes the old behaviour: `rg -n "auto_review_spec|--spec-review|Maximum two fix rounds|take the task back and finish|toggle is on|at most two, and after that" --glob '!docs/specs/**' --glob '!CHANGELOG.md' --glob '!docs/releases/**' --glob '!docs/research/**' --glob '!examples/**' .` → only the retired-field code, the tests that assert its removal, the one `must_not` prompt line, and the "retired in 3.8.0" notes in `docs/config-schema.md` and the user guide.
