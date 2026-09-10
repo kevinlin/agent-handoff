@@ -24,7 +24,7 @@ node_modules/
 
 # Agent Handoff: config, goal, jobs, receipts, handoffs, backups
 .handoff/
-.claude/agents/handoff-fast-worker.md
+.claude/agents/
 
 
 # Marker written by install.sh into an installed skill dir
