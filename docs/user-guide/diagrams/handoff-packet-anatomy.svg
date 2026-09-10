@@ -146,7 +146,7 @@
   <rect x="44" y="812" width="1176" height="300" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
   <rect x="44" y="812" width="1176" height="52" rx="10" fill="rgba(37,99,235,0.10)"/>
   <text x="62" y="838" class="cardtitle">Spec Review Packet</text>
-  <text x="62" y="856" class="route" fill="#1d4ed8">Claude &#8594; deep_reasoner &#183; planning, read-only, optional</text>
+  <text x="62" y="856" class="route" fill="#1d4ed8">Claude &#8594; deep_reasoner &#183; planning, read-only, every plan</text>
 
   <text x="62" y="893" class="sec">Context — why-forward</text>
   <text x="62" y="909" class="secnote">planning X for Y; the plan is about to go</text>
@@ -172,9 +172,9 @@
   <text x="862" y="979" class="secnote">the plan is sound beats invented findings</text>
 
   <rect x="62" y="1010" width="1140" height="92" rx="8" fill="#f1f5f9"/>
-  <text x="80" y="1032" class="rulehead">Once per run, and the driver still rules</text>
-  <text x="80" y="1054" class="rule">The goal file's Spec Review block is the marker: a non-empty block means the automatic review is spent, so a revised plan, a thin review,</text>
-  <text x="80" y="1071" class="rule">and a resumed session all fail to re-trigger it. Findings are input to a judgment, never a verdict applied unread.</text>
+  <text x="80" y="1032" class="rulehead">Once per run; declined blockers go to the arbiter at the cap</text>
+  <text x="80" y="1054" class="rule">The goal file's Spec Review status is the marker: any status other than not run means the automatic review is spent for this run.</text>
+  <text x="80" y="1071" class="rule">A resumed session finishes an open chain. The driver assesses findings; a declined blocking finding at the cap goes to the arbiter.</text>
   <text x="80" y="1088" class="rule">It is also the one packet that narrows this template rather than widening it: the e2e packets add a commit, this one removes every write.</text>
 
   <text x="34" y="1150" class="rulehead">Shared invariant</text>

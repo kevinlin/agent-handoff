@@ -45,7 +45,7 @@
   <text x="547" y="181" class="line">deep_reasoner — ambiguous, high stakes</text>
   <text x="547" y="198" class="line">identity "-" — the driver keeps it</text>
   <text x="547" y="215" class="line">the identity picks the CLI and meter</text>
-  <text x="547" y="232" class="line">deep_reasoner can also review the plan</text>
+  <text x="547" y="232" class="line">deep_reasoner reviews the plan</text>
 
   <rect x="860" y="116" width="318" height="128" rx="8" fill="#ffffff" stroke="#e11d48" stroke-width="1.4"/>
   <text x="877" y="142" class="cardtitle">Adversarial gate on your own split</text>
@@ -53,7 +53,7 @@
   <text x="877" y="181" class="line">does the split boundary eat the saving?</text>
   <text x="877" y="198" class="line">does each identity match the stakes?</text>
   <text x="877" y="215" class="warn">fix the split before delegating</text>
-  <text x="877" y="232" class="line">optional: deep_reasoner reads it once</text>
+  <text x="877" y="232" class="line">deep_reasoner reviews every plan</text>
 
   <polygon points="120,264 132,264 126,274" fill="#94a3b8"/>
 
@@ -145,8 +145,8 @@
   <text x="877" y="636" class="cardtitle">Fix rounds</text>
   <text x="877" y="658" class="line">resume &lt;jobId&gt; on the same session</text>
   <text x="877" y="675" class="line">send findings + failed criteria only</text>
-  <text x="877" y="692" class="line">max 2 rounds, then take the task back</text>
-  <text x="877" y="709" class="line">takeback noted in goal.md and receipt</text>
+  <text x="877" y="692" class="line">3 passes by default, then the arbiter</text>
+  <text x="877" y="709" class="line">ruling noted in goal.md and receipt</text>
 
   <polygon points="120,738 132,738 126,748" fill="#94a3b8"/>
 

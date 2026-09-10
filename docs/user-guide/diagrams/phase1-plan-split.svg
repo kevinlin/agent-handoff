@@ -143,11 +143,11 @@
   <rect x="96" y="1204" width="500" height="126" rx="9" fill="#ffffff" stroke="#7c3aed" stroke-width="1.4"/>
   <rect x="110" y="1215" width="109.6" height="18" rx="6" fill="#2563eb" opacity="0.10"/>
   <text x="118" y="1228" class="pill" fill="#2563eb">deep_reasoner</text>
-  <text x="110" y="1254" class="ntitle">Spec review — optional, and only here</text>
-  <text x="110" y="1272" class="note">auto_review_spec on, or the user asks for a second reader</text>
+  <text x="110" y="1254" class="ntitle">Spec review — every plan, capped</text>
+  <text x="110" y="1272" class="note">every plan; declined blockers go to the arbiter at the cap</text>
   <text x="110" y="1287" class="note">the plan goes in the packet verbatim; the job is --read-only</text>
   <text x="110" y="1302" class="note">findings come back; the driver folds in what holds</text>
-  <text x="110" y="1317" class="note">goal.md ## Spec Review records it — nothing repeats it</text>
+  <text x="110" y="1317" class="note">goal.md ## Spec Review tracks status; resume open chains</text>
   <path d="M 596 1250 H 622 V 1256 H 641" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a)"/>
   <rect x="648" y="1204" width="500" height="126" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.2"/>
   <rect x="662" y="1215" width="109.6" height="18" rx="6" fill="#2563eb" opacity="0.10"/>

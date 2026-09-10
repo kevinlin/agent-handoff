@@ -5,7 +5,7 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.7.2](https://img.shields.io/badge/version-3.7.2-ef6f4f)](CHANGELOG.md)
+[![Version: 3.8.0](https://img.shields.io/badge/version-3.8.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -110,7 +110,7 @@ python3 ~/.claude/skills/agent-handoff/scripts/handoff-session-ui.py --repo /pat
 </a>
 </div>
 
-Claude Code drives five steps. It plans the work and splits it into one row per identity, then attacks its own split: a row that fails the gate is fixed before anything leaves the driver. Each surviving row goes to a worker CLI as a background job with its own jobId. The backend (Codex, a second Claude Code, or Copilot) comes from the identity's config, and the job looks the same on all three. The driver checks the job's status on disk instead of holding its history in context. When the job finishes, the driver reads the whole diff against `.handoff/goal.md`. A diff that fails goes back to the same worker session as a fix round, at most two, and after that the driver finishes the task itself. A diff that passes goes to wrap up, which writes the session receipt.
+Claude Code drives five steps. It plans the work and splits it into one row per identity, then attacks its own split: a row that fails the gate is fixed before anything leaves the driver. Each surviving row goes to a worker CLI as a background job with its own jobId. The backend (Codex, a second Claude Code, or Copilot) comes from the identity's config, and the job looks the same on all three. The driver checks the job's status on disk instead of holding its history in context. When the job finishes, the driver reads the whole diff against `.handoff/goal.md`. A diff that fails goes back to the same worker session as a fix round, within the review cap (three passes by default); if findings are still open after the last pass, the arbiter rules on the dispute. A diff that passes goes to wrap up, which writes the session receipt.
 
 Each phase has its own diagram in [`docs/user-guide/diagrams/`](docs/user-guide/diagrams/): the [plan and split gate](docs/user-guide/diagrams/phase1-plan-split.svg), [delegation](docs/user-guide/diagrams/phase2-delegate.svg), [the monitor loop](docs/user-guide/diagrams/phase3-monitor.svg), [the review gate](docs/user-guide/diagrams/phase4-review-gate.svg), and [wrap up](docs/user-guide/diagrams/phase5-wrap-up.svg), plus [packet anatomy](docs/user-guide/diagrams/handoff-packet-anatomy.svg), [the evidence ladder](docs/user-guide/diagrams/context-ladder.svg), and [the goal-drift loop](docs/user-guide/diagrams/feedback-loop.svg). The prose they illustrate is [`references/claude-driven.md`](references/claude-driven.md).
 
@@ -210,9 +210,9 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 
 - Claude Code plans, splits, integrates, and signs off. The worker implements, runs checks, and reworks.
 - Split gate: every row answers three questions in writing before it moves to a cheaper identity. A row that fails gets another identity or stays with Claude.
-- Full review: the driver reads the whole diff against the acceptance criteria in `.handoff/goal.md`. A task gets two fix rounds at most, then comes back to Claude.
+- Full review: the driver reads the whole diff against the acceptance criteria in `.handoff/goal.md`. A task gets three review passes by default (`implementation_max_rounds`); if findings are still open after the last one, the arbiter rules, and a rejection stops that task for you to pick up.
 - Blind arbitration: on a contested call, `deep_reasoner` and `arbiter` answer without seeing each other's work. The driver rules, and the receipt records it.
-- Plan review (`--spec-review`, off by default): `deep_reasoner` reads the plan once, read-only, before it reaches you.
+- Plan review (every run): `deep_reasoner` reads the plan, read-only, before it reaches you. A blocking finding the driver declines goes to the arbiter once `spec_max_rounds` (default 1) runs out.
 - Full protocol (opt-in, [`references/goal-to-pr.md`](references/goal-to-pr.md)): runs unattended from plan to a merge-ready, preview-verified PR. Merge, production, tags, force-push, deletion, destructive migrations, and external publishing each still need your explicit go-ahead.
 
 ### Jobs
@@ -235,9 +235,9 @@ Five identities, each a `backend + model + effort` triple set on its own. `backe
 
 | identity | carries | |
 |---|---|---|
-| `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis, the optional plan review | core |
+| `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis, review of every plan | core |
 | `fast_worker` | mechanical, spec-complete implementation and checks | core |
-| `arbiter` | blind second solve for contested calls | core |
+| `arbiter` | blind second solve for contested calls; rules when a review gate runs out of rounds | core |
 | `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
 | `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
 

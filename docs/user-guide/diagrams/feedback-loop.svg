@@ -38,13 +38,13 @@
   <rect width="1240" height="1020" fill="url(#grid)"/>
 
   <text x="40" y="42" class="title">The goal-drift control loop</text>
-  <text x="40" y="64" class="subtitle">Every gate judges the work against the written goal, not against the stage before it. Rework is bounded; the end of the road is a recorded takeback.</text>
+  <text x="40" y="64" class="subtitle">Every gate judges the work against the written goal, not against the stage before it. Rework is bounded; the end of the road is a recorded arbiter ruling.</text>
 
   <text x="40" y="102" class="colhead">THE LOOP — five stages, one written reference</text>
 
   <!-- the two backward paths, named once so the arcs stay unlabelled and uncrossed -->
   <line x1="40" y1="122" x2="56" y2="122" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <text x="62" y="126" class="arc">rework ≤ 2 rounds — resume the same session, send findings + failed criteria only</text>
+  <text x="62" y="126" class="arc">rework within the cap (3 passes) — resume the same session, send findings + failed criteria only</text>
   <line x1="40" y1="142" x2="56" y2="142" stroke="#d97706" stroke-width="1.6" stroke-dasharray="4 3"/>
   <text x="62" y="146" class="arc2">anomaly — cancel, read stderr.log, resubmit or take back</text>
 
@@ -86,14 +86,14 @@
     <text x="768" y="248" class="line">whole diff vs criteria</text>
     <text x="768" y="264" class="line">not diff-internal</text>
     <text x="768" y="280" class="line">diff-only caught 0 of 5</text>
-    <text x="768" y="296" class="line">max two fix rounds</text>
+    <text x="768" y="296" class="line">cap: 3 review passes</text>
   </g>
   <g>
     <rect x="992" y="204" width="218" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
     <circle cx="1010" cy="222" r="9" fill="#d97706"/><text x="1010" y="225.5" class="num" text-anchor="middle">5</text>
     <text x="1026" y="226" class="cardtitle">Accept + wrap</text>
     <text x="1006" y="248" class="line">receipt from evidence</text>
-    <text x="1006" y="264" class="line">Notes carry takebacks</text>
+    <text x="1006" y="264" class="line">Notes carry rulings</text>
     <text x="1006" y="280" class="line">memory feeds next run</text>
     <text x="1006" y="296" class="line">merge stays the user's</text>
   </g>
@@ -171,10 +171,10 @@
   <g>
     <rect x="40" y="736" width="1170" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0"/>
     <text x="52" y="754" class="rowkey">a plan nobody else read</text>
-    <text x="52" y="770" class="rowtext">optional, once per run</text>
+    <text x="52" y="770" class="rowtext">mandatory, once per run</text>
     <text x="330" y="754" class="rowtext">deep_reasoner reads the plan the driver just wrote and</text>
     <text x="330" y="770" class="rowtext">reports what it would change; informed, not blind</text>
-    <text x="860" y="754" class="rowtext">driver rules on the findings;</text>
+    <text x="860" y="754" class="rowtext">declined blockers: arbiter at cap;</text>
     <text x="860" y="770" class="rowtext">outcome goes in the Spec Review block</text>
   </g>
   <g>
@@ -198,11 +198,11 @@
   <g>
     <rect x="40" y="874" width="1170" height="42" rx="6" fill="#ffffff" stroke="#e2e8f0"/>
     <text x="52" y="892" class="rowkey">still failing</text>
-    <text x="52" y="908" class="rowtext">after two rounds</text>
-    <text x="330" y="892" class="rowtext">the argument ends: the driver takes the task back into</text>
-    <text x="330" y="908" class="rowtext">its own session rather than sending a third round</text>
-    <text x="860" y="892" class="rowtext">driver; status taken-back in goal.md,</text>
-    <text x="860" y="908" class="rowtext">the takeback repeated in the receipt</text>
+    <text x="52" y="908" class="rowtext">at the cap</text>
+    <text x="330" y="892" class="rowtext">the arbiter rules on the dispute, with both sides</text>
+    <text x="330" y="908" class="rowtext">in its packet; a rejection is final for the run</text>
+    <text x="860" y="892" class="rowtext">driver; status rejected in goal.md,</text>
+    <text x="860" y="908" class="rowtext">the ruling repeated in the receipt</text>
   </g>
   <g>
     <rect x="40" y="920" width="1170" height="42" rx="6" fill="#fff1f3" stroke="#fecdd3"/>

@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.8.0 (2026-09-11)
+
+### Two review gates, one shape
+
+- **breaking**: spec review runs on every plan. `deep_reasoner.auto_review_spec` is retired: the config reader drops it, so an old config still loads and the next write removes it. `--spec-review`/`--no-spec-review` are gone from `handoff-config.py set` and `handoff-setup.py`, and `--override deep_reasoner.auto_review_spec=…` is refused. Off by default meant most plans were read only by their author.
+- feat: a `[review]` config section with two round caps, `spec_max_rounds` (default 1) and `implementation_max_rounds` (default 3). A round is a review pass in both gates: the original job is pass one and each `resume` adds one. Set them with `handoff-config.py set-review`, `handoff-setup.py --spec-max-rounds`/`--implementation-max-rounds`, or the wizard's Review gates fields; `resolve` and `--status` print them. `schema_version` stays 2.
+- feat: `delegate-codex.sh resume` enforces the cap. It walks `parent=` back to the chain's first job, applies the spec cap to a `spec-review` chain and the implementation cap to any other, and refuses a round past the cap before creating a job directory. The round count no longer trusts the `-r<n>` suffix, which a fresh label can carry too.
+- feat: at the cap without consensus, the driver sends the whole dispute to `arbiter` in the new Arbitration Packet, and the ruling binds. An approval can overrule the driver's findings but never replaces an e2e PASS. A rejection is final for the run: the row is `rejected`, its diff is set aside, and reopening it is a new run. A failed arbiter job gets one resubmit and is never read as approval. The takeback after the last fix round is gone; takeback stays for monitoring anomalies.
+- feat: spec review findings are tagged blocking or advisory, and only a declined blocking finding escalates. The goal file's `## Spec Review` block carries explicit states, so a resumed session finishes an open chain instead of reading it as done.
+- Every ruling, approve included, is recorded in the goal file's `## Arbitration` block and in the receipt's `anomalies` line. Receipt schema stays 6.
+
 ## v3.7.2 (2026-09-10)
 
 - A diagram that declares no lane map now reports that on stdout with the generation prompt, so the driver offers to fix it after the page is open — annotating the existing SVG in place with `viewBox`, `data-axis` and `data-lanes` read off its own geometry, or redrawing it when that geometry is unreadable. Asked rather than done: unlike exit 3 the page already renders, and the fix only buys hotspots.

@@ -179,16 +179,16 @@
 <p>Agent Handoff is one flow with one driver. Claude Code plans, splits, gates and reviews; a worker CLI executes the delegable bulk of the implementation as background jobs. Which CLI is not a per-run decision: each task row names an identity, and that identity’s configured <code>backend</code> says whether the job runs on <code>codex exec</code>, on a second Claude Code, or on GitHub Copilot CLI. Codex is the common answer, not the definition — delegation still pays when the backend is <code>claude</code> or <code>copilot</code>, because the execution history stays in the job directory instead of the driver’s context. The skill went through a two-direction era where Codex could also be the orchestrator, and that half is gone: there is no <code>direction</code> field, no second host adapter, and no second monitoring surface. What is left is a single spine of five stages, and the interesting design lives in what crosses between them.</p>
 
 <figure>
-  <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol. The plan and split band notes the optional spec review and its once-per-run marker.">
+  <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol. The plan and split band notes the mandatory spec review and its once-per-run status.">
   <figcaption>The flow, phase by phase. The job primitive turns each delegated task into filesystem state that a later tick or a resumed session can read.</figcaption>
 </figure>
 
 <p>The driver plans, writes the split into <code>.handoff/goal.md</code>, and delegates. Each task row carries one judgment: which capability the work needs. That single choice determines everything downstream, because the identity's configured <code>backend</code> decides which CLI executes and which meter bills.</p>
 
 <div class="grid">
-  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find late: architecture, root-cause diagnosis, config changes that fail silently. Also the reviewer of the plan itself, when that toggle is on.</p></div>
+  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find late: architecture, root-cause diagnosis, config changes that fail silently. Also the reviewer of every plan before it reaches the user.</p></div>
   <div class="card"><h4>fast_worker</h4><p>Mechanical, specification-complete work whose acceptance criteria are enough to verify it. The bulk of what gets delegated.</p></div>
-  <div class="card"><h4>arbiter</h4><p>The blind second solver, invoked for contentious calls rather than assigned routine rows.</p></div>
+  <div class="card"><h4>arbiter</h4><p>The blind second solver for contentious calls, and the judge a review gate escalates to when its cap runs out. Never assigned routine rows.</p></div>
   <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Turns a frozen specification into Gherkin scenarios with stable IDs plus repo-native executable tests. Depends only on the spec, so it runs beside the implementation.</p></div>
   <div class="card"><h4>e2e_verifier <span class="src">opt-in</span></h4><p>Runs the reviewed tests against a pinned commit and writes a validated verdict. Depends on both the specifier and the implementation.</p></div>
   <div class="card"><h4>identity <code>-</code></h4><p>Kept inline by the driver: the split decision itself, cross-task integration, security-critical paths, final acceptance.</p></div>
@@ -196,7 +196,7 @@
 
 <p>Three of the five are always configured; the two e2e identities are written only when setup runs <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five are a <code>backend + model + effort</code> triple that can be mixed across the three vendors, and the values live only in <code>.handoff/config.toml</code> or <code>~/.config/handoff/config.toml</code> — never in a prompt, never in a doc.</p>
 
-<p>One identity carries a sixth field. <code>deep_reasoner.auto_review_spec</code> is a responsibility toggle rather than a routing value: it says whether that identity reads the plan once during Stage 1, and nothing else about it. The engine rejects it on any other identity instead of ignoring it. Absent means off, and flipping it leaves <code>verified</code> alone: no model, backend, or effort changed.</p>
+<p>No identity carries a spec-review toggle any more. Until 3.8.0 <code>deep_reasoner.auto_review_spec</code> decided whether the plan got a second read; now every plan does, and the engine drops the old key when it reads a config. The round caps for both review gates live in their own <code>[review]</code> section: <code>spec_max_rounds</code> (default 1) and <code>implementation_max_rounds</code> (default 3).</p>
 
 <h3>The job primitive</h3>
 
@@ -230,8 +230,8 @@
 <h2 id="stage1">Stage 1 — Plan and split</h2>
 
 <figure>
-  <img src="diagrams/phase1-plan-split.svg" alt="Event flowchart: the user's request enters the Claude driver, which preflights, drafts the split, reads and compare-and-set writes the goal file through goal-sync.py, then attacks its own split at the adversarial gate; a refusal box and a failed-question box branch right, with a dashed loop back to the compose step. Below the gate, an optional deep_reasoner spec review node feeds an adjusted plan into the ready-to-delegate step, with a side card on why that review is informed rather than blind.">
-  <figcaption><strong>Stage 1.</strong> The two branches are the ones that stop the run: a compare-and-set refusal, and a gate answer that sends the split back to be rewritten. The last step is the optional one, and the only one that leaves the driver before the user has seen anything.</figcaption>
+  <img src="diagrams/phase1-plan-split.svg" alt="Event flowchart: the user's request enters the Claude driver, which preflights, drafts the split, reads and compare-and-set writes the goal file through goal-sync.py, then attacks its own split at the adversarial gate; a refusal box and a failed-question box branch right, with a dashed loop back to the compose step. Below the gate, a mandatory deep_reasoner spec review node feeds an adjusted plan into the ready-to-delegate step, with a side card on why that review is informed rather than blind.">
+  <figcaption><strong>Stage 1.</strong> The two branches are the ones that stop the run: a compare-and-set refusal, and a gate answer that sends the split back to be rewritten. The last step reviews every plan, and is the only one that leaves the driver before the user has seen anything.</figcaption>
 </figure>
 
 <p>Preflight does four cheap things, and one of them is a clock. <code>make-receipt.py --start</code> stamps <code>.handoff/session-start</code>, which is what the Stage 5 receipt measures <code>duration</code> against; without the marker the tool later refuses to emit rather than accept a remembered start time. The other three are a version check on each worker CLI the config actually uses — a missing CLI stops the flow instead of pretending the job primitives exist, and for <code>copilot</code> the check reads the version string rather than the exit code, since AWS Copilot CLI answers to the same name —, a one-time offer to add the <code>DO NOT send optional commentary</code> line to the repo's <code>AGENTS.md</code>, and a <code>git status --short</code> so pre-existing dirt can be told apart from Codex's diff later.</p>
@@ -254,15 +254,15 @@
 
 <h3>A second reader for the plan itself</h3>
 
-<p>Everything above is the driver checking its own work. The adversarial gate attacks a split the driver just wrote, which means the agent that authored the plan is the only agent that judged it — the maker-is-also-judge failure the Darwin ratchet names, sitting on the one decision every later stage is judged against. The optional spec review is what closes it: before the plan reaches the user, <code>deep_reasoner</code> reads it once on its own configured backend and reports what it would change.</p>
+<p>Everything above is the driver checking its own work. The adversarial gate attacks a split the driver just wrote, which means the agent that authored the plan is the only agent that judged it — the maker-is-also-judge failure the Darwin ratchet names, sitting on the one decision every later stage is judged against. The spec review is what closes it: before any plan reaches the user, <code>deep_reasoner</code> reads it on its own configured backend and reports what it would change, each finding tagged blocking or advisory.</p>
 
-<p>Three properties keep an optional extra job from turning into an argument that never ends. It fires <strong>once per run</strong>: the goal file's <code>## Spec Review</code> block is the marker, and a non-empty block means the automatic review is spent, so a revised plan, a thin review, and a resumed session all fail to re-trigger it. It is <strong>read-only</strong>: <code>--read-only</code> on the job, findings as the whole output, no edit to the spec, the goal file, or product code. And the driver <strong>rules</strong> — findings are input to a judgment, not a verdict applied unread.</p>
+<p>Three properties keep a mandatory extra job from turning into an argument that never ends. It is <strong>capped</strong>: <code>spec_max_rounds</code> (default 1) bounds how many times the same reviewer reads the plan, and a blocking finding the driver still declines at the cap goes to the arbiter, whose ruling binds. It runs <strong>once per run</strong>: the goal file's <code>## Spec Review</code> block carries a status, any status other than <code>not run</code> means the automatic review is spent, and a resumed session finishes an open chain instead of starting a new one. And it is <strong>read-only</strong>: <code>--read-only</code> on the job, findings as the whole output, no edit to the spec, the goal file, or product code.</p>
 
 <div class="callout claude">
-  <p><strong>This one is deliberately not blind.</strong> The arbiter withholds every hint because two independent solutions to the same problem are what it is measuring. Here the plan under review <em>is</em> the driver's answer, so withholding it would leave nothing to read; the packet carries the goal line, the task table, and the design document verbatim. The cost is real and stated rather than hidden: an informed reader inherits the author's framing and will catch a wrong premise less often than an independent solve would. It is a second pair of eyes, not a second opinion. When <code>deep_reasoner</code> resolves to the driver's own vendor, the run says <code>same-vendor</code> the way the arbiter protocol does.</p>
+  <p><strong>This one is deliberately not blind.</strong> Blind arbitration withholds every hint because two independent solutions to the same problem are what it is measuring. Here the plan under review <em>is</em> the driver's answer, so withholding it would leave nothing to read; the packet carries the goal line, the task table, and the design document verbatim. The cost is real and stated rather than hidden: an informed reader inherits the author's framing and will catch a wrong premise less often than an independent solve would. It is a second pair of eyes, not a second opinion. When <code>deep_reasoner</code> resolves to the driver's own vendor, the run says <code>same-vendor</code> the way the arbiter protocol does.</p>
 </div>
 
-<p>The toggle is off by default, which means the review answers to the driver's judgment and the user's request rather than to setup state, the same rule the e2e criterion follows from the other direction. Asking for it once does not write it into the config, and having it configured does not license a second pass.</p>
+<p>Every plan gets a review, regardless of setup state. A resumed session finishes any open review chain within the configured cap; it does not start a second automatic review.</p>
 
 <h2 id="stage2">Stage 2 — Delegate</h2>
 
@@ -300,7 +300,7 @@
 
 <p>From there the prompt becomes state. <code>submit</code> copies the temp file into the new job directory as <code>prompt.md</code>, and the generated <code>run.sh</code> reads it back with <code>cat</code> and passes it to the worker as an argument, with stdin closed so a long prompt cannot leave the detached job waiting for more input.<span class="src"> scripts/delegate-codex.sh:276</span> The copy is never rewritten afterwards, which is what makes it usable as the audit record of what was asked rather than of what the driver remembers asking.</p>
 
-<p>A fix round takes the same path at a smaller size. <code>resume</code> creates its own directory, <code>&lt;parent&gt;-r2</code>, and its <code>prompt.md</code> holds only the prioritized findings and the failed criteria, because the resumed worker session already carries the original packet. It reads the parent's <code>backend</code> and <code>role</code> out of <code>meta</code>, so a fix round lands on the same CLI with its provenance intact rather than as an anonymous entry. What stays out of every one of these files is the routing: backend, model, and effort come from <code>handoff-config.py</code> through <code>--role</code> and land in <code>meta</code> and in the <code>run.sh</code> flags, so no wording in a prompt can move a job onto a different vendor.</p>
+<p>A fix round takes the same path at a smaller size. <code>resume</code> creates its own directory, <code>&lt;root&gt;-r&lt;n&gt;</code>, and its <code>prompt.md</code> holds only the prioritized findings and the failed criteria, because the resumed worker session already carries the original packet. It reads the parent's <code>backend</code> and <code>role</code> out of <code>meta</code>, so a fix round lands on the same CLI with its provenance intact rather than as an anonymous entry. What stays out of every one of these files is the routing: backend, model, and effort come from <code>handoff-config.py</code> through <code>--role</code> and land in <code>meta</code> and in the <code>run.sh</code> flags, so no wording in a prompt can move a job onto a different vendor. It refuses a round past the review cap before creating anything.</p>
 
 <h3>Worktree jobs</h3>
 
@@ -374,8 +374,8 @@
 <h2 id="stage4">Stage 4 — Review gate</h2>
 
 <figure>
-  <img src="diagrams/phase4-review-gate.svg" alt="Event flowchart: result collection, then re-reading the brief, then the complete scoped diff, into a decision node asking whether the diff satisfies the brief; findings branch into a bounded resume that loops back to the brief, a second failure escalates to a takeback, and the satisfied path continues to accept. A side card holds the six-step e2e sequence.">
-  <figcaption><strong>Stage 4.</strong> The decision node is the gate. Rework is a resume carrying findings only, it is capped at two rounds, and the cap has a named consequence rather than a retry.</figcaption>
+  <img src="diagrams/phase4-review-gate.svg" alt="Event flowchart: result collection, then re-reading the brief, then the complete scoped diff, into a decision node asking whether the diff satisfies the brief; findings branch into a bounded resume that loops back to the brief, open findings at the review cap escalate to the arbiter, and the satisfied path continues to accept. A side card holds the six-step e2e sequence.">
+  <figcaption><strong>Stage 4.</strong> The decision node is the gate. Rework is a resume carrying findings only, capped at <code>implementation_max_rounds</code> review passes (default 3), and the cap has a named consequence: the arbiter rules.</figcaption>
 </figure>
 
 <div class="callout">
@@ -411,7 +411,7 @@
 
 <h3>How disagreements are settled</h3>
 
-<p>Three instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan, and the attacker is the driver itself. The optional spec review hands that same plan to another agent for one informed read; its output is findings the driver rules on. The arbiter protocol solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> as real jobs on their own configured backends, and neither packet may contain the other's answer or a leaning hint. Only the third one is blind, and the difference is not cosmetic: a hint that would merely bias a reviewer invalidates an arbitration. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test.</p>
+<p>Three instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan, and the attacker is the driver itself. The mandatory spec review hands that same plan to another agent for an informed read within the round cap; the driver accepts or declines each finding, and a declined blocking finding at the cap goes to the arbiter. Blind arbitration solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> as real jobs on their own configured backends, and neither packet may contain the other's answer or a leaning hint. Only the third one is blind, and the difference is not cosmetic: a hint that would merely bias a reviewer invalidates a blind arbitration. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test. At a review cap, the Arbitration Packet instead carries the whole dispute, including both sides and the evidence; that ruling is informed, and it binds.</p>
 
 <p>What happens after that is a fixed escalation, and every step names a decider:</p>
 
@@ -419,7 +419,7 @@
   <li><strong>Two solvers agree.</strong> The answer is adopted and marked dual-verified. When config puts both on the same vendor, the protocol still runs but the receipt records <code>same-vendor</code>, so the weaker independence stays visible rather than being quietly claimed as two opinions.</li>
   <li><strong>Two solvers disagree.</strong> The driver rules, and records both the point of divergence and the reasoning. Both solvers still appear in <code>roles_used</code>; losing an argument does not erase the entry.</li>
   <li><strong>Implementation misses acceptance.</strong> The driver's review is the ruling, and its output is one bounded fix round into the same session.</li>
-  <li><strong>Two rounds fail.</strong> Arbitration ends rather than continuing. The driver takes the task back, and the takeback is written into the goal file's status, the notes, and the receipt, which is what lets the memory protocol learn that this task type does not delegate well.</li>
+  <li><strong>The last review pass still has findings open.</strong> The argument goes to the arbiter with both sides of it. An approval accepts the diff over the driver's findings; a rejection is final for the run: the row is marked <code>rejected</code>, its diff is set aside, and the ruling goes into the goal file's <code>## Arbitration</code> block, the notes, and the receipt, which is what lets the memory protocol learn that this task type does not delegate well.</li>
   <li><strong>Anything sits behind a hard stop.</strong> Merge, production, tags, force-push, deletion, destructive migration, and external publish are the user's alone. One imperative sentence authorizes one action, a question about whether to proceed is not authorization, and an earlier approval for something else never carries over.</li>
 </ul>
 
@@ -457,7 +457,7 @@
 <p>The five stages run one control structure: the goal is written down before any work leaves the driver, each gate judges the work against that written goal instead of against the stage before it, and the rework path has a fixed end.</p>
 
 <figure>
-  <img src="diagrams/feedback-loop.svg" alt="Top: five loop stages — plan and split (which includes attacking your own split), delegate, monitor, review gate, accept and wrap — over a goal.md band showing what each stage reads or writes, with return arcs for bounded rework and for anomalies. Middle: two cards for the job directory and the e2e verdict artifact. Bottom: an escalation table from the plan itself through the optional outside read of the plan, blind arbitration, the review gate, takeback, and hard stops.">
+  <img src="diagrams/feedback-loop.svg" alt="Top: five loop stages — plan and split (which includes attacking your own split), delegate, monitor, review gate, accept and wrap — over a goal.md band showing what each stage reads or writes, with return arcs for bounded rework and for anomalies. Middle: two cards for the job directory and the e2e verdict artifact. Bottom: an escalation table from the plan itself through the mandatory outside read of the plan, blind arbitration, the review gate, arbiter rulings, and hard stops.">
   <figcaption>The loop, its written reference, and the escalation order when two agents disagree.</figcaption>
 </figure>
 
@@ -470,8 +470,8 @@
   </tr>
   <tr>
     <td>The plan is judged only by the agent that wrote it</td>
-    <td>The optional spec review: one independent read by <code>deep_reasoner</code> before the plan reaches the user, recorded in the goal file's <code>## Spec Review</code> block</td>
-    <td>Convention, once per run</td>
+    <td>The mandatory spec review: a read by <code>deep_reasoner</code> before the plan reaches the user, recorded in the goal file's <code>## Spec Review</code> block</td>
+    <td>Convention, once per run; <code>resume</code> enforces the round cap</td>
   </tr>
   <tr>
     <td>The split is drawn for cost rather than for stakes</td>
@@ -510,7 +510,7 @@
   </tr>
   <tr>
     <td>A failing task loops forever</td>
-    <td>Two fix rounds maximum, each carrying only prioritized findings and the failed criteria; then the driver takes the task back</td>
+    <td>Review passes capped by <code>implementation_max_rounds</code> (default 3), each fix round carrying only prioritized findings and the failed criteria; then the arbiter rules</td>
     <td>Convention</td>
   </tr>
   <tr>

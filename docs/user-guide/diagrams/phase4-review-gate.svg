@@ -104,15 +104,15 @@
   <rect x="662" y="789" width="138.4" height="18" rx="6" fill="#d97706" opacity="0.10"/>
   <text x="670" y="802" class="pill" fill="#d97706">delegate-codex.sh</text>
   <text x="662" y="828" class="ntitle">resume &lt;jobId&gt; --prompt-file &lt;fix-notes&gt;</text>
-  <text x="662" y="846" class="note">a new directory &lt;parent&gt;-r2 with its own prompt.md</text>
+  <text x="662" y="846" class="note">a new directory &lt;root&gt;-r&lt;n&gt; with its own prompt.md</text>
   <text x="662" y="861" class="note">prioritized findings + the failed criteria, nothing else:</text>
   <text x="662" y="876" class="note">the resumed session still holds the original packet</text>
-  <text x="662" y="891" class="warn">two rounds maximum per task</text>
+  <text x="662" y="891" class="warn">cap: implementation_max_rounds (3)</text>
   <rect x="648" y="950" width="500" height="111" rx="9" fill="#fff5f7" stroke="#e11d48" stroke-width="1.4"/>
   <rect x="662" y="961" width="109.6" height="18" rx="6" fill="#7c3aed" opacity="0.10"/>
   <text x="670" y="974" class="pill" fill="#7c3aed">Claude driver</text>
-  <text x="662" y="1000" class="ntitle">Two rounds failed → take the task back</text>
-  <text x="662" y="1018" class="note">finish it in the driver; write the takeback into goal.md's</text>
+  <text x="662" y="1000" class="ntitle">Cap reached → the arbiter rules</text>
+  <text x="662" y="1018" class="note">approve accepts; reject is final; record it in goal.md's</text>
   <text x="662" y="1033" class="note">status, the notes, and the receipt — so the memory protocol</text>
   <text x="662" y="1048" class="note">learns that this task type does not delegate well</text>
   <rect x="96" y="1107" width="500" height="111" rx="9" fill="#ffffff" stroke="#059669" stroke-width="1.4"/>
