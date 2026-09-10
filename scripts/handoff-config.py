@@ -2,7 +2,7 @@
 """Read, merge, validate, and atomically write handoff configuration.
 
 This is deliberately a TOML subset implementation.  It splits the document
-into raw section chunks, then parses only top-level metadata, [routing], and
+into raw section chunks, then parses only top-level metadata, [routing], [review], and
 the identity sections under hosts.claude_code.  Every other chunk -- comments,
 [routing], unknown sections -- is preserved byte-for-byte, never reformatted.
 """
@@ -48,14 +48,17 @@ IDENTITY_FIELD_ORDER = (
     "model",
     "effort",
     "permission_mode",
-    "auto_review_spec",
     "verified",
     "verified_at",
 )
-# auto_review_spec is a responsibility toggle, not a routing value: it belongs to
-# one identity only, and changing it never invalidates a verification.
-SPEC_REVIEW_IDENTITY = "deep_reasoner"
-BOOLEAN_FIELDS = ("auto_review_spec", "verified")
+BOOLEAN_FIELDS = ("verified",)
+# Retired in 3.8.0: spec review runs on every plan. Dropped on read, so an old
+# config still loads and the next write removes the key.
+RETIRED_IDENTITY_FIELDS = ("auto_review_spec",)
+# Round caps for the two review gates. A round is a review pass: the original
+# job is pass one and every `resume` adds one. `resume` enforces them.
+REVIEW_FIELDS = ("spec_max_rounds", "implementation_max_rounds")
+DEFAULT_REVIEW: Dict[str, int] = {"spec_max_rounds": 1, "implementation_max_rounds": 3}
 BACKENDS = ("claude", "codex", "copilot")
 # One abstraction over three CLIs: `default` is each CLI's own bounded posture and
 # `allow-all` its native unrestricted mode -- never one shared security posture.
@@ -80,6 +83,7 @@ DEFAULTS: Dict[str, Any] = {
     "schema_version": 2,
     "revision": 0,
     "routing": {"always_on_host_rules": False},
+    "review": dict(DEFAULT_REVIEW),
     "hosts": {HOST: {"identities": {}}},
 }
 
@@ -135,7 +139,7 @@ def split_sections(text: str) -> List[SectionChunk]:
     current_lines: List[str] = []
     start_line = 1
 
-    interpreted = ("routing", f"hosts.{HOST}.identities")
+    interpreted = ("routing", "review", f"hosts.{HOST}.identities")
     for line_number, line in enumerate(lines, 1):
         stripped = line.lstrip(" \t")
         match = ARRAY_SECTION_RE.match(line) or SECTION_RE.match(line)
@@ -236,7 +240,7 @@ def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> M
 
 
 def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) -> Dict[str, Any]:
-    """Parse schema metadata, routing, and only ``host`` identity sections."""
+    """Parse schema metadata, routing, review, and only ``host`` identity sections."""
 
     result: Dict[str, Any] = {"hosts": {host: {"identities": {}}}}
     seen_sections = set()
@@ -263,6 +267,11 @@ def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) ->
                 raise ConfigParseError(chunk.start_line, 1, "duplicate [routing] section.")
             seen_sections.add(chunk.name)
             result["routing"] = _parse_assignments(chunk)
+        elif chunk.name == "review":
+            if chunk.name in seen_sections:
+                raise ConfigParseError(chunk.start_line, 1, "duplicate [review] section.")
+            seen_sections.add(chunk.name)
+            result["review"] = _parse_assignments(chunk)
         elif chunk.name.startswith(identity_prefix):
             identity = chunk.name[len(identity_prefix):]
             if "." in identity or not identity:
@@ -270,7 +279,10 @@ def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) ->
             if chunk.name in seen_sections:
                 raise ConfigParseError(chunk.start_line, 1, f"duplicate [{chunk.name}] section.")
             seen_sections.add(chunk.name)
-            result["hosts"][host]["identities"][identity] = _parse_assignments(chunk)
+            fields = _parse_assignments(chunk)
+            for retired in RETIRED_IDENTITY_FIELDS:
+                fields.pop(retired, None)
+            result["hosts"][host]["identities"][identity] = fields
     return result
 
 
@@ -294,6 +306,16 @@ def _validate_data(
     always_on = routing.get("always_on_host_rules", False)
     if not isinstance(always_on, bool):
         raise ConfigValidationError("routing.always_on_host_rules must be a boolean")
+    review = data.get("review", {})
+    if not isinstance(review, Mapping):
+        raise ConfigValidationError("review must be a table")
+    for key, value in review.items():
+        if key not in REVIEW_FIELDS:
+            raise ConfigValidationError(
+                f"unsupported key in [review]: {key!r}; expected {', '.join(REVIEW_FIELDS)}"
+            )
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ConfigValidationError(f"review.{key} must be an integer of at least 1")
     try:
         identities = data["hosts"][host]["identities"]
     except (KeyError, TypeError):
@@ -319,16 +341,6 @@ def _validate_data(
                 f"hosts.{host}.identities.{identity}.permission_mode must be one of "
                 f"{', '.join(PERMISSION_MODES)}"
             )
-        if "auto_review_spec" in fields:
-            if identity != SPEC_REVIEW_IDENTITY:
-                raise ConfigValidationError(
-                    f"hosts.{host}.identities.{identity}.auto_review_spec is only valid on "
-                    f"{SPEC_REVIEW_IDENTITY}"
-                )
-            if not isinstance(fields["auto_review_spec"], bool):
-                raise ConfigValidationError(
-                    f"hosts.{host}.identities.{identity}.auto_review_spec must be a boolean"
-                )
         if "verified" in fields and not isinstance(fields["verified"], bool):
             raise ConfigValidationError(f"hosts.{host}.identities.{identity}.verified must be a boolean")
         if "verified_at" in fields and not isinstance(fields["verified_at"], str):
@@ -357,7 +369,7 @@ def emit_host_sections(identities: Mapping[str, Mapping[str, Any]], host: str = 
 
     blocks: List[str] = []
     for identity in ordered(identities):
-        fields = identities[identity]
+        fields = {key: value for key, value in identities[identity].items() if key not in RETIRED_IDENTITY_FIELDS}
         lines = [f"[hosts.{host}.identities.{identity}]"]
         ordered_fields = [field for field in IDENTITY_FIELD_ORDER if field in fields]
         ordered_fields.extend(sorted(set(fields) - set(IDENTITY_FIELD_ORDER)))
@@ -415,6 +427,73 @@ def update_host(
     candidate = "".join(kept)
     validate_config(candidate, host, path=path)
     return candidate
+
+
+def emit_review_section(review: Mapping[str, int]) -> str:
+    """Return the canonical [review] section."""
+
+    lines = ["[review]"]
+    lines.extend(f"{key} = {_format_value(review[key])}" for key in REVIEW_FIELDS if key in review)
+    return "\n".join(lines) + "\n"
+
+
+def _has_retired_fields(text: str, host: str = HOST) -> bool:
+    """Whether any identity chunk still carries a retired key, read from the raw text."""
+
+    prefix = f"hosts.{host}.identities."
+    pattern = re.compile(r"^[ \t]*(?:%s)[ \t]*=" % "|".join(RETIRED_IDENTITY_FIELDS), re.MULTILINE)
+    return any(
+        chunk.name and chunk.name.startswith(prefix) and pattern.search(chunk.text)
+        for chunk in split_sections(text)
+    )
+
+
+def update_review(
+    text: str,
+    review: Mapping[str, int],
+    host: str = HOST,
+    *,
+    path: Optional[Path] = None,
+) -> str:
+    """Replace the [review] chunk in place, or append one, preserving every other chunk."""
+
+    if not text:
+        text = update_host("", host, {}, path=path)
+    elif _has_retired_fields(text, host):
+        # Re-emit the identity sections so this write also drops the retired key.
+        # Only then: update_host normalizes blank lines, which would otherwise
+        # break byte preservation for files that need no cleanup.
+        identities = parse_config(text, host, path=path)["hosts"][host]["identities"]
+        text = update_host(text, host, identities, path=path)
+    emitted = emit_review_section(review)
+    kept: List[str] = []
+    replaced = False
+    for chunk in split_sections(text):
+        if chunk.name != "review":
+            kept.append(chunk.text)
+            continue
+        if not replaced:
+            # Keep the blank lines that separated the old section from the next one.
+            separator = chunk.text[len(chunk.text.rstrip()):] or "\n"
+            kept.append(emitted.rstrip("\n") + separator)
+            replaced = True
+    candidate = "".join(kept)
+    if not replaced:
+        if candidate and not candidate.endswith("\n"):
+            candidate += "\n"
+        candidate += ("\n" if candidate else "") + emitted
+    validate_config(candidate, host, path=path)
+    return candidate
+
+
+def write_review_config(path: Path, review: Mapping[str, int]) -> str:
+    """Lock, read, replace the [review] section, and atomically persist."""
+
+    with ConfigLock(path):
+        current = _read_text(path) if Path(path).exists() else ""
+        updated = update_review(current, review, path=Path(path))
+        atomic_write(Path(path), updated)
+    return updated
 
 
 def project_config_path(repo: Path) -> Path:
@@ -523,7 +602,7 @@ def write_host_config(
 
 def _host_overlay(data: Mapping[str, Any], host: str = HOST) -> Dict[str, Any]:
     overlay: Dict[str, Any] = {}
-    for key in ("schema_version", "revision", "routing"):
+    for key in ("schema_version", "revision", "routing", "review"):
         if key in data:
             overlay[key] = _copy(data[key])
     identities = data.get("hosts", {}).get(host, {}).get("identities", {})
@@ -582,6 +661,10 @@ def resolve_config(
             _invalidate_inherited_verification(resolved, overlay, host)
             source = label
     if session_override:
+        if "review" in session_override:
+            raise ConfigError(
+                "the review caps have no session override; set them with handoff-config.py set-review"
+            )
         _deep_merge(resolved, session_override)
         _invalidate_inherited_verification(resolved, session_override, host)
         source = "session"
@@ -657,15 +740,13 @@ def build_parser() -> argparse.ArgumentParser:
     verified.add_argument("--unverified", dest="verified", action="store_false")
     set_parser.set_defaults(verified=None)
     set_parser.add_argument("--verified-at")
-    spec_review = set_parser.add_mutually_exclusive_group()
-    spec_review.add_argument(
-        "--spec-review",
-        dest="auto_review_spec",
-        action="store_true",
-        help=f"Let {SPEC_REVIEW_IDENTITY} review the spec once during planning.",
+    review_parser = subparsers.add_parser(
+        "set-review", help="Set the review round caps, preserving every other chunk byte-for-byte."
     )
-    spec_review.add_argument("--no-spec-review", dest="auto_review_spec", action="store_false")
-    set_parser.set_defaults(auto_review_spec=None)
+    review_parser.add_argument("--spec-max-rounds", dest="spec_max_rounds", type=int, metavar="N")
+    review_parser.add_argument(
+        "--implementation-max-rounds", dest="implementation_max_rounds", type=int, metavar="N"
+    )
 
     resolve_parser = subparsers.add_parser("resolve", help="Resolve session > project > global > defaults.")
     resolve_parser.add_argument("--override", action="append", default=[], metavar="IDENTITY.FIELD=VALUE")
@@ -707,6 +788,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             else:
                 print(value)
             return 0
+        if args.command == "set-review":
+            updates = {
+                key: getattr(args, key) for key in REVIEW_FIELDS if getattr(args, key) is not None
+            }
+            if not updates:
+                raise ConfigError("set-review needs --spec-max-rounds and/or --implementation-max-rounds")
+            review = dict(data.get("review", {}))
+            review.update(updates)
+            write_review_config(path, review)
+            print(path)
+            return 0
         if args.command == "set":
             identities = data["hosts"][HOST]["identities"]
             current = dict(identities.get(args.role, {}))
@@ -717,7 +809,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "permission_mode": args.permission_mode,
                 "verified": args.verified,
                 "verified_at": args.verified_at,
-                "auto_review_spec": args.auto_review_spec,
             }
             identity_changed = any(
                 value is not None

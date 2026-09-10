@@ -406,10 +406,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
             backend: list(efforts) for backend, efforts in engine.BACKEND_EFFORTS.items()
         },
         "identity_meta": IDENTITY_META,
-        "initial_spec_review": bool(
-            identities.get(engine.SPEC_REVIEW_IDENTITY, {}).get("auto_review_spec")
-        ),
-        "spec_review_identity": engine.SPEC_REVIEW_IDENTITY,
+        "initial_review": dict(resolved["review"]),
         "core_identities": list(engine.CORE_IDENTITIES),
         "optional_identities": list(engine.OPTIONAL_IDENTITIES),
         "write_agents_available": True,
@@ -498,6 +495,15 @@ def normalize_payload(
         }
         if identities != comparable:
             raise UIError("Identity settings changed. Switch to custom mode and preview again.")
+    review = raw.get("review")
+    if not isinstance(review, dict):
+        raise UIError("Missing review gate settings")
+    caps: Dict[str, int] = {}
+    for key in engine.handoff_config.REVIEW_FIELDS:
+        value = review.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise UIError(f"{key} must be a whole number of at least 1")
+        caps[key] = value
     return {
         "repo": str(repo.resolve()),
         "mode": mode,
@@ -507,7 +513,7 @@ def normalize_payload(
         "write_agents": bool(raw.get("write_agents")),
         "smoke": bool(raw.get("smoke", True)),
         "with_e2e": with_e2e,
-        "spec_review": bool(raw.get("spec_review")),
+        "review": caps,
         "identities": identities,
     }
 
@@ -532,7 +538,8 @@ def engine_arguments(payload: Mapping[str, Any], action: str) -> list[str]:
             args.extend(("--role-effort", f"{identity}={values['effort']}"))
             args.extend(("--role-permission-mode", f"{identity}={values['permission_mode']}"))
     args.append("--with-e2e" if payload["with_e2e"] else "--no-with-e2e")
-    args.append("--spec-review" if payload["spec_review"] else "--no-spec-review")
+    for key in engine.handoff_config.REVIEW_FIELDS:
+        args.extend((f"--{key.replace('_', '-')}", str(payload["review"][key])))
     args.append("--write-agents" if payload["write_agents"] else "--no-write-agents")
     if payload["routing_action"] == "write":
         args.append("--routing-block")
@@ -829,10 +836,10 @@ HTML = r'''<!doctype html>
     .e2e-addon > p { max-width:530px; margin-top:6px; color:var(--muted-v2); font-size:13px; line-height:1.5; }
     .e2e-toggle { display:flex; align-items:center; gap:8px; width:max-content; margin:12px 0 0; color:var(--ink); font-size:13px; letter-spacing:0; cursor:pointer; }
     .e2e-toggle input { flex:0 0 auto; width:16px; height:16px; margin:0; accent-color:var(--accent-v2); }
+    .review-gates { margin:18px 0 0; }
+    .review-caps { display:flex; flex-wrap:wrap; gap:12px; }
+    .review-caps .field { flex:1 1 180px; }
     .e2e-addon .matrix { padding:14px 0 0; }
-    .review-addon { grid-column:1/-1; margin:3px 0 0; padding:14px 0 0; border-top:1px solid var(--line-v2); }
-    .review-addon > p { max-width:530px; margin:6px 0 0; color:var(--muted-v2); font-size:13px; line-height:1.5; }
-    .review-addon strong { color:var(--ink); font:680 15px var(--body); }
     .identity { display:grid; grid-template-columns:minmax(155px,.82fr) minmax(130px,.7fr) minmax(220px,1.2fr) minmax(120px,.62fr) minmax(120px,.62fr); gap:12px; align-items:start; position:relative; min-height:110px; overflow:hidden; padding:17px; border:1px solid var(--line-v2); border-radius:17px; background:var(--card); box-shadow:var(--shadow-card); }
     .identity:nth-child(1) { --row:0; }
     .identity:nth-child(2) { --row:1; }
@@ -1060,6 +1067,14 @@ HTML = r'''<!doctype html>
             <label class="e2e-toggle"><input type="checkbox" id="withE2e"> Configure e2e identities</label>
             <div class="matrix" id="e2eCards"></div>
           </details>
+          <div class="review-gates">
+            <h3>Review gates</h3>
+            <p>Every plan gets one read from deep_reasoner before you see it, and every delegated diff gets the driver's review. When a gate runs out of passes without agreement, the arbiter rules.</p>
+            <div class="review-caps">
+              <div class="field"><label for="specMaxRounds">Spec review passes</label><input id="specMaxRounds" type="number" min="1" step="1" inputmode="numeric"></div>
+              <div class="field"><label for="implementationMaxRounds">Implementation review passes</label><input id="implementationMaxRounds" type="number" min="1" step="1" inputmode="numeric"></div>
+            </div>
+          </div>
         </section>
 
         <aside class="settings-panel" aria-label="Pre-install confirmation">
@@ -1272,22 +1287,10 @@ HTML = r'''<!doctype html>
             : `<select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select>`}<div class="source" id="${identity}-source">Source: ${esc(sourceLabel(typed ? 'typed' : source))}</div></div>
           <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
           <div class="field"><label for="${identity}-permission">Permission</label><label class="perm-switch"><input type="checkbox" role="switch" id="${identity}-permission" data-field="permission_mode" ${(values.permission_mode || 'default') === 'allow-all' ? 'checked' : ''}><span class="perm-track">${state.permission_modes.map(p => `<span data-value="${p}">${esc(state.permission_labels[p])}</span>`).join('')}</span></label></div>
-          ${identity === state.spec_review_identity ? reviewAddon() : ''}
         </article>`;
       }).join('');
     }
-    function reviewAddon() {
-      const box = $('specReview');
-      const checked = box ? box.checked : state.initial_spec_review;
-      return `<div class="review-addon">
-            <strong>Second pair of eyes on the plan (optional)</strong>
-            <p>Before a plan reaches you, deep_reasoner reads it once on its own model and
-               reports what it would change. It happens once per run and never edits anything.</p>
-            <label class="e2e-toggle"><input type="checkbox" id="specReview" ${checked ? 'checked' : ''}> Review the plan before I see it</label>
-          </div>`;
-    }
     function bindIdentityInputs() {
-      $('specReview').addEventListener('change', invalidate);
       document.querySelectorAll('.identity select, .identity input[type=text], .identity input[role=switch]').forEach(control => control.addEventListener('input', event => {
         const card = event.target.closest('.identity');
         const identity = card.dataset.identity;
@@ -1338,7 +1341,10 @@ HTML = r'''<!doctype html>
         mode,
         identities,
         with_e2e: withE2e,
-        spec_review: $('specReview').checked,
+        review: {
+          spec_max_rounds: Number($('specMaxRounds').value),
+          implementation_max_rounds: Number($('implementationMaxRounds').value),
+        },
         scope: 'project',
         exclude_choice: 'git-exclude',
         write_agents: state.write_agents_available,
@@ -1373,6 +1379,8 @@ HTML = r'''<!doctype html>
       syncModeControls();
       syncHeroMap();
       syncReadiness();
+      $('specMaxRounds').value = state.initial_review.spec_max_rounds;
+      $('implementationMaxRounds').value = state.initial_review.implementation_max_rounds;
       $('configWorkspace').setAttribute('aria-busy', 'false');
     }
     $('withE2e').addEventListener('change', () => {
@@ -1380,6 +1388,7 @@ HTML = r'''<!doctype html>
       syncHeroMap();
       invalidate();
     });
+    ['specMaxRounds', 'implementationMaxRounds'].forEach(id => $(id).addEventListener('input', invalidate));
     $('confirmed').addEventListener('change', () => $('apply').disabled = !$('confirmed').checked || !previewValid);
     $('previewBtn').addEventListener('click', async () => {
       $('previewBtn').disabled = true;

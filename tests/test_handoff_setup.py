@@ -121,7 +121,7 @@ class SetupTests(unittest.TestCase):
 
     def test_terminal_custom_wizard_asks_each_permission(self):
         from unittest.mock import patch
-        answers = ["4", "1", "n", "n", "n", "n"]
+        answers = ["4", "1", "n", "n", "", "", "n"]
         for identity in handoff_setup.CORE_IDENTITIES:
             answers.extend(["claude", "opus", "high", "allow-all" if identity == "fast_worker" else ""])
         answers.append("n")
@@ -349,8 +349,11 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(0, self.run_cli(*self.custom_args(choices))[0])
         self.assertTrue(arbiter.is_file())
         rendered = arbiter.read_text(encoding="utf-8")
-        self.assertIn("Independent blind arbiter", rendered)
-        self.assertIn("carries no one else's answer", rendered)
+        self.assertIn("Independent arbiter", rendered)
+        # Both modes: a blind solve rejects a contaminated packet, and an
+        # escalation ruling expects both sides of the dispute.
+        self.assertIn("treat any packet containing another answer, conclusion, or hint as contaminated", rendered)
+        self.assertIn("For an escalation ruling the packet carries both sides on purpose", rendered)
 
     def test_v1_config_is_replaced_by_a_fresh_v2_document_and_backed_up(self):
         config = self.repo / ".handoff" / "config.toml"
@@ -742,57 +745,74 @@ always_on_host_rules = false
         self.assertFalse((agents / "handoff-e2e-verifier.md").exists())
 
 
-class SpecReviewToggleTests(SetupTests):
-    def configured(self):
-        resolved = handoff_setup.handoff_config.resolve_config(self.repo, env=self.env)
-        return resolved["hosts"][handoff_setup.handoff_config.HOST]["identities"]
+class ReviewCapsSetupTests(SetupTests):
+    def resolved_review(self):
+        return handoff_setup.handoff_config.resolve_config(self.repo, env=self.env)["review"]
 
-    def test_default_apply_omits_the_toggle(self):
+    def config_text(self):
+        return (self.repo / ".handoff" / "config.toml").read_text(encoding="utf-8")
+
+    def test_default_apply_writes_both_defaults(self):
         status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
         self.assertEqual((0, ""), (status, error))
-        self.assertNotIn("auto_review_spec", self.configured()["deep_reasoner"])
+        self.assertIn("[review]\nspec_max_rounds = 1\nimplementation_max_rounds = 3\n", self.config_text())
 
-    def test_flag_writes_the_toggle_on_deep_reasoner_only(self):
-        status, _, error = self.run_cli(
-            *self.claude_args("--apply", "--mode", "balanced", "--spec-review")
+    def test_flags_set_the_caps_and_a_bare_reapply_keeps_them(self):
+        status, _, error = self.run_cli(*self.claude_args(
+            "--apply", "--mode", "balanced", "--spec-max-rounds", "2", "--implementation-max-rounds", "4"
+        ))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual({"spec_max_rounds": 2, "implementation_max_rounds": 4}, self.resolved_review())
+        first = self.config_text()
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual(first, self.config_text())
+
+    def test_a_cap_below_one_is_refused_without_writing(self):
+        status, _, error = self.run_cli(*self.claude_args(
+            "--apply", "--mode", "balanced", "--spec-max-rounds", "0"
+        ))
+        self.assertNotEqual(0, status)
+        self.assertIn("--spec-max-rounds must be at least 1", error)
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
+    def test_the_retired_toggle_is_dropped_on_the_next_apply(self):
+        self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        path = self.repo / ".handoff" / "config.toml"
+        header = "[hosts.claude_code.identities.deep_reasoner]\n"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(header, header + "auto_review_spec = true\n"),
+            encoding="utf-8",
         )
-        self.assertEqual((0, ""), (status, error))
-        identities = self.configured()
-        self.assertIs(True, identities["deep_reasoner"]["auto_review_spec"])
-        for identity in ("fast_worker", "arbiter"):
-            self.assertNotIn("auto_review_spec", identities[identity])
-
-    def test_reapplying_without_the_flag_removes_it(self):
-        self.run_cli(*self.claude_args("--apply", "--mode", "balanced", "--spec-review"))
         status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
         self.assertEqual((0, ""), (status, error))
-        self.assertNotIn("auto_review_spec", self.configured()["deep_reasoner"])
+        self.assertNotIn("auto_review_spec", self.config_text())
 
-    def test_toggle_survives_custom_mode_and_keeps_verification(self):
-        choices = {
-            "deep_reasoner": ("claude", "opus", "high"),
-            "fast_worker": ("codex", "gpt-detected", "medium"),
-            "arbiter": ("codex", "gpt-detected", "xhigh"),
-        }
-        status, _, error = self.run_cli(*self.custom_args(choices), "--spec-review")
-        self.assertEqual((0, ""), (status, error))
-        self.assertIs(True, self.configured()["deep_reasoner"]["auto_review_spec"])
-        status, _, error = self.run_cli(*self.claude_args("--smoke"))
-        self.assertEqual((0, ""), (status, error))
-        identity = self.configured()["deep_reasoner"]
-        # the toggle is not a routing value: smoke keeps it, and it never
-        # invalidated the verification it just wrote
-        self.assertIs(True, identity["auto_review_spec"])
-        self.assertIs(True, identity["verified"])
+    def test_the_spec_review_flag_is_gone(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            handoff_setup.main(
+                list(self.claude_args("--apply", "--mode", "balanced", "--spec-review")), env=self.env
+            )
 
-    def test_status_reports_the_toggle_for_deep_reasoner_only(self):
-        self.run_cli(*self.claude_args("--apply", "--mode", "balanced", "--spec-review"))
+    def test_status_reports_the_caps(self):
+        self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
         status, output, _ = self.run_cli(*self.claude_args("--status"))
         self.assertEqual(0, status)
-        self.assertIn("spec_review=true", output)
-        self.assertEqual(1, output.count("spec_review="))
-        self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
-        self.assertIn("spec_review=false", self.run_cli(*self.claude_args("--status"))[1])
+        self.assertIn("review: spec_max_rounds=1 implementation_max_rounds=3", output)
+        self.assertNotIn("spec_review=", output)
+
+    def test_a_bare_project_apply_keeps_inherited_global_caps(self):
+        global_path = handoff_setup.handoff_config.global_config_path(self.env)
+        global_path.parent.mkdir(parents=True, exist_ok=True)
+        global_path.write_text(
+            "schema_version = 2\nrevision = 0\n"
+            "[review]\nspec_max_rounds = 2\nimplementation_max_rounds = 5\n",
+            encoding="utf-8",
+        )
+        status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual({"spec_max_rounds": 2, "implementation_max_rounds": 5}, self.resolved_review())
+        self.assertIn("[review]\nspec_max_rounds = 2\nimplementation_max_rounds = 5\n", self.config_text())
 
 
 COPILOT_FAKE = """#!/bin/sh

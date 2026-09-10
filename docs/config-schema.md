@@ -1,6 +1,6 @@
 # Agent Handoff configuration schema v2
 
-Handoff uses one TOML configuration shape at project and global scope. The writer owns only the `hosts.claude_code` namespace; top-level comments, `[routing]`, and unknown sections are preserved as raw bytes.
+Handoff uses one TOML configuration shape at project and global scope. The writer owns the `hosts.claude_code` namespace and the `[review]` section; top-level comments, `[routing]`, and unknown sections are preserved as raw bytes.
 
 An identity is the routing choice `backend + model + effort` plus a per-identity `permission_mode`. Tasks select one of `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`; the identity's `backend` determines which CLI executes it.
 
@@ -10,7 +10,9 @@ A copilot identity must name a concrete model. `model = "auto"` is refused at su
 
 The first three are core and always configured. `e2e_specifier` and `e2e_verifier` are optional: setup writes them only when it runs with `--with-e2e`, and a config carrying just the three core identities is complete. `schema_version` stays `2` — adding identity names does not change the document shape.
 
-`deep_reasoner` carries one extra field the others do not: `auto_review_spec`, the toggle for the optional Phase 1 spec review. It is a responsibility switch, not a routing value — changing it never invalidates a verification, and absent means off.
+`deep_reasoner` no longer carries a spec-review toggle. Until 3.8.0 it had `auto_review_spec`; spec review now runs on every plan, and the parser drops the retired key on read, so an old config still loads and the next write removes it.
+
+The `[review]` section holds the round caps for the two review gates (`docs/specs/design_agent-handoff.md`, *The two review gates, and where they escalate*). Both keys are optional integers of at least 1; absent values resolve to the built-in defaults, 1 and 3. They merge per field across project, global, and defaults. There is no session override, because `delegate-codex.sh resume` enforces the caps from its own `resolve` call. A pre-3.8 engine ignores the section rather than refusing it.
 
 A `backend = "copilot"` config fails closed the same way on a pre-3.7 engine: `validate_config` gates `backend` on the known tuple, so an older engine refuses the file rather than running the identity on the wrong CLI.
 
@@ -38,7 +40,6 @@ backend = "claude"          # claude | codex | copilot — which CLI executes
 model = "opus"
 effort = "high"
 permission_mode = "default" # default | allow-all
-auto_review_spec = true     # optional, deep_reasoner only; setup writes it under --spec-review
 verified = false
 
 [hosts.claude_code.identities.fast_worker]
@@ -66,6 +67,10 @@ model = "gpt-5.6-sol"
 effort = "high"
 verified = false
 
+[review]
+spec_max_rounds = 1
+implementation_max_rounds = 3
+
 [routing]
 always_on_host_rules = false
 ```
@@ -82,16 +87,17 @@ always_on_host_rules = false
 | `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot`, `auto` is refused at submit — name a concrete model. |
 | `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`. Copilot's enum is the CLI's superset — which efforts a given Copilot model actually accepts is decided per model by the API, and a rejected pair surfaces as Copilot's own error rather than being silently downgraded. |
 | `hosts.claude_code.identities.<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
-| `hosts.claude_code.identities.deep_reasoner.auto_review_spec` | boolean | no | Whether `deep_reasoner` reviews the plan once during Phase 1 planning, before it reaches the user. Absent means off. Rejected on any other identity. |
 | `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
 | `routing.always_on_host_rules` | boolean | no | Whether setup writes a persistent routing block; default `false`. |
+| `review.spec_max_rounds` | integer ≥ 1 | no | Spec review passes (`deep_reasoner` reads the plan) before a still-declined blocking finding goes to the arbiter. Default `1`. |
+| `review.implementation_max_rounds` | integer ≥ 1 | no | Driver review passes on a delegated diff (the original job plus each `resume`) before open findings go to the arbiter. Default `3`. |
 
 Every configured identity requires `backend`, `model`, and `effort`. Backend is validated by this engine; model and effort compatibility is checked by the setup/smoke layer.
 
 ## Ownership and deterministic writes
 
-The writer may rewrite only `[hosts.claude_code.identities.*]` sections. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `permission_mode`, `auto_review_spec`, `verified`, then `verified_at`. Strings are double-quoted. Repeating the same write produces identical bytes.
+The writer may rewrite only `[hosts.claude_code.identities.*]` sections and `[review]`. Everything else in the file round-trips byte-for-byte. The owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `permission_mode`, `verified`, then `verified_at`. `[review]` is emitted as `spec_max_rounds`, then `implementation_max_rounds`, replaced where it stands, or appended at the end of the file when absent. Strings are double-quoted. Repeating the same write produces identical bytes.
 
 Comments and formatting inside an owned section are intentionally not retained. All unowned chunks remain in their original order and retain their original bytes, including comments and line endings.
 
@@ -120,10 +126,10 @@ The following constructs fail closed with a line number, character position, and
 - inline tables (`value = { ... }`);
 - multiline strings;
 - datetime values;
-- array-of-tables headers (`[[...]]`) naming `[routing]` or an owned identity section (elsewhere they are treated as an unowned section and preserved);
+- array-of-tables headers (`[[...]]`) naming `[routing]`, `[review]`, or an owned identity section (elsewhere they are treated as an unowned section and preserved);
 - dotted-key assignments (`a.b = ...`).
 
-The engine parses only top-level schema metadata, `[routing]`, and the owned identity sections. This boundary allows any future unknown section to round-trip without reformatting.
+The engine parses only top-level schema metadata, `[routing]`, `[review]`, and the owned identity sections. This boundary allows any future unknown section to round-trip without reformatting.
 
 ## CLI
 
@@ -136,14 +142,13 @@ python3 scripts/handoff-config.py --scope project get hosts.claude_code.identiti
 python3 scripts/handoff-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
 python3 scripts/handoff-config.py --scope project set --role fast_worker --permission-mode allow-all
 python3 scripts/handoff-setup.py --preview --role-permission-mode fast_worker=default
-python3 scripts/handoff-config.py --scope project set --role deep_reasoner --spec-review
+python3 scripts/handoff-config.py --scope project set-review --spec-max-rounds 1 --implementation-max-rounds 3
 python3 scripts/handoff-config.py --repo /path/to/repo resolve
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override fast_worker.permission_mode=default
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
-python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.auto_review_spec=true
 ```
 
-The `set` command retains `--role` as its identity selector, and accepts the optional e2e identities alongside the core three. `--spec-review` / `--no-spec-review` write `auto_review_spec` and are refused on any identity but `deep_reasoner`; unlike a backend, model, or effort change, they leave `verified` and `verified_at` intact. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
+The `set` command retains `--role` as its identity selector, and accepts the optional e2e identities alongside the core three. `set-review` writes the `[review]` section; pass either flag or both, and a value below 1 is refused without writing. `--override` targets identity fields only; the review caps cannot be overridden per call. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
 
 Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates the complete precedence chain; `get`, `set`, `validate`, and `init` target the selected scope.
 

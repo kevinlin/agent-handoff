@@ -101,6 +101,7 @@ class SetupUITests(unittest.TestCase):
         }
         return {
             "mode": mode,
+            "review": dict(state["initial_review"]),
             "identities": identities,
             "scope": "project",
             "exclude_choice": "track",
@@ -398,43 +399,58 @@ class SetupUITests(unittest.TestCase):
         on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
         self.assertIn("--with-e2e", handoff_setup_ui.engine_arguments(on, "preview"))
 
-    def test_payload_carries_the_toggle_both_ways(self):
+    def test_payload_carries_both_review_caps(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        normalized = handoff_setup_ui.normalize_payload(
+            self.payload(controller), repo=self.repo, env=self.env
+        )
+        self.assertEqual({"spec_max_rounds": 1, "implementation_max_rounds": 3}, normalized["review"])
+
+    def test_payload_rejects_bad_caps(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        for bad in (0, -1, True, "2", None, 2.5):
+            raw = self.payload(controller)
+            raw["review"]["spec_max_rounds"] = bad
+            with self.subTest(bad=bad), self.assertRaisesRegex(handoff_setup_ui.UIError, "spec_max_rounds"):
+                handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        raw = self.payload(controller)
+        del raw["review"]
+        with self.assertRaisesRegex(handoff_setup_ui.UIError, "review"):
+            handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+
+    def test_engine_arguments_state_both_caps(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
         raw = self.payload(controller)
-        off = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        self.assertFalse(off["spec_review"])
-        raw["spec_review"] = True
-        on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        self.assertTrue(on["spec_review"])
+        raw["review"] = {"spec_max_rounds": 2, "implementation_max_rounds": 5}
+        args = handoff_setup_ui.engine_arguments(
+            handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env), "apply"
+        )
+        self.assertEqual("2", args[args.index("--spec-max-rounds") + 1])
+        self.assertEqual("5", args[args.index("--implementation-max-rounds") + 1])
+        self.assertNotIn("--spec-review", args)
+        self.assertNotIn("--no-spec-review", args)
 
-    def test_engine_arguments_always_state_the_toggle(self):
+    def test_state_seeds_the_caps_from_the_written_config(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
-        raw = self.payload(controller)
-        off = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        self.assertIn("--no-spec-review", handoff_setup_ui.engine_arguments(off, "preview"))
-        raw["spec_review"] = True
-        on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        self.assertIn("--spec-review", handoff_setup_ui.engine_arguments(on, "apply"))
-
-    def test_state_seeds_the_checkbox_from_the_written_config(self):
-        controller = handoff_setup_ui.SetupController(self.repo, self.env)
-        self.assertFalse(controller.state()["initial_spec_review"])
+        self.assertEqual(
+            {"spec_max_rounds": 1, "implementation_max_rounds": 3}, controller.state()["initial_review"]
+        )
         with contextlib.redirect_stdout(io.StringIO()):
             handoff_setup_ui.engine.main(
-                [
-                    "--apply",
-                    "--repo",
-                    str(self.repo),
-                    "--exclude-choice",
-                    "track",
-                    "--no-write-agents",
-                    "--spec-review",
-                ],
+                ["--apply", "--repo", str(self.repo), "--exclude-choice", "track",
+                 "--no-write-agents", "--spec-max-rounds", "2"],
                 env=self.env,
             )
         seeded = handoff_setup_ui.SetupController(self.repo, self.env).state()
-        self.assertTrue(seeded["initial_spec_review"])
-        self.assertEqual("deep_reasoner", seeded["spec_review_identity"])
+        self.assertEqual({"spec_max_rounds": 2, "implementation_max_rounds": 3}, seeded["initial_review"])
+
+    def test_the_page_wires_the_caps(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('id="specMaxRounds"', source)
+        self.assertIn('id="implementationMaxRounds"', source)
+        self.assertIn("spec_max_rounds: Number($('specMaxRounds').value)", source)
+        self.assertIn("implementation_max_rounds: Number($('implementationMaxRounds').value)", source)
+        self.assertNotIn("specReview", source)
 
     def test_state_fills_unconfigured_e2e_identities_from_balanced(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -446,14 +462,6 @@ class SetupUITests(unittest.TestCase):
         self.assertEqual("custom", state["initial_mode"])
         for identity in state["optional_identities"]:
             self.assertEqual(state["presets"]["balanced"][identity], state["initial_matrix"][identity])
-
-    def test_the_page_wires_the_checkbox(self):
-        source = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('id="specReview"', source)
-        self.assertIn("spec_review: $('specReview').checked", source)
-        self.assertIn("box ? box.checked : state.initial_spec_review", source)
-        self.assertIn("identity === state.spec_review_identity ? reviewAddon()", source)
-
 
 COPILOT_FAKE = """#!/bin/sh
 printf '%s\\n' "$@" >> "$HANDOFF_TEST_COPILOT_ARGS"
@@ -483,6 +491,7 @@ class CopilotSetupUITests(SetupUITests):
                 "fast_worker": {"backend": "copilot", "model": model, "effort": effort},
                 "arbiter": {"backend": "codex", "model": "gpt-detected", "effort": "xhigh"},
             },
+            "review": {"spec_max_rounds": 1, "implementation_max_rounds": 3},
             "scope": "project",
             "exclude_choice": "track",
             "routing_action": "none",

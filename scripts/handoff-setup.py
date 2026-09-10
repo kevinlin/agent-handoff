@@ -36,7 +36,6 @@ SPEC.loader.exec_module(handoff_config)
 IDENTITIES = handoff_config.IDENTITIES
 CORE_IDENTITIES = handoff_config.CORE_IDENTITIES
 OPTIONAL_IDENTITIES = handoff_config.OPTIONAL_IDENTITIES
-SPEC_REVIEW_IDENTITY = handoff_config.SPEC_REVIEW_IDENTITY
 identities_for = handoff_config.identities_for
 ordered = handoff_config.ordered
 BACKENDS = handoff_config.BACKENDS
@@ -344,15 +343,30 @@ def detect_claude(env: Mapping[str, str]) -> Dict[str, str]:
                 break
     return detected
 
-def apply_spec_review(identities: Dict[str, Dict[str, Any]], args: argparse.Namespace) -> None:
-    """Write the deep_reasoner spec-review toggle when --spec-review is on.
+def desired_review(
+    args: argparse.Namespace, env: Mapping[str, str], current: Mapping[str, Any]
+) -> Dict[str, int]:
+    """Explicit flags win, then this file's values, then what it inherits, then the default.
 
-    Absent means off, so an apply without the flag drops a previously written
-    one; that removal is how the toggle is turned back off.
+    A project file inherits the global caps, the same resolution the wizard
+    seeds from, so a bare terminal apply never pins the defaults over them.
     """
 
-    if getattr(args, "spec_review", False) and SPEC_REVIEW_IDENTITY in identities:
-        identities[SPEC_REVIEW_IDENTITY]["auto_review_spec"] = True
+    review = dict(handoff_config.DEFAULT_REVIEW)
+    if args.scope == "project":
+        global_path = handoff_config.global_config_path(env)
+        if global_path.is_file():
+            inherited = handoff_config.validate_config(read_text(global_path), path=global_path)
+            review.update(inherited.get("review", {}))
+    review.update(current)
+    for key in handoff_config.REVIEW_FIELDS:
+        value = getattr(args, key, None)
+        if value is None:
+            continue
+        if value < 1:
+            raise SetupError(f"--{key.replace('_', '-')} must be at least 1")
+        review[key] = value
+    return review
 
 
 def choose_identities(
@@ -390,7 +404,6 @@ def choose_identities(
                 "verified": False,
             }
             sources[identity] = {field: "custom" for field in ("backend", "model", "effort")}
-        apply_spec_review(identities, args)
         validate_backend_efforts(identities)
         validate_backend_models(identities)
         return identities, sources, notes
@@ -443,7 +456,6 @@ def choose_identities(
             "${CODEX_HOME:-$HOME/.codex}/config.toml or pass "
             f"{examples}; no model name is guessed."
         )
-    apply_spec_review(identities, args)
     validate_backend_efforts(identities)
     validate_backend_models(identities)
     return identities, sources, notes
@@ -471,9 +483,9 @@ AGENT_TEXT = {
         "Execute the given specification precisely, verify the result, and report changed files, checks, and deviations.",
     ),
     "arbiter": (
-        "Independent blind arbiter. Every question must be solved "
-        "independently; the packet carries no one else's answer.",
-        "Independently solve the received problem. Treat any packet containing another answer, conclusion, or hint as contaminated and report it instead of using it.",
+        "Independent arbiter: the blind second solver for contested calls, and the judge "
+        "of a review dispute that ran out of rounds.",
+        "For a blind solve, solve the received problem independently and treat any packet containing another answer, conclusion, or hint as contaminated; report it instead of using it. For an escalation ruling the packet carries both sides on purpose: rule on the open findings, and start your answer with exactly `verdict: approve` or `verdict: reject`.",
     ),
     "e2e_specifier": (
         "Turns a frozen specification into Gherkin acceptance scenarios and repo-native executable tests.",
@@ -641,6 +653,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     path = config_path(args.scope, args.repo, env)
     old_config = read_text(path) if path.exists() else ""
     current_identities: Mapping[str, Mapping[str, Any]] = {}
+    current_review: Mapping[str, Any] = {}
     legacy = bool(old_config and _is_legacy_v1(old_config))
     if legacy:
         # A v1 document has no v2 chunks worth keeping, so start from a blank
@@ -653,11 +666,14 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
         if old_config:
             parsed = handoff_config.validate_config(old_config, path=path)
             current_identities = parsed["hosts"][handoff_config.HOST]["identities"]
+            current_review = parsed.get("review", {})
         preserve_verification(current_identities, desired)
+    review = desired_review(args, env, current_review)
     new_config = handoff_config.update_host("" if legacy else old_config, identities=desired, path=path)
     # A newly created base document has one transitional separator; converge it
     # before the first write so the next identical apply is byte-idempotent.
     new_config = handoff_config.update_host(new_config, identities=desired, path=path)
+    new_config = handoff_config.update_review(new_config, review, path=path)
 
     unavailable = _cli_unavailable(desired, env)
     for identity in desired:
@@ -1003,14 +1019,14 @@ def rollback(args: argparse.Namespace, env: Mapping[str, str]) -> int:
 def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     resolved = handoff_config.resolve_config(args.repo, env=env)
     print(f"config_source={resolved['source']}")
+    review = resolved["review"]
+    print(
+        f"review: spec_max_rounds={review['spec_max_rounds']} "
+        f"implementation_max_rounds={review['implementation_max_rounds']}"
+    )
     identities = resolved["hosts"][handoff_config.HOST]["identities"]
     for identity in IDENTITIES:
         values = identities.get(identity, {})
-        spec_review = (
-            f" spec_review={str(values.get('auto_review_spec', False)).lower()}"
-            if identity == SPEC_REVIEW_IDENTITY
-            else ""
-        )
         print(
             f"{identity}: backend={values.get('backend', '<unset>')} "
             f"model={values.get('model', '<unset>')} "
@@ -1018,7 +1034,6 @@ def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             f"permission={values.get('permission_mode', 'default')} "
             f"verified={str(values.get('verified', False)).lower()} "
             f"verified_at={values.get('verified_at', '<unset>')}"
-            f"{spec_review}"
         )
     return 0
 
@@ -1250,9 +1265,16 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     scope = "global" if (input("Scope [1 project/2 global] (1): ").strip() or "1") == "2" else "project"
     write_agents = input("Generate handoff agents? [Y/n]: ").strip().lower() not in ("n", "no")
     routing = input("Write managed routing block? [y/N]: ").strip().lower() in ("y", "yes")
-    spec_review = input(
-        f"Let {SPEC_REVIEW_IDENTITY} review the spec once during planning? [y/N]: "
-    ).strip().lower() in ("y", "yes")
+    def review_passes(gate: str) -> Optional[int]:
+        answer = input(f"{gate} review passes before the arbiter rules (Enter keeps the current value): ").strip()
+        if not answer:
+            return None
+        if not answer.isdigit():
+            raise SetupError(f"{gate} review passes must be a whole number")
+        return int(answer)
+
+    spec_max_rounds = review_passes("Spec")
+    implementation_max_rounds = review_passes("Implementation")
     identity_backends: List[str] = []
     identity_models: List[str] = []
     identity_efforts: List[str] = []
@@ -1276,7 +1298,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     selected = argparse.Namespace(**vars(args))
     selected.mode, selected.scope = mode, scope
     selected.with_e2e = with_e2e
-    selected.spec_review = spec_review
+    selected.spec_max_rounds, selected.implementation_max_rounds = spec_max_rounds, implementation_max_rounds
     selected.write_agents, selected.routing_block = write_agents, routing
     selected.role_permission_mode = identity_permissions
     selected.role_backend = identity_backends
@@ -1316,18 +1338,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     e2e.add_argument("--no-with-e2e", dest="with_e2e", action="store_false")
     parser.set_defaults(with_e2e=False)
-    spec_review = parser.add_mutually_exclusive_group()
-    spec_review.add_argument(
-        "--spec-review",
-        dest="spec_review",
-        action="store_true",
-        help=(
-            f"Let {SPEC_REVIEW_IDENTITY} review the spec once during planning, "
-            "before the plan reaches the user."
-        ),
-    )
-    spec_review.add_argument("--no-spec-review", dest="spec_review", action="store_false")
-    parser.set_defaults(spec_review=False)
+    parser.add_argument("--spec-max-rounds", type=int, metavar="N", help="Spec review passes before the arbiter rules on a declined blocking finding (default: keep the current value, else 1).")
+    parser.add_argument("--implementation-max-rounds", type=int, metavar="N", help="Driver review passes on a delegated diff before the arbiter rules (default: keep the current value, else 3).")
     agents = parser.add_mutually_exclusive_group()
     agents.add_argument("--write-agents", dest="write_agents", action="store_true", help="Generate namespaced Claude agents (default).")
     agents.add_argument("--no-write-agents", dest="write_agents", action="store_false", help="Skip Claude agent generation.")

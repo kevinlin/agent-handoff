@@ -586,15 +586,57 @@ class OptionalIdentityTests(unittest.TestCase):
         self.assertEqual("low", identities["e2e_verifier"]["effort"])
 
 
-class SpecReviewFieldTests(unittest.TestCase):
-    def run_cli(self, *arguments):
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            status = handoff_config.main(list(arguments))
-        return status, stdout.getvalue(), stderr.getvalue()
+class RetiredSpecReviewFieldTests(unittest.TestCase):
+    LEGACY = (
+        "schema_version = 2\n"
+        "revision = 0\n"
+        "[hosts.claude_code.identities.deep_reasoner]\n"
+        'backend = "claude"\n'
+        'model = "opus"\n'
+        'effort = "high"\n'
+        "auto_review_spec = true\n"
+    )
 
-    def test_round_trips_on_deep_reasoner(self):
+    def test_dropped_on_read(self):
+        parsed = handoff_config.validate_config(self.LEGACY)
+        identity = parsed["hosts"][handoff_config.HOST]["identities"]["deep_reasoner"]
+        self.assertNotIn("auto_review_spec", identity)
+
+    def test_dropped_even_where_it_used_to_be_invalid(self):
+        text = self.LEGACY.replace("deep_reasoner", "fast_worker").replace(
+            "auto_review_spec = true", 'auto_review_spec = "yes"'
+        )
+        parsed = handoff_config.validate_config(text)
+        identity = parsed["hosts"][handoff_config.HOST]["identities"]["fast_worker"]
+        self.assertNotIn("auto_review_spec", identity)
+
+    def test_next_write_removes_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".handoff" / "config.toml"
+            path.parent.mkdir()
+            path.write_text(self.LEGACY, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                status = handoff_config.main(
+                    ["--repo", directory, "set", "--role", "deep_reasoner", "--effort", "max"]
+                )
+            self.assertEqual(0, status)
+            self.assertNotIn("auto_review_spec", path.read_text(encoding="utf-8"))
+
+    def test_set_review_removes_it_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".handoff" / "config.toml"
+            path.parent.mkdir()
+            path.write_text(self.LEGACY, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                status = handoff_config.main(
+                    ["--repo", directory, "set-review", "--spec-max-rounds", "2"]
+                )
+            self.assertEqual(0, status)
+            written = path.read_text(encoding="utf-8")
+            self.assertNotIn("auto_review_spec", written)
+            self.assertIn("[review]\nspec_max_rounds = 2\n", written)
+
+    def test_the_public_writer_never_emits_it(self):
         text = handoff_config.update_host(
             "",
             identities={
@@ -603,103 +645,148 @@ class SpecReviewFieldTests(unittest.TestCase):
                     "model": "opus",
                     "effort": "high",
                     "auto_review_spec": True,
-                    "verified": False,
                 }
             },
         )
-        self.assertIn("auto_review_spec = true", text)
-        parsed = handoff_config.parse_config(text)
-        identity = parsed["hosts"][handoff_config.HOST]["identities"]["deep_reasoner"]
-        self.assertIs(True, identity["auto_review_spec"])
-
-    def test_absent_field_is_not_emitted(self):
-        text = handoff_config.emit_host_sections(
-            {"deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"}}
-        )
         self.assertNotIn("auto_review_spec", text)
 
-    def test_rejected_on_another_identity(self):
-        with self.assertRaisesRegex(
-            handoff_config.ConfigValidationError, "only valid on deep_reasoner"
-        ):
-            handoff_config.update_host(
-                "",
-                identities={
-                    "fast_worker": {
-                        "backend": "codex",
-                        "model": "gpt-test",
-                        "effort": "medium",
-                        "auto_review_spec": True,
-                    }
-                },
-            )
+    def test_override_and_cli_flag_are_refused(self):
+        with self.assertRaisesRegex(handoff_config.ConfigError, "IDENTITY.FIELD"):
+            handoff_config._parse_override(["deep_reasoner.auto_review_spec=true"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            handoff_config.main(["set", "--role", "deep_reasoner", "--spec-review"])
 
-    def test_rejected_when_not_a_boolean(self):
-        with self.assertRaisesRegex(
-            handoff_config.ConfigValidationError, "auto_review_spec must be a boolean"
-        ):
-            handoff_config.validate_config(
-                "schema_version = 2\n"
-                "revision = 0\n"
-                "[hosts.claude_code.identities.deep_reasoner]\n"
-                'backend = "claude"\n'
-                'model = "opus"\n'
-                'effort = "high"\n'
-                'auto_review_spec = "yes"\n'
-            )
 
-    def test_override_parses_a_boolean(self):
-        override = handoff_config._parse_override(["deep_reasoner.auto_review_spec=true"])
-        identities = override["hosts"][handoff_config.HOST]["identities"]
-        self.assertIs(True, identities["deep_reasoner"]["auto_review_spec"])
-        with self.assertRaisesRegex(handoff_config.ConfigError, "must be true or false"):
-            handoff_config._parse_override(["deep_reasoner.auto_review_spec=maybe"])
+class ReviewSectionTests(unittest.TestCase):
+    BASE = (
+        "schema_version = 2\n"
+        "revision = 0\n"
+        "\n"
+        "[hosts.claude_code.identities.fast_worker]\n"
+        'backend = "codex"\n'
+        'model = "gpt-test"\n'
+        'effort = "medium"\n'
+        "\n"
+        "[routing]\n"
+        "always_on_host_rules = false # keep\n"
+        "\n"
+        "[future]\n"
+        'opaque = "preserve me"\n'
+    )
 
-    def test_cli_toggles_without_resetting_verification(self):
+    def env_for(self, directory: str) -> dict:
+        return {
+            "HOME": str(Path(directory) / "home"),
+            "XDG_CONFIG_HOME": str(Path(directory) / "xdg"),
+        }
+
+    def test_defaults_resolve_without_a_section(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--repo", directory)
-            self.assertEqual(0, self.run_cli(*base, "init")[0])
-            status, _, error = self.run_cli(
-                *base, "set", "--role", "deep_reasoner",
-                "--backend", "claude", "--model", "opus", "--effort", "high",
-                "--verified", "--verified-at", "2026-09-07T00:00:00Z",
-            )
-            self.assertEqual((0, ""), (status, error))
-            status, _, error = self.run_cli(
-                *base, "set", "--role", "deep_reasoner", "--spec-review"
-            )
-            self.assertEqual((0, ""), (status, error))
-            path = Path(directory) / ".handoff" / "config.toml"
-            written = path.read_text(encoding="utf-8")
-            self.assertIn("auto_review_spec = true", written)
-            self.assertIn("verified = true", written)
-            self.assertIn("2026-09-07T00:00:00Z", written)
-            status, _, error = self.run_cli(
-                *base, "set", "--role", "deep_reasoner", "--no-spec-review"
-            )
-            self.assertEqual((0, ""), (status, error))
-            self.assertIn("auto_review_spec = false", path.read_text(encoding="utf-8"))
+            resolved = handoff_config.resolve_config(Path(directory), env=self.env_for(directory))
+        self.assertEqual({"spec_max_rounds": 1, "implementation_max_rounds": 3}, resolved["review"])
 
-    def test_cli_refuses_the_toggle_on_another_identity_without_writing(self):
+    def test_project_and_global_merge_per_field(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = ("--repo", directory)
-            self.assertEqual(0, self.run_cli(*base, "init")[0])
+            env = self.env_for(directory)
+            global_path = handoff_config.global_config_path(env)
+            global_path.parent.mkdir(parents=True)
+            global_path.write_text(
+                "schema_version = 2\nrevision = 0\n[review]\nspec_max_rounds = 2\n", encoding="utf-8"
+            )
+            project_path = handoff_config.project_config_path(Path(directory))
+            project_path.parent.mkdir()
+            project_path.write_text(
+                "schema_version = 2\nrevision = 0\n[review]\nimplementation_max_rounds = 5\n",
+                encoding="utf-8",
+            )
+            resolved = handoff_config.resolve_config(Path(directory), env=env)
+        self.assertEqual({"spec_max_rounds": 2, "implementation_max_rounds": 5}, resolved["review"])
+
+    def test_invalid_values_fail_closed(self):
+        for body in (
+            "spec_max_rounds = 0",
+            "spec_max_rounds = -1",
+            "spec_max_rounds = true",
+            'spec_max_rounds = "2"',
+            "max_rounds = 2",
+        ):
+            with self.subTest(body=body), self.assertRaises(handoff_config.ConfigValidationError):
+                handoff_config.validate_config(f"schema_version = 2\nrevision = 0\n[review]\n{body}\n")
+
+    def test_duplicate_section_fails_closed(self):
+        with self.assertRaises(handoff_config.ConfigParseError):
+            handoff_config.validate_config("schema_version = 2\nrevision = 0\n[review]\n[review]\n")
+
+    def test_update_review_appends_then_replaces_in_place_idempotently(self):
+        once = handoff_config.update_review(
+            self.BASE, {"spec_max_rounds": 1, "implementation_max_rounds": 3}
+        )
+        self.assertTrue(once.startswith(self.BASE))
+        self.assertTrue(once.endswith("\n[review]\nspec_max_rounds = 1\nimplementation_max_rounds = 3\n"))
+        twice = handoff_config.update_review(
+            once, {"spec_max_rounds": 2, "implementation_max_rounds": 3}
+        )
+        self.assertEqual(once.replace("spec_max_rounds = 1", "spec_max_rounds = 2"), twice)
+        self.assertEqual(
+            twice,
+            handoff_config.update_review(twice, {"spec_max_rounds": 2, "implementation_max_rounds": 3}),
+        )
+
+    def test_section_in_the_middle_is_replaced_where_it_stands(self):
+        text = self.BASE.replace("[routing]", "[review]\nspec_max_rounds = 4\n\n[routing]")
+        updated = handoff_config.update_review(text, {"spec_max_rounds": 2})
+        self.assertEqual(text.replace("spec_max_rounds = 4", "spec_max_rounds = 2"), updated)
+
+    def test_identity_writes_keep_the_review_section_byte_for_byte(self):
+        text = handoff_config.update_review(
+            self.BASE, {"spec_max_rounds": 2, "implementation_max_rounds": 4}
+        )
+        updated = handoff_config.update_host(
+            text,
+            identities={"fast_worker": {"backend": "codex", "model": "gpt-other", "effort": "medium"}},
+        )
+        self.assertIn("\n[review]\nspec_max_rounds = 2\nimplementation_max_rounds = 4\n", updated)
+        self.assertIn('opaque = "preserve me"', updated)
+
+    def test_empty_file_gets_a_valid_document(self):
+        text = handoff_config.update_review("", {"spec_max_rounds": 1, "implementation_max_rounds": 3})
+        self.assertEqual(1, handoff_config.validate_config(text)["review"]["spec_max_rounds"])
+
+    def test_review_caps_have_no_session_override(self):
+        with self.assertRaisesRegex(handoff_config.ConfigError, "IDENTITY.FIELD"):
+            handoff_config._parse_override(["review.spec_max_rounds=2"])
+        # The public resolver is the boundary that matters: resume reads it.
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(handoff_config.ConfigError, "no session override"):
+                handoff_config.resolve_config(
+                    Path(directory),
+                    env=self.env_for(directory),
+                    session_override={"review": {"spec_max_rounds": 8}},
+                )
+
+    def test_set_review_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def cli(*arguments):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    status = handoff_config.main(["--repo", directory, *arguments])
+                return status, out.getvalue(), err.getvalue()
+
+            self.assertEqual(0, cli("init")[0])
+            self.assertEqual(0, cli("set-review", "--spec-max-rounds", "2")[0])
             path = Path(directory) / ".handoff" / "config.toml"
-            self.assertEqual(
-                0,
-                self.run_cli(
-                    *base, "set", "--role", "fast_worker",
-                    "--backend", "codex", "--model", "gpt-test", "--effort", "medium",
-                )[0],
+            self.assertIn("[review]\nspec_max_rounds = 2\n", path.read_text(encoding="utf-8"))
+            self.assertEqual("2", cli("get", "review.spec_max_rounds")[1].strip())
+            self.assertEqual(0, cli("set-review", "--implementation-max-rounds", "4")[0])
+            self.assertIn(
+                "spec_max_rounds = 2\nimplementation_max_rounds = 4\n", path.read_text(encoding="utf-8")
             )
-            before = path.read_bytes()
-            status, _, error = self.run_cli(
-                *base, "set", "--role", "fast_worker", "--spec-review"
-            )
+            before = path.read_text(encoding="utf-8")
+            status, _, error = cli("set-review", "--spec-max-rounds", "0")
             self.assertEqual(2, status)
-            self.assertIn("only valid on deep_reasoner", error)
-            self.assertEqual(before, path.read_bytes())
-
+            self.assertIn("review.spec_max_rounds must be an integer of at least 1", error)
+            self.assertEqual(before, path.read_text(encoding="utf-8"))
+            self.assertEqual(2, cli("set-review")[0])
 
 
 class PermissionModeTests(unittest.TestCase):
