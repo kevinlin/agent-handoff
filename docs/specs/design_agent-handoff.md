@@ -10,7 +10,7 @@ This document is the design of record for those four phases as implemented. The 
 
 ### Scope
 
-Covered: **Plan and Split**, **Delegate**, **Monitor**, **Review Gate**: the four phases where the split is decided, executed, watched, and judged.
+Covered: **Plan and Split**, **Delegate**, **Monitor**, **Review Gate**: the four phases where the split is decided, executed, watched, and judged. Also covered: the two review gates that run through them (spec review in Phase 1, implementation review in Phase 4), their round caps, and the arbiter ruling each gate escalates to when its cap runs out.
 
 Not covered, deliberately, each having its own design of record or none:
 
@@ -36,9 +36,9 @@ Three core, two optional. Each is a `backend + model + effort` triple and nothin
 
 | Identity | Tier | What it takes |
 | --- | --- | --- |
-| `deep_reasoner` | core | ambiguous work where a wrong premise in step one is expensive to discover late; also carries the optional spec-review responsibility |
+| `deep_reasoner` | core | ambiguous work where a wrong premise in step one is expensive to discover late; also reviews every plan before it reaches the user |
 | `fast_worker` | core | mechanical, specification-complete work the acceptance criteria alone can verify |
-| `arbiter` | core | the blind second solver for contested calls; not assigned routine rows |
+| `arbiter` | core | the blind second solver for contested calls, and the judge a review gate escalates to when its round cap runs out; not assigned routine rows |
 | `e2e_specifier` | optional | writes the acceptance gate: Gherkin with stable scenario IDs plus repo-native executable tests |
 | `e2e_verifier` | optional | runs the reviewed gate against a pinned commit and produces a validated verdict |
 
@@ -88,19 +88,25 @@ The criterion sits with the driver, not with setup state. When it fires but the 
 
 An `e2e_verifier` row carries both the specifier row and the implementation row in its `depends` column. It needs the tests in its tree, not just the feature.
 
-### Spec review — optional, once, and last
+### Spec review — every plan, capped, and last
 
 The gate above has the driver judging its own plan. `references/darwin-ratchet.md` names that failure directly: no agent should be sole maker and sole judge on high-risk work, and every later phase is judged against the plan this one produces.
 
-So `deep_reasoner` takes a second responsibility alongside its task-row tier: one informed read of the plan, on its own configured backend, fired at the moment the workflow hands the plan to the user. It is a boolean field on the identity (`auto_review_spec`, default off), not a sixth identity. The review wants exactly the tier `deep_reasoner` already names, and a sixth identity would mean configuring another triple for it. `validate_config` rejects the field on any other identity rather than ignoring it, so a toggle written into the wrong section fails at the config boundary instead of quietly doing nothing.
+So `deep_reasoner` takes a second responsibility alongside its task-row tier: an informed read of the plan, on its own configured backend, fired at the moment the workflow hands the plan to the user. It runs on every plan. There is no toggle, and it is not a sixth identity: the review wants exactly the tier `deep_reasoner` already names, and a sixth identity would mean configuring another triple for it.
 
-Three rules make it safe to leave on:
+Until v3.8.0 it was a boolean on the identity, `auto_review_spec`, default off. Default off meant that on most runs the plan every later gate judges against was read only by its author, which is the failure the review exists to close. The key is retired: the parser drops it on read, so an old config still loads and the next write removes it. An `auto_review_spec = false` no longer opts anything out, and that is the intended change.
 
-- **Once per run.** The outcome goes in a `## Spec Review` block in `.handoff/goal.md`; a non-empty block means the automatic review is spent. An adjusted plan, a review the driver found thin, and a resumed session all fail to re-trigger it. Only an explicit user request produces another. The goal file is the right home for the marker because it is rewritten per run: the marker resets on its own, where a marker file elsewhere under `.handoff/` would survive into the next feature's run and suppress a review that should have happened.
-- **Read-only in both directions.** The reviewer returns prioritized findings and nothing else: no edit to the spec, the goal file, or product code. Its findings are input to the driver's judgment, never a verdict applied unread.
+**One round is a read and a response.** The reviewer tags each finding `blocking` or `advisory`. The driver accepts or declines each one and writes down why. The two sides have reached consensus when no blocking finding was declined. A declined advisory finding is recorded and goes no further: drivers decline nits routinely, and escalating on every one would put an arbiter job on nearly every run and teach the driver to accept findings just to avoid one.
+
+**The cap is `review.spec_max_rounds`, default 1.** Under the cap, the declined blocking findings go back to the same reviewer session through `resume`, carrying the revised plan and the driver's reasons, and the reviewer withdraws or keeps each one. At the cap with a blocking finding still declined, the dispute goes to the arbiter as an escalation ruling (see *The two review gates, and where they escalate*). An approval sends the plan to the user as the driver revised it. A rejection is final: nothing is delegated, the run stops before Phase 2, and the user receives the plan with the ruling. The default is one because a second pass by the same informed reader mostly re-argues inside the framing it already accepted; once a blocking finding has been declined, a different reader adds more than another round with the same one.
+
+Three rules hold across the rounds:
+
+- **Once per run.** The `## Spec Review` block in `.handoff/goal.md` records every round; a non-empty block means the automatic review is spent. An adjusted plan, a review the driver found thin, and a resumed session all fail to re-trigger it. Only an explicit user request produces another, as a new chain with its own round count. The goal file is the right home for the marker because it is rewritten per run: the marker resets on its own, where a marker file elsewhere under `.handoff/` would survive into the next feature's run and suppress a review that should have happened.
+- **Read-only in both directions.** The reviewer returns prioritized findings and nothing else: no edit to the spec, the goal file, or product code. Its findings are input to the driver's judgment, never a verdict applied unread. The cap bounds how long the argument over the driver's ruling can run.
 - **Sequential, not parallel.** The user reads the adjusted plan, not a plan plus a review they have to reconcile themselves.
 
-It runs as a real job (`submit --role deep_reasoner --read-only --label spec-review`), so it has a jobId and receipt evidence on any of the three backends. `--read-only` becomes `-s read-only` on codex, `--permission-mode plan` on claude, `--mode plan` on copilot.
+It runs as a real job (`submit --role deep_reasoner --read-only --label spec-review`), so it has a jobId and receipt evidence on any of the three backends. `--read-only` becomes `-s read-only` on codex, `--permission-mode plan` on claude, `--mode plan` on copilot. The label is load-bearing: `resume` reads it off the root job to decide which cap applies.
 
 ### Three instruments, and they are not variants of each other
 
@@ -108,9 +114,12 @@ It runs as a real job (`submit --role deep_reasoner --read-only --label spec-rev
 | --- | --- | --- |
 | adversarial gate | a split the driver just wrote | none — the driver attacks itself |
 | spec review | that same plan, read by another agent | informed, not blind |
-| arbiter protocol | the problem, solved again from scratch | blind; a hint contaminates the run |
+| blind arbitration | the problem, solved again from scratch | blind; a hint contaminates the run |
+| escalation ruling | a review dispute that ran out of rounds | informed by both sides; nothing is withheld |
 
 The arbiter's contamination rule deliberately does not apply to the spec review. The plan under review *is* the driver's answer, so withholding it would leave nothing to review. That makes it a second pair of eyes, not a second opinion: it inherits the driver's framing and will catch a wrong premise less often than an independent solve would, and the flow prose says so rather than letting a reader read arbitration into it. Same-vendor config gets the arbiter's treatment. The review still runs, and the weaker independence is recorded rather than claimed away.
+
+The contamination rule does not apply to an escalation ruling either, which judges a dispute and cannot do that without hearing both sides. The `arbiter` identity serves both of the last two rows. They are different protocols, and the flow names them separately so that the independence of one is never read into the other.
 
 ### Concurrent writes: compare-and-set, not a lock
 
@@ -336,11 +345,68 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" resume <jobId> \
 
 The fix packet carries only the prioritized findings and the acceptance criteria that failed, plus "continue end-to-end from here". Not the whole packet again: the resumed session still holds the original.
 
-**Two rounds maximum per task.** Still failing after that, the argument ends: the driver takes the task back into its own session and finishes it, writing the takeback into the goal file's status, the Notes, and the receipt, so the memory protocol learns that this task type does not delegate well.
+**The cap is `review.implementation_max_rounds` review passes, default 3.** A review pass is one driver read of the diff against the brief: the original job is pass one and each `resume` adds one, so the default allows two fix rounds, the bound the flow carried before v3.8.0. The cap applies to every delegated implementation row whatever its identity; `fast_worker` is the common case, not the only one. An e2e verifier FAIL is a round on the implementation row's chain, because that is where the fix goes. A rerun after BLOCKED is not a round, because nothing was reviewed.
+
+When the last pass still has findings open, the argument no longer ends in a takeback. It goes to the arbiter as an escalation ruling (see *The two review gates, and where they escalate*). An approval accepts the diff, overruling the driver's open findings, and the row goes to `done`. A rejection is final: the row becomes `rejected`, rows depending on it are held, independent rows continue, and the run ends with its receipt. The user picks the rejected row up on `/agent-handoff resume`.
+
+The takeback this replaces had the driver finish a task it had just failed to get accepted, with nobody checking whether its own findings were right. Takeback survives only for Phase 3 anomalies, where a job failed or stalled and there is no dispute to rule on. Escalations and their outcomes go to the memory protocol, which is how it learns that a task type does not delegate well.
 
 ### Hard stops
 
 Merge, production, tags, force-push, deletion, destructive migration, and external publish are each an independent hard stop needing its own fresh imperative sentence from the user. None of them is implied by "finish it", by an earlier authorization for a different action, or by a question about whether to proceed. Phase 4.5 delivery runs only on explicit authorization.
+
+---
+
+## The two review gates, and where they escalate
+
+Both gates are a maker and a reviewer arguing over an artifact against the goal file, bounded by a cap, with a third reader for the argument that does not settle. They differ in who plays which part:
+
+| | Spec review (Phase 1) | Implementation review (Phase 4) |
+| --- | --- | --- |
+| Artifact | the plan in `.handoff/goal.md` | a delegated row's diff |
+| Maker | driver | the row's worker |
+| Reviewer | `deep_reasoner` | driver |
+| Consensus | no declined blocking finding | the driver accepts the diff |
+| Cap | `review.spec_max_rounds`, default 1 | `review.implementation_max_rounds`, default 3 |
+| On rejection | the run stops before Phase 2 | the row is `rejected`; independent rows continue |
+
+### One unit for both caps
+
+A round is a review pass, in both gates. The first review is round one, on the original job; every `resume` adds one. Counting fix rounds instead would have given the two thresholds different units, with spec `1` meaning one read and implementation `3` meaning four.
+
+### The caps are config, and `resume` enforces them
+
+```toml
+[review]
+spec_max_rounds = 1
+implementation_max_rounds = 3
+```
+
+Both are integers of at least 1, resolved the way identity fields are: session override → project → global → built-in defaults, per field, so a config with no `[review]` section runs on 1 and 3. `schema_version` stays `2`, by the same rule that let identities be added without a bump. The setup wizard and terminal setup set both, where they used to carry the spec-review checkbox.
+
+`resume` already derives the round from the job id (`<root>-r<n>`). It strips the suffix to find the root, reads the root's `label`, and applies `spec_max_rounds` to a `spec-review` chain and `implementation_max_rounds` to anything else. A round past the cap is refused before its job directory exists, naming the gate and telling the driver to escalate. No flag bypasses it: more rounds means raising the cap in config, where the change is visible. An invalid config now blocks a fix round, where `resume` never read config before; failing closed is the correct direction.
+
+Of the guards on the argument, the cap is the one a script can hold, so it leaves the prompt. Two stay behind: a fresh `submit` in place of `resume` starts a chain the cap never counts, and nothing mechanical makes the driver escalate rather than quietly finish the task itself.
+
+### The escalation ruling
+
+Blind arbitration sends the same problem to two solvers, and neither may see the other's answer. An escalation ruling is the opposite on purpose. It judges a dispute, so it gets the whole dispute: the brief or plan, the acceptance criteria, the evidence (the diff with the driver's check results, or the revised plan), and every round's findings with the other side's response. Withholding either side would leave it ruling on half an argument.
+
+It runs as a real read-only job, `submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan), built from the Arbitration Packet in `references/handoff-template.md`. The packet asks for one thing: a first line of `verdict: approve` or `verdict: reject`, then one reason per disputed point, citing the evidence. It does not ask for a better solution, and it keeps closed the points both sides already agreed on.
+
+Three rules follow:
+
+- **The ruling binds.** The driver does not re-argue it. An approval of a diff overrules the driver's open findings, which changes who has the last word, and that is why every ruling is recorded where the overruled findings stay visible.
+- **No verdict is not approval.** An arbiter job that fails or stalls is a Phase 3 anomaly, and the row stays in `arbitration` until the user sees it. It is the rule e2e BLOCKED follows, for the same reason.
+- **Same-vendor is allowed and recorded.** When the arbiter's backend matches either party's, the ruling carries `same-vendor`, as blind arbitration already does.
+
+### Every ruling is written down
+
+- **`.handoff/goal.md`**: a `## Arbitration` block, one line per escalation whatever the outcome, giving the gate, the task, the arbiter's jobId, the verdict, a one-line reason, and `same-vendor` where it applies. Task status gains `rework-<n>`, `arbitration`, and `rejected`; `taken-back` stays, for anomalies.
+- **Notes**: a rejection adds a handover covering what the reviewer found, what the arbiter ruled, and what continuing would take (raise the cap, rewrite the brief, or take the task over). This is what the user reads when they come back.
+- **The receipt**: `anomalies` carries `arbitration: <task> approve|reject (<jobId>)`. The arbiter job already sits in the job counts and `roles_used`. The schema stays at v6; `docs/specs/design_agent-handoff-evidence.md` records why.
+
+`/agent-handoff resume` presents rejected rows first and never reopens one on its own. A rejection is the user's to act on.
 
 ---
 
@@ -358,23 +424,31 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 | Concurrent `goal.md` writes | script (compare-and-set) | none available |
 | Verdict cross-field agreement | script (`validate-verdict.py`) | none available if run |
 | Scenario hash lock | script, on the `.feature` files only | behavioural meaning moved into executable spec files escapes it |
+| Review-round cap, both gates | script (`resume` refuses a round past the cap, before the job dir exists) | a fresh `submit` in place of `resume` starts a chain the cap never counts |
+| Review cap values | script (config validation, integers of at least 1) | none available |
 | Adversarial gate | prompt | a split nobody attacked gets delegated |
+| Spec review on every plan | prompt | a plan only its author read |
 | Review against the brief | prompt | the diff-only review, 0 of 5 |
-| Two-round rework cap | prompt | unbounded fix rounds |
+| Escalation at the cap, not a takeback | prompt | a disputed task the driver finished itself with nobody ruling on it |
+| Every ruling recorded | prompt | an `## Arbitration` block missing a ruling the arbiter's job log holds |
 | Hard stops | prompt | an unauthorized merge |
 
-**The review gate is the weakest-enforced guard in the system, and the most load-bearing.** Config resolution, packet routing, verdict validation, and worktree pinning all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about delegation being safe rests on that one prompt-shaped check actually being performed.
+**The review gate is the weakest-enforced guard in the system, and the most load-bearing.** Config resolution, packet routing, verdict validation, worktree pinning, and the round cap all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about delegation being safe rests on that one prompt-shaped check actually being performed.
 
 ## Risks and known limits
 
-- **The adversarial gate has no independence.** The driver attacks its own split. The optional spec review adds an outside reader, but it is informed rather than blind and inherits the driver's framing.
-- **Prompt-shaped guards degrade silently.** A skipped review, a third fix round, an unattacked split. None of these produce an error. They produce a run that looks identical to a good one.
+- **The adversarial gate has no independence.** The driver attacks its own split. The spec review adds an outside reader on every run, but it is informed rather than blind and inherits the driver's framing.
+- **Prompt-shaped guards degrade silently.** A skipped review, a takeback where an escalation belonged, an unrecorded ruling, an unattacked split. None of these produce an error. They produce a run that looks identical to a good one.
+- **An approval overrules the driver.** Before v3.8.0 the driver had the last word on a contested diff. Now an arbiter approval accepts a diff with the driver's findings still open. The `## Arbitration` line keeps the overruled findings visible, and the ruling is informed rather than blind, so it inherits both parties' framing and is weaker evidence than a blind solve.
+- **The cap trusts the label.** `resume` applies the spec cap only to a chain whose root job is labelled `spec-review`. A spec review submitted under another label is capped as an implementation chain.
 - **No OS-level sandbox for claude `default`.** This release changes the permission-rule layer only; enforced sandboxing, workspace-only IO and denied network remain outside scope. Network denial interacts with installing and testing, and the Darwin ratchet permits one dimension per change.
 - **Codex denials are not counted.** The current scanner recognizes Claude and Copilot events, not Codex sandbox refusals. Result extraction discards command outcomes; denial detection is out of scope.
 - **`permission_denied` is advisory, not enforced.** DONE follows the exit code and status warns but still succeeds. The driver must verify checks independently.
 - **The hash lock is partial.** Specifier discipline about separating scaffolding from specs is what keeps the bounded review small; if that discipline slips, the review grows and gets skipped.
 - **Forward compatibility fails closed.** `validate_config` raises on an unknown identity, so a five-identity config errors on a pre-3.2 engine. Acceptable: the skill and its config version travel together, and failing closed is the correct direction.
-- **Cost of the acceptance pair.** Two extra jobs per user-observable change, plus one more per planning phase when the spec-review toggle is on. The Phase 1 criterion and the default-off toggle are the controls; if the criterion fires too often the criterion tightens, not the identities.
+- **A pre-3.8 engine ignores `[review]`.** The parser reads only schema metadata, `[routing]`, and the identity sections, and carries anything else through untouched, so an older engine runs its own gates: an optional spec review and a two-round cap. That is the one version skew here that fails open. It is accepted because the flow prose, `resume`, and the config reader ship together in one skill directory.
+- **Cost of the acceptance pair.** Two extra jobs per user-observable change. The Phase 1 criterion is the control; if it fires too often the criterion tightens, not the identities.
+- **Cost of the review gates.** One spec-review job on every run, unconditional since v3.8.0 where the default config used to spend nothing; one more per extra spec round; one arbiter job per escalation. The caps are the control. Raising a cap to avoid escalation only buys more rounds of the same argument.
 - **This covers two stages of a longer acceptance pipeline, not a whole one.** There is no cleanup stage and no mutation-testing stage here, and Handoff's diff review and fastest-relevant-check are not substitutes for either.
 
 ## Changing this flow

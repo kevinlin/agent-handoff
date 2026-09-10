@@ -36,7 +36,7 @@ Every field in every artifact traces back to a file read during the run. Three c
 | --- | --- | --- | --- |
 | `.handoff/jobs/<jobId>/` | `delegate-codex.sh`, while the job runs | monitor loop, all three renderers | `delegate-codex.sh` header |
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
-| `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session | `references/goal-template.md` |
+| `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
 | `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py --save` | `validate-receipt.py`, `render-cost-receipt.py` | `docs/receipt-schema.json` |
 | `.handoff/transcripts/<jobId>.html` | `render-transcript.py` | a human | none; it is a page |
 | `.handoff/cost-receipts/cost-receipt-<stamp>.{md,html}` | `render-cost-receipt.py` | a human, and the README showcase | none; it is a page |
@@ -68,6 +68,14 @@ Phase 0 stamps `.handoff/session-start` **before** any job is submitted. `make-r
 
 `.handoff/goal.md` is written by both the driver and the Phase 3 monitor loop, so `goal-sync.py` reads and writes it under a `--expect-sha256` compare-and-set. A lost status update is a silent evidence loss, which is why this is not a plain file edit.
 
+### The review record is kept in the goal file
+
+Both review gates write their record into `.handoff/goal.md` through `goal-sync.py`. The `## Spec Review` block holds every spec round. Task statuses carry `rework-<n>`, `arbitration`, and `rejected`. The `## Arbitration` block holds one line per escalation, approve or reject, naming the arbiter's jobId, and a rejection adds a handover to Notes. The file is rewritten per run, which is what lets the spec review's once-per-run marker reset without a cleanup step.
+
+The driver types those lines. What makes them checkable is the jobId: the arbiter's ruling is the last agent message in that job's `log.jsonl`, and `render-transcript.py` shows it. A driver that records `approve` against a job whose log says `reject` is caught only if someone opens the job; no script compares the two. That guard is weaker than the receipt's, and *Not doing* names the stronger one this design deferred.
+
+A refused round leaves nothing behind. `resume` checks the cap before it creates a job directory, so the `-r<n>` directories on disk are exactly the rounds that ran, and the receipt's job counts cannot include a round the cap stopped.
+
 ### Phase 5 probes; it does not recall
 
 Every receipt field has a source the driver reads at wrap-up:
@@ -76,7 +84,7 @@ Every receipt field has a source the driver reads at wrap-up:
 - `duration`: the start marker to now, wall clock, including time blocked on a human approval
 - `scope` and `config_source`: `handoff-config.py resolve`
 - `roles_used`: each job's `meta` for role, model and effort; `handoff-config.py resolve` for `verified`
-- `anomalies` and `checks`: what the run actually did, including a denial count that a zero exit code hides
+- `anomalies` and `checks`: what the run actually did, including a denial count that a zero exit code hides, and one `arbitration:` entry per line of the goal file's `## Arbitration` block
 
 A role with `verified: false` is listed with the flag as it stands. Dropping it, or promoting it to look cleaner, is the failure mode the field exists to catch.
 
@@ -100,7 +108,7 @@ Codex `exec --json` emits no timestamp on any event; across 280 events in the or
 
 A job's `log.jsonl` holds whatever the worker read: the largest single event in the sample set was 110 KB of file contents. `.handoff/` is gitignored in this repo and in the target repos observed so far, but that is not a repo-wide guarantee — `handoff-setup.py` accepts `--exclude-choice self` and `track`, both of which leave `.handoff/` tracked. `render-transcript.py` therefore runs `git check-ignore -q` on its own output path and prints a one-line warning when the page is not ignored. Committing a transcript by accident is a real disclosure, and the warning is the cheapest thing that catches it.
 
-What a resumed session inherits is this directory and nothing else: the final task statuses in `goal.md`, the job directories, the saved receipts, and the e2e verdicts. `/agent-handoff resume` reads those rather than re-deriving state from the repository.
+What a resumed session inherits is this directory and nothing else: the final task statuses in `goal.md`, the job directories, the saved receipts, and the e2e verdicts. `/agent-handoff resume` reads those rather than re-deriving state from the repository. A row marked `rejected` is shown first, with its `## Arbitration` line and the handover in Notes, and the resume never reopens it by itself: an arbiter rejection is final for the run, and what happens next is the user's call.
 
 ---
 
@@ -188,6 +196,10 @@ The Handoff Session Receipt (`docs/receipt-schema.json`, schema v6) records phas
 ### Generated, then re-validated
 
 `make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails. `--save` writes `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. The written file is then re-checked with `validate-receipt.py`, which is the same check CI runs, applied to the run's own output. `receipt_schema_version` must be exactly `6`; a v5 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
+
+### Arbitration rides in `anomalies`
+
+An escalation ruling reaches the receipt as `arbitration: <task> approve|reject (<jobId>)` in the free-text `anomalies` field. Approvals are recorded too, because an approval that overruled the driver is the ruling a reader most needs to find. A dedicated field would need schema v7, a breaking change for `validate-receipt.py`, `make-receipt.py`, the cost reader's version check, the session page, and every example, to carry a fact the receipt already indexes: the arbiter job is in its backend's job count, its duration list, and `roles_used`. The evidence for the ruling is that job's log; the receipt line only points at it.
 
 ---
 
@@ -282,6 +294,7 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | A job is counted under the backend that ran it | `meta` `backend=`, checked again by the cost reader | a copilot job folded into another count |
 | A jobId cannot escape the jobs directory | path-segment check before any open | a receipt reading arbitrary files |
 | Counts and duration lists agree | cost reader cross-check | a receipt describing more than it indexes |
+| A review round past its cap | `resume` refuses before the job directory exists | an argument with no end, and `-r<n>` directories for rounds past the configured bound |
 | One log line cannot blank a transcript | per-line parse with a visible `unparsed line N` row | evidence dropped without a mark |
 | Log content never becomes markup | `textContent` everywhere but agent prose, three renderer overrides, scheme allowlist | an active handler from captured output |
 | Captured output cannot end the payload element | `inject()` escaping `<` | a page broken by its own evidence |
@@ -289,7 +302,7 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | A page is not committed by accident | `git check-ignore` warning | a transcript of shell output in Git history |
 | No price table exists | absence, plus a test asserting no savings language | a repriced token presented as a saving |
 
-Asserted by prose rather than by a script: that the driver actually probes evidence in Phase 5 instead of recalling it, that anomalies and denial counts are recorded, and that the report does not narrate a saving. `test-prompts.json` records the intended contract but validates prompt-file structure only — `run-test-prompts.py` does not exercise model behaviour. The reporting rules are enforced where they can be: in `tests/test_cost_receipt.py`, against generated output.
+Asserted by prose rather than by a script: that the driver actually probes evidence in Phase 5 instead of recalling it, that anomalies and denial counts are recorded, that every escalation ruling reaches both `## Arbitration` and the receipt, and that the report does not narrate a saving. `test-prompts.json` records the intended contract but validates prompt-file structure only — `run-test-prompts.py` does not exercise model behaviour. The reporting rules are enforced where they can be: in `tests/test_cost_receipt.py`, against generated output.
 
 ## Risks and known limits
 
@@ -312,6 +325,7 @@ Asserted by prose rather than by a script: that the driver actually probes evide
 - **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-codex.sh` were needed to add it.
 - **Aggregation across runs.** One receipt in, one cost receipt out.
 - **A `references/*.md` flow document for either command.** Each is one command with one optional argument; `SKILL.md` carries both directly.
+- **A validated arbitration verdict.** A `verdict.json` per ruling with its own validator, read into a receipt field, would prove mechanically that the recorded ruling is the arbiter's. Deferred until a recorded ruling is caught disagreeing with its job log; until then the jobId is the check.
 
 ## Verification
 
