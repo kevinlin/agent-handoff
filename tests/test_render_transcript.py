@@ -7,6 +7,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "render-transcript.py"
@@ -242,6 +243,21 @@ class CliTests(Base):
         out = self.repo / ".handoff" / "transcripts" / "job-q-one.html"
         self.assertTrue(out.is_file())
         self.assertIn("job-q-one", out.read_text(encoding="utf-8"))
+
+    def test_a_relative_repo_still_opens_the_page(self):
+        """A relative --repo made as_uri() raise after the page was written."""
+        self.make_job("job-q-two", log='{"type":"turn.started"}\n', exit_code=0)
+        template = self._template()
+        opened = []
+        with unittest.mock.patch.object(rt.webbrowser, "open", opened.append):
+            cwd = os.getcwd()
+            os.chdir(self.repo.parent)
+            self.addCleanup(os.chdir, cwd)
+            status = rt.main(["--repo", self.repo.name,
+                              "--template", str(template)])
+        self.assertEqual(status, 0)
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(opened[0].startswith("file://"))
 
     def test_ambiguous_argument_lists_candidates_and_fails(self):
         self.make_job("job-r-capture")

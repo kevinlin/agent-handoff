@@ -2,6 +2,7 @@
 
 ## v3.7.1 (2026-09-10)
 
+- fix: `render-transcript.py` and `render-cost-receipt.py` open the page they just wrote when `--repo` is relative. Both called `as_uri()` on a path that inherits the argument's relativity, which raises, so `--repo .` wrote the file, printed its path and then exited 1 — the output looked like a failed render. Every CLI test passed `--no-open`, so the crash sat on the one line the suite never ran; both scripts now have a test that opens.
 - fix: `make-receipt.py` now checks each declared `--codex-jobs`/`--cc-jobs`/`--copilot-jobs` count against the durations it measured, and refuses to emit when they disagree. A `.handoff/session-start` marker stamped after the run's first job silently dropped that job from `*_job_durations` while the hand-passed count still claimed it; the result validated clean but made `render-cost-receipt.py` refuse, and would otherwise have omitted a real job's tokens from the cost report.
 - feat: `make-receipt.py --ended-at <ISO8601>` pins the receipt time instead of reading the current clock, so a past run's receipt can be regenerated without `duration` growing to today. Job durations now count only jobs submitted inside `[started, ended]`, and `--save` names the file from the pinned end.
 - Add per-identity `permission_mode` (`default` or `allow-all`) across config, delegation, terminal setup and browser setup.

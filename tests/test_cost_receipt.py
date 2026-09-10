@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -772,6 +773,21 @@ class CliTests(unittest.TestCase):
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
             code = rcr.main([*args, "--repo", str(self.tmp), "--no-open"])
         return code, err.getvalue()
+
+    def test_a_relative_repo_still_opens_the_page(self):
+        """A relative --repo made as_uri() raise after both files were written."""
+        self.write("receipt-20260908T155001Z.md")
+        opened = []
+        import os
+        with unittest.mock.patch.object(rcr.webbrowser, "open", opened.append), \
+                contextlib.redirect_stdout(io.StringIO()):
+            cwd = os.getcwd()
+            os.chdir(self.tmp.parent)
+            self.addCleanup(os.chdir, cwd)
+            code = rcr.main(["--repo", self.tmp.name])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(opened[0].startswith("file://"))
 
     def test_last_picks_the_greatest_stamp_not_the_newest_mtime(self):
         old = self.write("receipt-20260908T100000Z.md")

@@ -640,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
     print(md_path)
     print(html_path)
     if not args.no_open:
-        webbrowser.open(html_path.as_uri())
+        webbrowser.open(html_path.resolve().as_uri())
     return 0
 
 

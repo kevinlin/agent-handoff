@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(out_path)
     if not args.no_open:
-        webbrowser.open(out_path.as_uri())
+        webbrowser.open(out_path.resolve().as_uri())
     return 0
 
 
