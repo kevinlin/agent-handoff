@@ -640,5 +640,36 @@
       "Emit a v5 receipt that omits copilot_jobs and copilot_job_durations.",
       "Report a copilot job's credits as a currency figure."
     ]
+  },
+  {
+    "id": "session-visualise-receipt",
+    "prompt": "/agent-handoff visualise",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Run scripts/handoff-session-ui.py with --repo and the newest saved receipt when no receipt is supplied.",
+      "Open one loopback session page with a narrative SVG and measured transcript and cost-receipt tabs.",
+      "Offer baoyu-diagram with the displayed receipt-specific data-axis and data-lanes contract when the SVG is missing."
+    ],
+    "must_not": [
+      "Start a delegated job just to view the session.",
+      "Treat narrative SVG prose as measured evidence.",
+      "Invent an end timestamp for a running job."
+    ]
+  },
+  {
+    "id": "session-visualize-explicit-receipt",
+    "prompt": "Visualize the session from this receipt file and show me the session timeline.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Pass the selected receipt file to scripts/handoff-session-ui.py with --repo.",
+      "Keep the job table when the diagram declares no lane map.",
+      "Show an unmatched goal as the current working-tree goal behind a disclosure.",
+      "Report codex denials as not reported and claude denials without a terminal result as not yet available."
+    ],
+    "must_not": [
+      "Attribute an unrelated goal file to the selected receipt.",
+      "Zero a missing measurement.",
+      "Change the receipt schema or modify the two existing renderers."
+    ]
   }
 ]

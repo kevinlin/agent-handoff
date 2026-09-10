@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 50 1000 400"
+ data-axis='[{"t0":"2026-09-10T00:00:00Z","t1":"2026-09-10T00:10:00Z","x0":200,"x1":600},{"t0":"2026-09-10T00:20:00Z","t1":"2026-09-10T00:30:00Z","x0":700,"x1":1100}]'
+ data-lanes='[{"lane":"driver","y0":70,"y1":120},{"job":"job-a","y0":150,"y1":200,"t0":"2026-09-10T00:05:00Z","t1":"2026-09-10T00:25:00Z"},{"job":"job-b","y0":250,"y1":300,"t0":"2026-09-10T00:01:00Z","t1":"2026-09-10T00:03:00Z"}]'>
+ <rect x="100" y="50" width="1000" height="400" fill="#faf9f6"/>
+ <text x="120" y="65">Narrative illustration</text>
+ <text x="110" y="170">Job A</text><path d="M400 170H600 M700 170H900" stroke="#1649c9" stroke-width="20"/>
+ <text x="110" y="270">Job B</text><path d="M240 270H320" stroke="#1649c9" stroke-width="20"/>
+</svg>

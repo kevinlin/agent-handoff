@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Handoff Session</title>
+<style>
+/* The cost receipt's editorial language - serif masthead, cobalt accent, coral
+   caveat rule, uppercase mono labels - on the same light-dark() token names and
+   values, so the two pages read as one system in both themes. */
+:root {
+  color-scheme: light dark;
+  --paper:   light-dark(#f1f3f6, #141519);
+  --surface: light-dark(#fbfcfd, #1c1e24);
+  --ink:     light-dark(#171a20, #e8e9ec);
+  --muted:   light-dark(#59616d, #99a1ae);
+  --line:    light-dark(#cfd5de, #2d3038);
+  --rule:    light-dark(#171a20, #6c7382);
+  --cobalt:      light-dark(#1748d2, #93a9ff);
+  --cobalt-soft: light-dark(#e9efff, #1e2540);
+  --cobalt-line: light-dark(#c6d3fb, #33406c);
+  --coral:      light-dark(#b53d34, #e2705a);
+  --coral-ink:  light-dark(#713029, #f0a496);
+  --hover:      light-dark(#eef1f5, #23262e);
+  --ok-soft:  light-dark(#e4f1e8, #1b2d22);
+  --ok-ink:   light-dark(#256240, #5fbe84);
+  --ok-line:  light-dark(#bcdfc8, #2f5a3f);
+  --bad-soft: light-dark(#fff0ed, #32201c);
+  --bad-ink:  light-dark(#8d3227, #e88b74);
+  --bad-line: light-dark(#f0c5b8, #5e3229);
+  --radius: 16px;
+  --serif: Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --gutter: clamp(1rem, 3vw, 2.5rem);
+}
+* { box-sizing: border-box; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility; background: var(--paper); }
+body { margin:0; min-width:320px; background:var(--paper); color:var(--ink);
+  font:14px/1.6 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+[hidden] { display:none !important; }
+main { max-width:90rem; margin:0 auto;
+  /* minmax(0,1fr), never the implicit auto: an auto column sizes to the widest
+     table's min-content and drags the whole page sideways with it. */
+  padding:clamp(20px,3vh,30px) var(--gutter) 5rem;
+  display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
+
+/* Masthead. The run's identity, ruled off from everything measured below. */
+.masthead { padding:4px 2px 12px; border-bottom:2px solid var(--rule); }
+.masthead h1 { margin:4px 0 6px; font:600 clamp(30px,4vw,50px)/.96 var(--serif);
+  letter-spacing:-.045em; text-wrap:balance; }
+.masthead .subtitle { margin:0; color:var(--cobalt); font-size:13px; font-weight:750;
+  letter-spacing:.09em; text-transform:uppercase; font-family:var(--mono); }
+
+.banner { margin:0 0 12px; padding:.7rem .9rem; border-left:3px solid var(--cobalt);
+  background:var(--cobalt-soft); border-radius:0 8px 8px 0; font-family:var(--mono);
+  font-size:13px; text-wrap:pretty; }
+/* A warning takes the coral rule, the treatment the cost receipt gives a claim
+   the reader must not over-read. */
+#warnings .banner { border-left-color:var(--coral); background:var(--bad-soft);
+  color:var(--coral-ink); }
+
+/* Tabs. Switching views is a many-times-a-minute action, so it is instant:
+   no transition, no reveal on the panel it shows. */
+[role=tablist] { display:flex; flex-wrap:wrap; gap:2px; border-bottom:1px solid var(--line); }
+[role=tab] { appearance:none; background:none; border:0; border-bottom:3px solid transparent;
+  min-height:44px; padding:0 .9rem; color:var(--muted); cursor:pointer;
+  font:600 12px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase;
+  white-space:nowrap; border-radius:8px 8px 0 0; }
+[role=tab][aria-selected=true] { color:var(--ink); border-bottom-color:var(--cobalt); }
+[role=tabpanel] { padding-top:4px; min-width:0; }
+[role=tabpanel] > h2:first-child { margin-top:0; }
+
+h2 { margin:1.4rem 0 .6rem; font:600 15px/1.3 var(--mono); letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted); }
+h3 { margin:1rem 0 .3rem; font:750 11px/1.3 var(--mono); letter-spacing:.09em;
+  text-transform:uppercase; color:var(--cobalt); }
+h4 { margin:.7rem 0 .2rem; font:600 11px/1.3 var(--mono); letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted); }
+p { text-wrap:pretty; }
+pre { margin:.2rem 0 .8rem; padding:.6rem .7rem; background:var(--surface);
+  border:1px solid var(--line); border-radius:8px; font:13px/1.55 var(--mono);
+  white-space:pre-wrap; overflow-wrap:anywhere; }
+
+/* Cards. Concentric radius: the outer card is --radius, inner surfaces 8px,
+   which is 16 minus the 8px of padding between them. */
+.card { background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); padding:8px; }
+/* Stacked, not side by side: the diagram is 1600 viewBox units wide and the job
+   table is nine columns, so a 2fr/1fr split clipped the table's own scroll
+   container at the third column. Both get the full measure instead. */
+.overview-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
+.overview-layout > * { min-width:0; }
+
+/* The diagram box must equal the image box exactly: display:block kills the
+   inline line-height gap under the image, and width/height keep the aspect
+   ratio, so the overlay's inset:0 maps 1:1 onto the viewBox percentages. */
+.diagram { position:relative; border-radius:8px; overflow:hidden;
+  outline:1px solid light-dark(rgba(0,0,0,.06), rgba(255,255,255,.08));
+  outline-offset:-1px; }
+.diagram img { width:100%; height:auto; display:block; }
+.overlay { position:absolute; inset:0; pointer-events:none; }
+.hotspot { position:absolute; background:transparent; border:0; padding:0;
+  cursor:pointer; pointer-events:auto; border-radius:4px; }
+/* Deliberately no press feedback and no hover transform on a hotspot: it is
+   positioned by percentage over a drawn bar, and any transform moves it off. */
+.show-hotspots .hotspot { outline:2px solid var(--coral);
+  background:light-dark(rgba(181,61,52,.14), rgba(226,112,90,.2)); }
+#toggle-wrap { display:inline-flex; align-items:center; gap:.5rem; min-height:44px;
+  font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted); cursor:pointer; }
+
+/* Tables. Sticky head and first column, so a wide job row stays readable while
+   it scrolls inside its own container rather than pushing the page sideways. */
+.scroll { overflow:auto; max-width:100%; background:var(--surface);
+  border:1px solid var(--line); border-radius:8px; }
+table { border-collapse:separate; border-spacing:0; width:100%;
+  font-variant-numeric:tabular-nums; }
+th, td { padding:.5rem .7rem; border-bottom:1px solid var(--line); text-align:left;
+  vertical-align:top; white-space:nowrap; }
+th { position:sticky; top:0; z-index:2; background:var(--surface); color:var(--muted);
+  font:750 10px/1.4 var(--mono); letter-spacing:.09em; text-transform:uppercase; }
+tbody tr:last-child td { border-bottom:0; }
+td:first-child, th:first-child { position:sticky; left:0; z-index:1;
+  background:var(--surface); }
+th:first-child { z-index:3; }
+@media (hover: hover) and (pointer: fine) {
+  tbody tr:hover td { background:var(--hover); }
+}
+/* State as a tinted pill with the word inside it, never colour alone. */
+.pill { display:inline-block; padding:.1rem .5rem; border-radius:999px;
+  border:1px solid var(--line); font:600 11px/1.5 var(--mono);
+  text-transform:uppercase; letter-spacing:.06em; }
+.pill.done { background:var(--ok-soft); color:var(--ok-ink); border-color:var(--ok-line); }
+.pill.failed, .pill.cancelled { background:var(--bad-soft); color:var(--bad-ink);
+  border-color:var(--bad-line); }
+.pill.running { background:var(--cobalt-soft); color:var(--cobalt);
+  border-color:var(--cobalt-line); }
+/* An absent measurement is muted and italic, never set in the figure face. */
+.unmeasured { color:var(--muted); font-style:italic; }
+
+button.link { appearance:none; background:none; border:0; padding:0; cursor:pointer;
+  color:var(--cobalt); font:inherit; font-family:var(--mono); font-size:12px;
+  text-align:left; text-decoration:underline; text-underline-offset:2px; }
+button.action { appearance:none; background:var(--cobalt-soft); color:var(--cobalt);
+  border:1px solid var(--cobalt-line); border-radius:8px; min-height:36px;
+  padding:0 .9rem; cursor:pointer; font:600 11px/1 var(--mono);
+  letter-spacing:.08em; text-transform:uppercase; }
+button.action:active { transform:scale(.97); }
+select { font:13px/1.4 var(--mono); padding:.4rem .5rem; border-radius:8px;
+  border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  max-width:100%; min-height:36px; }
+label[for=job-select] { font:750 11px/1.3 var(--mono); letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); margin-right:.4rem; }
+iframe { display:block; width:100%; height:75vh; margin-top:.75rem;
+  border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+details { margin-top:.6rem; }
+summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
+  text-transform:uppercase; color:var(--muted); }
+[role=status] { color:var(--ok-ink); font-family:var(--mono); font-size:12px; }
+
+:focus-visible { outline:3px solid var(--cobalt); outline-offset:3px;
+  border-radius:4px; }
+
+/* The furniture reveals once on load. Panels never animate - see the tab note. */
+.masthead, [role=tablist] {
+  opacity:0; animation:reveal 460ms cubic-bezier(.2,.72,.2,1) forwards; }
+[role=tablist] { animation-delay:70ms; }
+@keyframes reveal { from { opacity:0; transform:translateY(10px); }
+                    to   { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) {
+  .masthead, [role=tablist] { animation-duration:.01ms; animation-delay:0ms; }
+  button.action:active { transform:none; }
+}
+</style>
+</head>
+<body>
+<main>
+<header class="masthead">
+<h1>Handoff session</h1>
+<p class="subtitle" id="subtitle"></p>
+</header>
+<div id="warnings"></div>
+<div role="tablist" aria-label="Session views">
+<button id="tab-overview" role="tab" aria-controls="overview" aria-selected="true">Overview</button>
+<button id="tab-transcript" role="tab" aria-controls="transcript" aria-selected="false" tabindex="-1">Transcript</button>
+<button id="tab-cost" role="tab" aria-controls="cost" aria-selected="false" tabindex="-1">Cost receipt</button>
+<button id="tab-facts" role="tab" aria-controls="facts" aria-selected="false" tabindex="-1">Session facts</button>
+<button id="tab-denials" role="tab" aria-controls="denials" aria-selected="false" tabindex="-1">Denials and anomalies</button>
+</div>
+<section id="overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+<p id="verification" class="banner"></p>
+<div class="overview-layout"><div class="card">
+<label id="toggle-wrap" hidden><input id="toggle" type="checkbox"> Show hotspots</label>
+<div id="diagram" class="diagram" hidden><img id="timeline" alt="Hand-authored narrative session timeline"><div id="overlay" class="overlay"></div></div>
+<div id="generation" hidden><h2>Generate the missing diagram</h2><button id="copy" class="action" type="button">Copy baoyu-diagram prompt</button><p id="copy-status" role="status"></p><pre id="prompt"></pre></div>
+</div><div class="card"><h2>Indexed jobs</h2><div id="jobs" class="scroll" tabindex="0" aria-label="Indexed jobs table"></div></div></div>
+</section>
+<section id="transcript" role="tabpanel" aria-labelledby="tab-transcript" tabindex="0" hidden>
+<label for="job-select">Job transcript</label> <select id="job-select"></select><p id="no-jobs" hidden>No indexed jobs</p>
+<iframe id="transcript-frame" title="Delegated job transcript" hidden></iframe>
+</section>
+<section id="cost" role="tabpanel" aria-labelledby="tab-cost" tabindex="0" hidden><iframe id="cost-frame" title="Measured cost receipt"></iframe></section>
+<section id="facts" role="tabpanel" aria-labelledby="tab-facts" tabindex="0" hidden><h2>Receipt facts</h2><div id="receipt-facts"></div><div id="goal"></div></section>
+<section id="denials" role="tabpanel" aria-labelledby="tab-denials" tabindex="0" hidden><h2>Permission denials</h2><p>A denied tool call does not move a job's exit code.</p><div id="denial-list"></div><h2>Anomalies</h2><div id="anomaly-list"></div></section>
+</main>
+<script id="handoff-payload" type="application/json">{}</script>
+<script>
+'use strict';
+const data = JSON.parse(document.getElementById('handoff-payload').textContent);
+const $ = id => document.getElementById(id);
+const display = value => value == null ? 'not recorded' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+function add(parent, tag, value) {
+  const node = document.createElement(tag);
+  if (value !== undefined) node.textContent = display(value);
+  parent.append(node);
+  return node;
+}
+const tabs = Array.from(document.querySelectorAll('[role=tab]'));
+function activate(name, focus = true) {
+  for (const tab of tabs) {
+    const selected = tab.id === 'tab-' + name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    $(tab.getAttribute('aria-controls')).hidden = !selected;
+    if (selected && focus) tab.focus();
+  }
+  if (name === 'cost' && !$('cost-frame').getAttribute('src')) $('cost-frame').src = data.cost_url;
+  if (name === 'transcript' && data.jobs.length && !$('transcript-frame').getAttribute('src')) showJob(data.jobs[0].job_id, false);
+}
+function showJob(id, switchTab = true) {
+  const job = data.jobs.find(row => row.job_id === id);
+  if (!job) return;
+  $('job-select').value = id;
+  $('transcript-frame').src = job.url;
+  $('transcript-frame').hidden = false;
+  if (switchTab) activate('transcript');
+}
+for (const [index, tab] of tabs.entries()) {
+  tab.addEventListener('click', () => activate(tab.getAttribute('aria-controls')));
+  tab.addEventListener('keydown', event => {
+    const next = {ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1}[event.key];
+    if (next !== undefined) { event.preventDefault(); activate(tabs[next].getAttribute('aria-controls')); }
+  });
+}
+function jobButton(parent, id) {
+  const button = add(parent, 'button', id);
+  button.type = 'button';
+  button.className = 'link';
+  button.addEventListener('click', () => showJob(id));
+}
+function table(parent, headers, rows, cellWriter) {
+  const node = add(parent, 'table');
+  const head = add(add(node, 'thead'), 'tr');
+  for (const header of headers) { const cell = add(head, 'th', header); cell.scope = 'col'; }
+  const body = add(node, 'tbody');
+  for (const row of rows) {
+    const tr = add(body, 'tr');
+    row.forEach((value, index) => cellWriter(add(tr, 'td'), value, index));
+  }
+}
+$('subtitle').textContent = ['phase: ' + display(data.facts.phase), display(data.facts.duration),
+  data.jobs.length + (data.jobs.length === 1 ? ' indexed job' : ' indexed jobs'),
+  'schema v' + display(data.facts.receipt_schema_version)].join(' \u00b7 ');
+for (const warning of data.warnings) add($('warnings'), 'p', warning).className = 'banner';
+$('verification').textContent = data.overview.banner;
+if (data.overview.image) {
+  $('diagram').hidden = false;
+  $('timeline').src = data.overview.image;
+  $('toggle-wrap').hidden = !data.overview.mapped;
+  for (const rect of data.overview.hotspots) {
+    const button = add($('overlay'), 'button');
+    button.className = 'hotspot';
+    button.type = 'button';
+    button.setAttribute('aria-label', rect.job ? 'Open transcript: ' + rect.job : 'Open driver session facts');
+    for (const key of ['left', 'top', 'width', 'height']) button.style[key] = rect[key] + '%';
+    button.addEventListener('click', () => rect.job ? showJob(rect.job) : activate('facts'));
+  }
+} else {
+  $('generation').hidden = false;
+  $('prompt').textContent = data.prompt;
+}
+$('toggle').addEventListener('change', () => $('diagram').classList.toggle('show-hotspots', $('toggle').checked));
+$('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(data.prompt); $('copy-status').textContent = 'Prompt copied'; }
+  catch { $('copy-status').textContent = 'Select and copy the prompt below.'; }
+});
+const JOB_HEADERS = ['Job', 'Start', 'End', 'Role', 'Backend', 'Model', 'Effort', 'State', 'Duration'];
+const UNMEASURED = ['not recorded', 'unknown', 'not yet available'];
+table($('jobs'), JOB_HEADERS,
+  data.jobs.map(job => [job.job_id, job.start, job.end, job.role, job.backend, job.model, job.effort, job.state, job.duration]),
+  (cell, value, index) => {
+    if (index === 0) { jobButton(cell, value); return; }
+    const text = display(value);
+    if (JOB_HEADERS[index] === 'State') {
+      const pill = add(cell, 'span', text);
+      pill.className = 'pill ' + text.replace(/[^a-z]/g, '');
+      return;
+    }
+    cell.textContent = text;
+    if (UNMEASURED.includes(text)) cell.className = 'unmeasured';
+  });
+for (const job of data.jobs) { const option = add($('job-select'), 'option', job.job_id); option.value = job.job_id; }
+$('no-jobs').hidden = data.jobs.length !== 0;
+$('job-select').disabled = data.jobs.length === 0;
+$('job-select').addEventListener('change', () => showJob($('job-select').value));
+for (const [key, value] of Object.entries(data.facts)) { add($('receipt-facts'), 'h3', key); add($('receipt-facts'), 'pre', value); }
+function goalContent(parent) {
+  for (const name of ['Goal', 'Checkpoint Rule', 'Spec Review', 'Delivery']) {
+    add(parent, 'h3', name); add(parent, 'pre', data.goal.sections[name] ?? 'not recorded');
+  }
+  add(parent, 'h3', 'Tasks');
+  if (!data.goal.tasks) { add(parent, 'pre', data.goal.sections.Tasks ?? 'not recorded'); return; }
+  const wrap = add(parent, 'div'); wrap.className = 'scroll'; wrap.tabIndex = 0;
+  table(wrap, data.goal.tasks.headers, data.goal.tasks.rows, (cell, value, index) => {
+    const id = value.replace(/^`|`$/g, '');
+    if (data.goal.tasks.headers[index] === 'jobId' && data.jobs.some(job => job.job_id === id)) jobButton(cell, id);
+    else cell.textContent = value;
+  });
+}
+if (data.goal.matched) { add($('goal'), 'h2', 'Goal for this run'); goalContent($('goal')); }
+else {
+  add($('goal'), 'p', 'no goal file matches this receipt');
+  if (data.goal.raw) { const details = add($('goal'), 'details'); add(details, 'summary', 'Current working-tree goal'); goalContent(details); }
+}
+for (const denial of data.denials) {
+  jobButton($('denial-list'), denial.job);
+  add($('denial-list'), 'p', denial.state === 'reported' && !denial.items.length ? 'No denials reported' : denial.state);
+  for (const item of denial.items) { for (const [key, value] of Object.entries(item)) { add($('denial-list'), 'h4', key); add($('denial-list'), 'pre', value); } }
+}
+add($('anomaly-list'), 'pre', data.facts.anomalies);
+for (const anomaly of data.anomalies) add($('anomaly-list'), 'p', anomaly);
+</script>
+</body>
+</html>

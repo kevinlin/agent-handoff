@@ -5,7 +5,7 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.7.1](https://img.shields.io/badge/version-3.7.1-ef6f4f)](CHANGELOG.md)
+[![Version: 3.7.2](https://img.shields.io/badge/version-3.7.2-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -202,6 +202,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - A full-review gate: the complete diff is read against the acceptance criteria in `.handoff/goal.md` — not a sample, and not Codex's own summary. At most two fix rounds per task, then the task comes back to Claude.
 - A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs`, `cc_jobs`, and `copilot_jobs` with their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
 - A readable transcript of any delegated job: `/agent-handoff transcript` renders that job's `log.jsonl` into one self-contained HTML page and opens it, so what the worker actually did is readable without grepping JSONL. It reads all three event formats (Codex envelopes, Claude `stream-json`, and Copilot's typed events), and dropping a `log.jsonl` onto the same page renders a job from any repo.
+- A whole run on one page: `/agent-handoff visualise [<receipt-file>]` (also `visualize`) opens a token-protected loopback page with a clickable narrative SVG, the existing transcript and cost-receipt pages, session facts, and denials and anomalies. Omitted means the newest saved receipt. Missing diagrams show a copyable `baoyu-diagram` prompt; undeclared diagrams keep the job table. Use **Show hotspots** to check alignment. The SVG's prose is unverified; the other tabs are the measured record. Run `python3 "$HANDOFF_DIR/scripts/handoff-session-ui.py" --repo "$REPO"` directly; `--no-open` prints the URL, `--port` selects a port, and Ctrl-C stops the server. [Release notes](docs/releases/v3.7.2.md).
 - A cost receipt of a finished run: `/agent-handoff cost-receipt` reads a saved Session Receipt and the job logs it indexes, and writes a markdown and an HTML page via `scripts/render-cost-receipt.py` and `assets/cost-receipt.html`. Every number is measured — codex jobs carry token counters and no cost figure, claude jobs carry the CLI's own `total_cost_usd` unrounded, copilot jobs carry token counters plus premium requests and nano-AIU, which are AI credits and never a currency figure — and no saving is computed.
 - A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
 - Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.

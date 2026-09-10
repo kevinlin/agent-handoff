@@ -1,8 +1,8 @@
 ---
 name: agent-handoff
-version: 3.7.1
+version: 3.7.2
 description: |
-  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex, a second Claude Code, or GitHub Copilot), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "/agent-handoff cost-receipt" or "cost receipt" (renders a session receipt and its job state as a measured cost report), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and a worker CLI to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
+  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex, a second Claude Code, or GitHub Copilot), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "/agent-handoff cost-receipt" or "cost receipt" (renders a session receipt and its job state as a measured cost report), "/agent-handoff visualise" or "visualize", "visualise the session" or "show me the session timeline" (opens a loopback session review page), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and a worker CLI to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
 
 # Agent Handoff
@@ -69,6 +69,61 @@ token counters plus premium requests and nano-AIU, which are AI credits and
 never a currency figure. The summary figures overlap by design and are never
 added. Do not report a saving, an avoided cost, or context kept out of the
 driver — no counter establishes any of them. This renders a page; it delegates nothing and starts no job.
+
+## Session Visualisation
+
+On `/agent-handoff visualise [<receipt-file>]`, `visualize`, "visualise the session",
+or "show me the session timeline", open the session review page:
+
+```bash
+python3 "$HANDOFF_DIR/scripts/handoff-session-ui.py" [<receipt-file>] --repo "$REPO"
+```
+
+Omitted means the newest saved receipt under `.handoff/receipts/`. The server
+binds to `127.0.0.1` with a per-run access token; `--port` selects a port and
+`--no-open` prints the URL. Keep the terminal open; Ctrl-C stops the server.
+This reads a run and starts no delegated job.
+
+**Both assets exist before the browser opens.** The cost receipt is rendered
+eagerly by the script. The diagram needs a model, so the script cannot make one
+and refuses to open without it:
+
+- **Exit 3** — no timeline diagram for this receipt. The script prints the target
+  path and the exact generation prompt. Generate the SVG with `baoyu-diagram`
+  (fall back to `baoyu-image-gen` when it is present instead, or author the SVG
+  directly when neither is), save it at the printed path, then run the command
+  again. Do this without asking: it writes one gitignored artifact under
+  `.handoff/` and starts no delegated job.
+- **Exit 2** — bad receipt, bad selector, or a cost receipt that cannot render.
+  Read the message; do not retry unchanged.
+- `--allow-missing-diagram` opens on the job-table rung, for when generation is
+  unavailable or the user wants the page as it stands.
+
+The overview frames the run with a hand-authored SVG, labelled as a narrative
+illustration whose prose is unverified. Transcript and cost-receipt tabs reuse
+the existing pages as the measured record. Session facts associate `goal.md`
+only by an indexed jobId in its Tasks table; an unmatched file is disclosed as
+the current goal. Denials retain missing-data states and copilot call-id joins.
+A Git-ignore banner warns when transcript output is not ignored.
+
+The generated diagram goes at
+`.handoff/receipts/diagram/<receipt-stem>_handoff-session-timeline.svg`. Draw it
+light-themed with a 12px minimum font size, clock labels in the local timezone
+with that zone named in the subtitle, and one sub-timeline per identity forked
+from the driver lane where the driver submitted the job and rejoining where it
+read the result. The SVG root must carry a positive-width/height `viewBox`, JSON `data-axis`
+segments (`t0`, `t1`, `x0`, `x1`) at tick positions, and JSON `data-lanes`
+(`job`, `y0`, `y1`, `t0`, `t1`). Use offset-aware timestamps, finite coordinates,
+ordered non-overlapping axis segments, and non-overlapping lane bands. Include
+every indexed job once; match declared windows to `meta.submitted_at` and
+`exit_code` mtime within 60 seconds. An optional `lane: "driver"` has only a band,
+no job or window. Never invent a running job's end.
+
+A missing or invalid lane map keeps the image and job table. Reconciliation
+drops only contradicted hotspots; a running lane reads `unverifiable (job running)`.
+Use **Show hotspots** to check alignment. The SVG is always an image, never DOM.
+Only cached transcript and cost-receipt renderings are written, under `.handoff/`.
+Receipt schema stays 6. See `docs/specs/design_session-visualisation.md`.
 
 ## Routing Rules
 

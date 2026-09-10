@@ -1,0 +1,4 @@
+{"type":"tool.execution_start","data":{"toolCallId":"other","toolName":"wrong","arguments":{"command":"wrong"}}}
+{"type":"tool.execution_complete","data":{"toolCallId":"call-a","error":{"code":"denied","message":"blocked"}}}
+{"type":"tool.execution_start","data":{"toolCallId":"call-a","toolName":"shell","arguments":{"command":"echo fixture"}}}
+{"type":"tool.execution_complete","data":{"toolCallId":"missing","error":{"code":"denied","message":"blocked"}}}

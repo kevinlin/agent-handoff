@@ -26,7 +26,7 @@ The evidence design's rule is that every field in every artifact traces back to 
 
 The overview is a **hand-authored SVG** produced by a diagram model reading the receipt and `goal.md`. It bands the run into the five phases, says what the spec review found, and explains why the anomaly was recorded. None of that exists in any file as structured data. That is what makes it worth looking at. It is also a narrative, so:
 
-- The SVG is labelled on the page as a narrative illustration, and the tabs beside it as the measured record.
+- The SVG carries its own narrative label, written into the diagram by the generation prompt, and the image's `alt` names it as hand-authored. The page chrome does not repeat the claim.
 - Its **lane map is checked against evidence** — every lane must name a job the receipt indexes, every indexed job must have a lane, and every declared window must match the measured one. A diagram generated for a different receipt cannot render silently under this one.
 - Its **prose is not checked**. A wrong token figure in the subtitle will display. This is the accepted cost of choosing a hand-authored overview over a generated chart, and it is recorded here so it is not later mistaken for an oversight.
 
@@ -153,6 +153,19 @@ A **show hotspots** toggle outlines them. Misalignment then costs one glance ins
 
 Clicking a delegated lane opens that job's transcript tab. Clicking a `driver` lane opens the session facts tab, since the driver's own Claude Code session is not a delegated job and `render-transcript.py` does not render it.
 
+### Both assets exist before the browser opens
+
+A reviewer who lands on an empty overview and an empty cost tab learns nothing about the run, and cannot tell a missing asset from a broken page. So neither is left to be discovered by clicking.
+
+Only one of the two can be made here, and the split is not arbitrary:
+
+- **The cost receipt is Python**, so it is rendered eagerly during startup, before the URL is printed. A receipt that cannot render is an exit 2 and no page at all, because the tab it would produce is a 400.
+- **The diagram needs a model.** A renderer that spawned one would bill a vendor as a side effect of opening a page, which is the one thing this flow must never do quietly. So the script refuses instead: **exit 3**, the target path, and the generation prompt on stderr.
+
+Exit 3 is a distinct code from exit 2 on purpose. It tells the caller "an asset is missing and only a model can make it", which is a different instruction than exit 2's "your input is wrong": one is answered by generating and re-running, the other by reading the message. `SKILL.md` binds the first to `baoyu-diagram` and tells the driver to do it without asking.
+
+`--allow-missing-diagram` keeps the third rung reachable. Deleting a working fallback because a happy path now exists would be a regression, and generation is not always available.
+
 ### The fallback ladder
 
 None of the three SVGs currently in `.handoff/receipts/diagram/` carry these attributes, so every rung is a real state on day one:
@@ -161,7 +174,8 @@ None of the three SVGs currently in `.handoff/receipts/diagram/` carry these att
 | --- | --- |
 | SVG present, axis and lanes declared | the image with working hotspots and the toggle |
 | SVG present, attributes absent or unparseable | the image, a banner saying the diagram declares no lane map, and the job table beside it |
-| no SVG for this receipt | the job table, plus the exact `baoyu-diagram` prompt for this receipt including the data-attribute contract, ready to copy |
+| no SVG for this receipt, `--allow-missing-diagram` passed | the job table, plus the exact `baoyu-diagram` prompt for this receipt including the data-attribute contract, ready to copy |
+| no SVG for this receipt, flag absent | nothing: exit 3, the prompt on stderr, no server bound |
 
 The job table is not a second timeline implementation. It is one row per indexed job — window, role, backend, model, effort, state, duration — read from the same `meta` and `exit_code` the hotspot math uses, and it is present in every state as the drill-in that does not depend on a diagram.
 
@@ -239,13 +253,13 @@ The git-ignore check `render-transcript.py` already performs is surfaced in the 
 | A declared window is checked against a measured one | `t0`/`t1` on every lane | a verification that compares a value to itself |
 | A committed transcript is noticed | `_is_ignored`, surfaced in the shell | captured shell output in Git history |
 
-Asserted by prose rather than by a script: that the SVG is a narrative and the tabs are the record. The page carries the label; nothing enforces that a reader believes it.
+Asserted by prose rather than by a script: that the SVG is a narrative and the tabs are the record. The generation prompt asks the diagram to say so itself; nothing enforces that it complies, or that a reader believes it.
 
 ## Risks and known limits
 
 - **The data-attribute contract is a prompt convention, not a validated interface.** A diagram model that ignores it produces a non-interactive overview. The fallback ladder is the mitigation; there is no way to make a hand-authored file comply.
 - **The narrative is unverified where it is most quotable.** Token figures and finding counts in the SVG's subtitle are exactly the numbers a reader will repeat, and the check does not touch them. Deliberate, per the decision above; the mitigation is the label and the measured tabs beside it.
-- **No interactive example ships with the feature.** All three existing diagrams predate the contract, so the interactive path is exercised by a fixture and by one hand-annotated diagram until a model generates one against the contract. Whether a diagram model reliably emits well-formed `data-axis` and `data-lanes` is unproven; a single generation is the check, and a human has to run it.
+- **One real generation has now satisfied the contract.** The diagram for `receipt-20260910T073002Z`, generated from the printed prompt outside the implementing session, parsed and reconciled on the first attempt: `Lane map matches the 3 indexed jobs`, four hotspots. That closes the open question of whether a diagram model can emit well-formed `data-axis` and `data-lanes` at all. It is one sample, so it does not establish a rate, and the three older diagrams still predate the contract.
 - **The declared window is checked; the drawn bar is not.** Reconciliation proves the diagram's *claims* match the files. It cannot prove the bar was drawn where the claim says, so a diagram that declares correct windows and draws them elsewhere passes the check and misplaces its hotspots. The **show hotspots** toggle is the only thing that catches it, and it needs a human to look.
 - **`goal.md` parsing is best-effort.** The file has no schema. A reformatted task table degrades to raw text, silently by design.
 - **A token in a URL is visible to anything that can read the browser's history or the shell that printed it.** Inherited from the setup UI, which has the same property, and not made worse here.
@@ -254,7 +268,7 @@ Asserted by prose rather than by a script: that the SVG is a narrative and the t
 
 ## Not doing
 
-- **Generating the SVG in Python.** No script draws it. `SKILL.md` instructs the driver to offer generation with `baoyu-diagram` when one is missing, and the overview's third rung prints the prompt.
+- **Generating the SVG in Python.** No script draws it. The script requires one, names the target path, and hands over the prompt; `SKILL.md` binds that to `baoyu-diagram` and makes generating it automatic rather than offered. The prompt also carries the presentation requirements the page depends on and a model would otherwise choose against: a light theme (`baoyu-diagram` defaults to dark), a 12px minimum font size, clock labels in the local timezone, and one sub-timeline per identity forked from the driver lane.
 - **A deterministic chart as the overview.** Considered and declined: the editorial content — phase bands, what a spec review found, why an anomaly was recorded — is the reason to look at the page, and none of it exists as structured data. The job table covers the geometry-only case.
 - **Checking the SVG's narrative numbers.** Would require the page to establish what the prose means, which is a parser for English.
 - **A static shareable bundle.** The transcript and cost receipt pages are already self-contained files, which is the sharing path.

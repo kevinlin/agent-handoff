@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.7.2 (2026-09-10)
+
+- Add `/agent-handoff visualise` (also `visualize`): one loopback session page with a narrative SVG overview and the existing transcript and cost-receipt pages in authenticated same-origin frames.
+- Validate lane maps and reconcile declared windows with measured job evidence; keep per-lane failures, axis gaps, running states, and missing-diagram fallbacks explicit.
+- Add receipt-associated goal facts, joined permission denials, measured anomalies, and a transcript Git-ignore banner. Serialize cached renders per output and invalidate against all input mtimes.
+- Gate the page on its assets: the cost receipt renders eagerly during startup, and a missing timeline diagram exits 3 with the target path and the generation prompt rather than opening a page with two empty tabs. A renderer will not spawn a model to draw one, so `SKILL.md` binds exit 3 to `baoyu-diagram`; `--allow-missing-diagram` keeps the job-table rung.
+- The generation prompt now carries the presentation requirements the page depends on and a model would otherwise choose against: light theme (`baoyu-diagram` defaults to dark), 12px minimum font size, clock labels in the local timezone, and one sub-timeline per identity forked from the driver lane.
+- Add session fixtures and tests, route-specific CSP, required-file gates, and the CI compilation entry. Receipt schema remains 6; existing renderers and runtime helpers are unchanged.
+
 ## v3.7.1 (2026-09-10)
 
 - fix: `render-transcript.py` and `render-cost-receipt.py` open the page they just wrote when `--repo` is relative. Both called `as_uri()` on a path that inherits the argument's relativity, which raises, so `--repo .` wrote the file, printed its path and then exited 1 — the output looked like a failed render. Every CLI test passed `--no-open`, so the crash sat on the one line the suite never ran; both scripts now have a test that opens.
