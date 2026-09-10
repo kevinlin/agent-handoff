@@ -74,3 +74,7 @@ The run terminates in a **Handoff Session Receipt** (schema v6, `docs/receipt-sc
 ## Changing the workflow itself
 
 `references/darwin-ratchet.md` is the gate: change one dimension at a time (planning, the split decision, delegation, monitoring, review, permissions, reporting), validate against test prompts or a real miniloop, and keep the change only when repo evidence improves. Don't let one agent be both sole maker and sole judge on high-risk changes.
+
+## Agent output
+
+DO NOT send optional commentary. Answer only what was asked — no preamble, no unsolicited suggestions, no closing remarks.
