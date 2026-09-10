@@ -94,6 +94,17 @@ and refuses to open without it:
   directly when neither is), save it at the printed path, then run the command
   again. Do this without asking: it writes one gitignored artifact under
   `.handoff/` and starts no delegated job.
+- **Declares no lane map** — the diagram predates the lane contract. Exit 0, the
+  page opens with the image and job table, and the script prints the state and
+  the generation prompt on stdout. **Ask** the user before spending anything,
+  and say the page is already open and usable without hotspots. Offer the cheap
+  fix first: **annotate the existing SVG in place** — read its tick `x`
+  positions and lane band `y` bounds out of the file and add `viewBox`,
+  `data-axis` and `data-lanes` to the root, keeping the drawing. Redraw from the
+  printed prompt only when the file has no readable geometry or the user asks
+  for a new diagram. Either way, run the command again afterwards and check the
+  banner reconciles. This is the opposite of exit 3, where nothing opens and you
+  generate unasked.
 - **Exit 2** — bad receipt, bad selector, or a cost receipt that cannot render.
   Read the message; do not retry unchanged.
 - `--allow-missing-diagram` opens on the job-table rung, for when generation is
@@ -119,7 +130,7 @@ every indexed job once; match declared windows to `meta.submitted_at` and
 `exit_code` mtime within 60 seconds. An optional `lane: "driver"` has only a band,
 no job or window. Never invent a running job's end.
 
-A missing or invalid lane map keeps the image and job table. Reconciliation
+An invalid lane map keeps the image and job table. Reconciliation
 drops only contradicted hotspots; a running lane reads `unverifiable (job running)`.
 Use **Show hotspots** to check alignment. The SVG is always an image, never DOM.
 Only cached transcript and cost-receipt renderings are written, under `.handoff/`.

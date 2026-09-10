@@ -2,6 +2,7 @@
 
 ## v3.7.2 (2026-09-10)
 
+- A diagram that declares no lane map now reports that on stdout with the generation prompt, so the driver offers to fix it after the page is open — annotating the existing SVG in place with `viewBox`, `data-axis` and `data-lanes` read off its own geometry, or redrawing it when that geometry is unreadable. Asked rather than done: unlike exit 3 the page already renders, and the fix only buys hotspots.
 - Add `/agent-handoff visualise` (also `visualize`): one loopback session page with a narrative SVG overview and the existing transcript and cost-receipt pages in authenticated same-origin frames.
 - Validate lane maps and reconcile declared windows with measured job evidence; keep per-lane failures, axis gaps, running states, and missing-diagram fallbacks explicit.
 - Add receipt-associated goal facts, joined permission denials, measured anomalies, and a transcript Git-ignore banner. Serialize cached renders per output and invalidate against all input mtimes.

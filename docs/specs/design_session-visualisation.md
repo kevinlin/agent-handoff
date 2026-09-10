@@ -164,16 +164,43 @@ Only one of the two can be made here, and the split is not arbitrary:
 
 Exit 3 is a distinct code from exit 2 on purpose. It tells the caller "an asset is missing and only a model can make it", which is a different instruction than exit 2's "your input is wrong": one is answered by generating and re-running, the other by reading the message. `SKILL.md` binds the first to `baoyu-diagram` and tells the driver to do it without asking.
 
+A diagram that exists but declares no lane map is answered after the page opens
+rather than before it. The page is useful on that rung — the image is there and
+the job table is beside it — so the script does not refuse. It reports
+`declares no lane map` on stdout beside the diagram path and prints the same
+generation prompt, and the driver, having opened the page, **asks** whether to
+bring the diagram up to the lane contract. Exit 3 has no page at all, so
+generating is the only way to answer the request; here the request is already
+answered and the fix buys hotspots on top of it, which a reviewer may not want
+to pay for. The prompt goes to stdout rather than only into the page's copy
+button because the driver reads a terminal, not a browser.
+
+Two answers satisfy that, and the cheap one comes first. **Annotating in place**
+keeps the drawing and adds `viewBox`, `data-axis` and `data-lanes` to the root,
+with the geometry read out of the file: the tick positions for the segments, the
+band bounds for the lanes. Nothing else in the SVG changes, and the reviewer
+keeps the diagram they were already looking at. **Redrawing** from the printed
+prompt is the fallback for a file whose geometry cannot be read back, or for a
+reviewer who wants a different diagram. Annotation is also the path the
+interactive rung's own test input takes, so it is a supported route rather than
+a shortcut around one.
+
+An annotation is exactly as unverified as a generation, and it is caught by
+exactly the same things: reconciliation refuses a lane whose declared window the
+files contradict, and **show hotspots** is the only check on whether the numbers
+were read off the right marks. Reading a stroke's end instead of a tick is the
+specific mistake to expect, and it shifts every hotspot by a consistent amount.
+
 `--allow-missing-diagram` keeps the third rung reachable. Deleting a working fallback because a happy path now exists would be a regression, and generation is not always available.
 
 ### The fallback ladder
 
-None of the three SVGs currently in `.handoff/receipts/diagram/` carry these attributes, so every rung is a real state on day one:
+Two of the four SVGs currently in `.handoff/receipts/diagram/` carry these attributes and two predate them, so every rung is a real state in this repo:
 
 | State | Overview shows |
 | --- | --- |
 | SVG present, axis and lanes declared | the image with working hotspots and the toggle |
-| SVG present, attributes absent or unparseable | the image, a banner saying the diagram declares no lane map, and the job table beside it |
+| SVG present, attributes absent or unparseable | the image, a banner saying the diagram declares no lane map, and the job table beside it. The driver is told on stdout and offers to annotate the file in place, or to redraw it |
 | no SVG for this receipt, `--allow-missing-diagram` passed | the job table, plus the exact `baoyu-diagram` prompt for this receipt including the data-attribute contract, ready to copy |
 | no SVG for this receipt, flag absent | nothing: exit 3, the prompt on stderr, no server bound |
 
@@ -257,9 +284,9 @@ Asserted by prose rather than by a script: that the SVG is a narrative and the t
 
 ## Risks and known limits
 
-- **The data-attribute contract is a prompt convention, not a validated interface.** A diagram model that ignores it produces a non-interactive overview. The fallback ladder is the mitigation; there is no way to make a hand-authored file comply.
+- **The data-attribute contract is a prompt convention, not a validated interface.** A diagram model that ignores it produces a non-interactive overview. The fallback ladder is the mitigation, and the second rung's offer is the way off it — annotating the file in place costs no generation at all, redrawing costs one, and the reviewer decides which. There is no way to make a hand-authored file comply.
 - **The narrative is unverified where it is most quotable.** Token figures and finding counts in the SVG's subtitle are exactly the numbers a reader will repeat, and the check does not touch them. Deliberate, per the decision above; the mitigation is the label and the measured tabs beside it.
-- **One real generation has now satisfied the contract.** The diagram for `receipt-20260910T073002Z`, generated from the printed prompt outside the implementing session, parsed and reconciled on the first attempt: `Lane map matches the 3 indexed jobs`, four hotspots. That closes the open question of whether a diagram model can emit well-formed `data-axis` and `data-lanes` at all. It is one sample, so it does not establish a rate, and the three older diagrams still predate the contract.
+- **One real generation has now satisfied the contract.** The diagram for `receipt-20260910T073002Z`, generated from the printed prompt outside the implementing session, parsed and reconciled on the first attempt: `Lane map matches the 3 indexed jobs`, four hotspots. That closes the open question of whether a diagram model can emit well-formed `data-axis` and `data-lanes` at all. It is one sample, so it does not establish a rate, and two of the four diagrams in the repo still predate the contract.
 - **The declared window is checked; the drawn bar is not.** Reconciliation proves the diagram's *claims* match the files. It cannot prove the bar was drawn where the claim says, so a diagram that declares correct windows and draws them elsewhere passes the check and misplaces its hotspots. The **show hotspots** toggle is the only thing that catches it, and it needs a human to look.
 - **`goal.md` parsing is best-effort.** The file has no schema. A reformatted task table degrades to raw text, silently by design.
 - **A token in a URL is visible to anything that can read the browser's history or the shell that printed it.** Inherited from the setup UI, which has the same property, and not made worse here.
@@ -314,15 +341,15 @@ Gates to extend: `check_file` entries for `scripts/handoff-session-ui.py` and `a
 
 `assets/session-view.html` gets an `/interface-kit` pass. The two existing pages both use `light-dark()` but define **different token names and different palette values**, so there is no single shared set to join; the new page follows the cost receipt's editorial language, and neither existing page is restyled to match it. What it does carry over is the behaviour: keyboard-reachable tabs with focus rings, scroll containers that scroll inside themselves rather than pushing the page sideways, `prefers-reduced-motion` honoured, and hover gated behind `(hover: hover)`.
 
-All three diagrams currently in `.handoff/receipts/diagram/` predate the lane contract, so opening the repo's own newest receipt exercises the **second** rung only. Reaching the other two takes prepared inputs, and the manual check names them:
+The repo's own newest receipt now reaches the **interactive** rung; the two diagrams that predate the lane contract still reach the second. Reaching the third takes a prepared input, and the manual check names all three:
 
 | Rung | Input |
 | --- | --- |
-| interactive | the newest receipt's diagram, hand-annotated with `data-axis` and `data-lanes` by the driver in Phase 4; `tests/fixtures/session-view/annotated-timeline.svg` covers the same path in tests |
-| no lane map | any of the three diagrams as they stand |
+| interactive | a diagram carrying `data-axis` and `data-lanes`, either generated from the printed prompt or annotated in place by the driver; `tests/fixtures/session-view/annotated-timeline.svg` covers the same path in tests |
+| no lane map | either of the two pre-contract diagrams as they stand |
 | no diagram | a receipt whose stamp has no file in `.handoff/receipts/diagram/` |
 
-Manual checks no automated check covers: with the annotated diagram, switch on **show hotspots** and confirm the outlines sit over the bars rather than beside them; on the unannotated one, confirm the banner and the job table; with no diagram, confirm the printed generation prompt is usable as written. Then open `/diagram.svg` directly in a tab and confirm it renders as an inert image, and confirm each framed tab loads rather than 403s.
+Manual checks no automated check covers: with the annotated diagram, switch on **show hotspots** and confirm the outlines sit over the bars rather than beside them; on the unannotated one, confirm the banner, the job table, and that the driver offers to annotate or redraw rather than doing either silently; with no diagram, confirm the printed generation prompt is usable as written. Then open `/diagram.svg` directly in a tab and confirm it renders as an inert image, and confirm each framed tab loads rather than 403s.
 
 ## Changing any of this
 

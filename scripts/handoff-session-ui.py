@@ -474,7 +474,23 @@ def main(argv=None):
         print('', file=sys.stderr)
         print('Or pass --allow-missing-diagram to open on the job-table rung.', file=sys.stderr)
         return 3
-    print(f'timeline diagram: {diagram if diagram else "none (--allow-missing-diagram)"}', flush=True)
+    # A diagram that exists but declares no lane map is not a refusal: the page
+    # opens and is useful. But the driver cannot see the page's banner, so the
+    # state and the prompt go to stdout, and the driver asks before spending a
+    # generation on a page that already works.
+    if diagram is None:
+        print('timeline diagram: none (--allow-missing-diagram)', flush=True)
+    elif parse_map(diagram.read_bytes()) is None:
+        print(f'timeline diagram: {diagram} (declares no lane map: no hotspots)', flush=True)
+        print('Ask the user before spending anything. Cheapest fix: annotate that file '
+              'in place, reading its tick x positions and lane band y bounds and adding '
+              'viewBox, data-axis and data-lanes to the SVG root. Redraw only if its '
+              'geometry is unreadable, with this prompt, then run again:', flush=True)
+        print('', flush=True)
+        print(session.diagram_prompt(), flush=True)
+        print('', flush=True)
+    else:
+        print(f'timeline diagram: {diagram}', flush=True)
     try:
         session.render_cost()
     except (OSError, ValueError, cost.ReceiptError) as error:
