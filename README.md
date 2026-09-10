@@ -51,16 +51,16 @@ Before first real use, say `/agent-handoff config`. Handoff opens a local single
 
 ## Showcase
 
-**A measured cost receipt (v3.6.1)**
+**A whole run, replayed on one page (v3.7.2)**
 
 <div align="center">
-<a href="examples/v3.6.1-conversation-cost-receipt.html">
-<img src="assets/v3.6.1-conversation-cost-receipt.png" alt="Handoff cost receipt page: the two summary figures, the delegated-jobs table with per-job token counters and CLI-reported cost, the driver row, and the method list" width="720" />
-</a>
-<p><sub>Real webpage screenshot: <code>/agent-handoff cost-receipt</code> reads a saved Session Receipt and the job logs it indexes.</sub></p>
+<img src="examples/session-visualise-demo.gif" alt="Walkthrough of the Handoff session page: the run's timeline with hotspots shown, the failed flake-fix job's transcript, the measured cost receipt, the receipt facts, and the denials and anomalies tab" width="720" />
+<p><sub>Recorded from <code>/agent-handoff visualise</code> on a real receipt: the run that added Copilot as a third backend, 283 minutes, nine delegated jobs.</sub></p>
 </div>
 
-Every number on that page was read from a file named in its own Method list. Codex-backed jobs carry token counters and no cost figure, because the Codex CLI emits none; claude-backed jobs carry the CLI's own `total_cost_usd`, unrounded and labelled *CLI-reported*. The two summary figures cover overlapping populations, so the page says they are not addends, and no saving is computed anywhere. The driver row is scoped to the run's own interval, derived from the receipt stamp minus its duration, so re-rendering an old receipt after the session grew returns the same row.
+The overview draws the run as a timeline, one lane per job. **Show hotspots** outlines each clickable region so you can check it sits on its bar. Clicking the red flake-fix lane opens that job's transcript. It was the one job that failed, cut off by a Claude session limit mid-edit, and the driver verified its partial change itself. The Cost receipt tab is the same page `/agent-handoff cost-receipt` writes: token counters from each job's log, plus the CLI's own cost for the Claude-backed jobs. Session facts and Denials and anomalies come straight from the receipt and the job state files.
+
+Nothing checks the timeline's labels; they were written when the diagram was generated. Every other tab is read from files on disk.
 
 ## Use It
 
@@ -88,13 +88,29 @@ Or open it directly from the repository:
 bash install.sh --config --repo /path/to/project
 ```
 
+Review a finished run on one page:
+
+```text
+/agent-handoff visualise
+/agent-handoff visualise .handoff/receipts/receipt-20260909T151548Z.md
+Show me the session timeline of the last run.
+```
+
+With no receipt named, it opens the newest one under `.handoff/receipts/`. To start the viewer yourself, print its URL, and stop it with Ctrl-C:
+
+```bash
+python3 ~/.claude/skills/agent-handoff/scripts/handoff-session-ui.py --repo /path/to/project --no-open
+```
+
 ## How The Flow Runs
 
 <div align="center">
-<a href="docs/user-guide/diagrams/flow-overview.svg">
-<img src="docs/user-guide/diagrams/flow-overview.svg" alt="The five Handoff phases: plan and split, delegate, monitor, full review, wrap up" width="820" />
+<a href="docs/user-guide/diagrams/handoff-lifecycle.svg">
+<img src="docs/user-guide/diagrams/handoff-lifecycle.svg" alt="Handoff lifecycle in three lanes. Claude Code plans and splits, passes an adversarial gate, delegates, monitors, reviews the diff against goal.md, and wraps up. The worker CLI runs each task as a background job on codex, claude, or copilot. Each step writes goal.md, the job directory, or the receipt under .handoff/." width="900" />
 </a>
 </div>
+
+Claude Code drives five steps. It plans the work and splits it into one row per identity, then attacks its own split: a row that fails the gate is fixed before anything leaves the driver. Each surviving row goes to a worker CLI as a background job with its own jobId. The backend (Codex, a second Claude Code, or Copilot) comes from the identity's config, and the job looks the same on all three. The driver checks the job's status on disk instead of holding its history in context. When the job finishes, the driver reads the whole diff against `.handoff/goal.md`. A diff that fails goes back to the same worker session as a fix round, at most two, and after that the driver finishes the task itself. A diff that passes goes to wrap up, which writes the session receipt.
 
 Each phase has its own diagram in [`docs/user-guide/diagrams/`](docs/user-guide/diagrams/): the [plan and split gate](docs/user-guide/diagrams/phase1-plan-split.svg), [delegation](docs/user-guide/diagrams/phase2-delegate.svg), [the monitor loop](docs/user-guide/diagrams/phase3-monitor.svg), [the review gate](docs/user-guide/diagrams/phase4-review-gate.svg), and [wrap up](docs/user-guide/diagrams/phase5-wrap-up.svg), plus [packet anatomy](docs/user-guide/diagrams/handoff-packet-anatomy.svg), [the evidence ladder](docs/user-guide/diagrams/context-ladder.svg), and [the goal-drift loop](docs/user-guide/diagrams/feedback-loop.svg). The prose they illustrate is [`references/claude-driven.md`](references/claude-driven.md).
 
@@ -165,12 +181,6 @@ Worker CLI (background jobs, on the identity's configured backend):
 
 One channel carries delegated work: the Handoff background job (`delegate-codex.sh --role <identity>`, with durable state, loop monitoring, and resume rework). It runs on whichever CLI the identity's `backend` names — Codex, a second Claude Code, or GitHub Copilot — and everything about the job is identical on all three. In-process subagents are the two escape hatches, for a stuck-step assist or work no identity fits. Quality-critical steps stay in the driving session even though it is the expensive seat.
 
-<div align="center">
-<a href="docs/user-guide/diagrams/handoff-packet-anatomy.svg">
-<img src="docs/user-guide/diagrams/handoff-packet-anatomy.svg" alt="The four named packets: delegation, spec review, e2e, and the user-facing goal packet" width="820" />
-</a>
-</div>
-
 Routing is never re-decided per run. Moving a task onto a different vendor is a config change you can see, not a swap to whichever identity happens to be cheaper — `delegate-codex.sh` refuses a per-job `--backend` that contradicts the identity's configuration.
 
 Every split passes an adversarial gate first, answering three questions in writing: does this task really not need the expensive tier, will the integration cost of the boundary eat the saving, and does each row's identity match its actual stakes. A row that fails any of them gets its identity corrected, merged into a neighbour, or kept in Claude's hands.
@@ -196,32 +206,45 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 
 ## What It Delivers
 
-- Clear routing: Claude Code plans, splits, integrates, and signs off; the delegated worker implements, runs checks, handles batch work, and reworks.
-- An adversarial split gate: every row answers three questions before it may go down a tier; a row that fails gets a corrected identity or stays with Claude.
-- Durable background jobs on any of three backends: `scripts/delegate-codex.sh` wraps `codex exec --json`, `claude --print --output-format stream-json`, and `copilot -p --output-format json` as jobs you can status, resume, and cancel, with state under `<repo>/.handoff/jobs/`. One code path, one job shape, one lifecycle test run against all three.
-- A full-review gate: the complete diff is read against the acceptance criteria in `.handoff/goal.md` — not a sample, and not Codex's own summary. At most two fix rounds per task, then the task comes back to Claude.
-- A Session Receipt: `duration` (wall clock, permission waits included), `codex_jobs`, `cc_jobs`, and `copilot_jobs` with their per-job durations, checks, anomalies, and `roles_used` — machine-checkable via `scripts/validate-receipt.py`.
-- A readable transcript of any delegated job: `/agent-handoff transcript` renders that job's `log.jsonl` into one self-contained HTML page and opens it, so what the worker actually did is readable without grepping JSONL. It reads all three event formats (Codex envelopes, Claude `stream-json`, and Copilot's typed events), and dropping a `log.jsonl` onto the same page renders a job from any repo.
-- A whole run on one page: `/agent-handoff visualise [<receipt-file>]` (also `visualize`) opens a token-protected loopback page with a clickable narrative SVG, the existing transcript and cost-receipt pages, session facts, and denials and anomalies. Omitted means the newest saved receipt. Missing diagrams show a copyable `baoyu-diagram` prompt; undeclared diagrams keep the job table. Use **Show hotspots** to check alignment. The SVG's prose is unverified; the other tabs are the measured record. Run `python3 "$HANDOFF_DIR/scripts/handoff-session-ui.py" --repo "$REPO"` directly; `--no-open` prints the URL, `--port` selects a port, and Ctrl-C stops the server. [Release notes](docs/releases/v3.7.2.md).
-- A cost receipt of a finished run: `/agent-handoff cost-receipt` reads a saved Session Receipt and the job logs it indexes, and writes a markdown and an HTML page via `scripts/render-cost-receipt.py` and `assets/cost-receipt.html`. Every number is measured — codex jobs carry token counters and no cost figure, claude jobs carry the CLI's own `total_cost_usd` unrounded, copilot jobs carry token counters plus premium requests and nano-AIU, which are AI credits and never a currency figure — and no saving is computed.
-- A concurrency-safe goal file: `scripts/goal-sync.py` reads and writes `.handoff/goal.md` behind a sha256 check, so the monitor loop and the driver never silently clobber each other.
-- Blind arbitration: a contested call goes to `deep_reasoner` and `arbiter` at once, neither seeing the other's answer; the driver rules on disagreement and records it in the receipt.
-- An optional second pair of eyes on the plan (`--spec-review`): before a plan reaches you, `deep_reasoner` reads it once on its own model and reports what it would change. Read-only, once per run, and the driver still rules — it closes the gap where the agent that wrote the plan is the only one that judged it.
-- Five identities, each a `backend + model + effort` triple pinned independently. `backend` decides which CLI executes that identity's jobs, and all three values are first-class delegation channels:
+### The workflow
 
-  | identity | carries | |
-  |---|---|---|
-  | `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis, and the optional one-shot review of the plan | core |
-  | `fast_worker` | mechanical, spec-complete implementation and checks | core |
-  | `arbiter` | blind second solve for contested calls | core |
-  | `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
-  | `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
+- Claude Code plans, splits, integrates, and signs off. The worker implements, runs checks, and reworks.
+- Split gate: every row answers three questions in writing before it moves to a cheaper identity. A row that fails gets another identity or stays with Claude.
+- Full review: the driver reads the whole diff against the acceptance criteria in `.handoff/goal.md`. A task gets two fix rounds at most, then comes back to Claude.
+- Blind arbitration: on a contested call, `deep_reasoner` and `arbiter` answer without seeing each other's work. The driver rules, and the receipt records it.
+- Plan review (`--spec-review`, off by default): `deep_reasoner` reads the plan once, read-only, before it reaches you.
+- Full protocol (opt-in, [`references/goal-to-pr.md`](references/goal-to-pr.md)): runs unattended from plan to a merge-ready, preview-verified PR. Merge, production, tags, force-push, deletion, destructive migrations, and external publishing each still need your explicit go-ahead.
 
-  The optional pair is written only when setup runs `--with-e2e`; a three-identity config is complete. See [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md). `deep_reasoner` carries one further toggle, `--spec-review`, also off by default.
-- A Darwin-style ratchet: improve one workflow dimension at a time and keep only verified gains.
-- A first-run setup wizard (`/agent-handoff config`): balanced/quality/cost presets remain editable per identity; `.handoff/config.toml` is the single source of truth; beginner-safe defaults remove advanced setup questions; the exact diff is previewed before writing; models and efforts come from each CLI's real capability list, except Copilot's model, which is typed because Copilot publishes no catalog; post-install verification uses a tool-free fresh Claude session, the Codex delegate dry-run chain, and for Copilot a no-tool run that checks the configured model-and-effort pair against the account.
-- Handoff Session Receipt v6: `scope`/`config_source`/`roles_used` prove which backend, model, and effort actually ran a role, not just "it was delegated," and the three job counts are partitioned by the CLI that executed them.
-- An opt-in full protocol (`references/goal-to-pr.md`): Plan→Goal→PR→Verification, running unattended up through merge-ready + preview verified; merge, production, tags, force-push, deletion, destructive migration, and external publish each still need their own explicit imperative.
+### Jobs
+
+- `scripts/delegate-codex.sh` runs each task as a background job on Codex (`codex exec`), Claude Code (`claude --print`), or Copilot (`copilot -p`). The job shape and lifecycle are the same on all three: submit, status, resume, cancel. State lives in `<repo>/.handoff/jobs/`.
+- `scripts/goal-sync.py` guards `.handoff/goal.md` with a sha256 check, so the monitor loop and the driver can't overwrite each other.
+
+### Evidence after the run
+
+| Output | How to get it | What it shows |
+|---|---|---|
+| Session Receipt (schema v6) | Written at wrap-up; `scripts/validate-receipt.py` checks it | Wall-clock `duration`; `codex_jobs`, `cc_jobs`, `copilot_jobs` with per-job durations; checks; anomalies; `roles_used` with the backend, model, and effort that actually ran |
+| Session page | `/agent-handoff visualise [<receipt-file>]` | The whole run on one loopback page: a clickable timeline, each job's transcript, the cost receipt, session facts, denials and anomalies. The timeline's prose is hand-written and unchecked; every other tab is read from disk. [Release notes](docs/releases/v3.7.2.md) |
+| Job transcript | `/agent-handoff transcript` | One job's `log.jsonl` as a readable HTML page, in any of the three backends' event formats. Drop a `log.jsonl` on the page to render a job from another repo |
+| Cost receipt | `/agent-handoff cost-receipt` | Measured numbers only. Codex jobs: token counters (the CLI emits no cost). Claude jobs: the CLI's own `total_cost_usd`. Copilot jobs: token counters, premium requests, and nano-AIU, which are AI credits, not money. No saving is computed. [Example](assets/v3.6.1-conversation-cost-receipt.png) |
+
+### Configuration
+
+Five identities, each a `backend + model + effort` triple set on its own. `backend` picks the CLI that runs that identity's jobs.
+
+| identity | carries | |
+|---|---|---|
+| `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis, the optional plan review | core |
+| `fast_worker` | mechanical, spec-complete implementation and checks | core |
+| `arbiter` | blind second solve for contested calls | core |
+| `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
+| `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
+
+Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md)). All values live in `.handoff/config.toml`, project or global, and nowhere else.
+
+- `/agent-handoff config` opens the setup wizard: balanced, quality, or cost presets, editable per identity. It shows the exact diff before writing. Models and efforts come from each CLI's own list, except Copilot's model, which you type because Copilot publishes no catalog. After install it smoke-tests each configured backend.
+- Darwin ratchet ([`references/darwin-ratchet.md`](references/darwin-ratchet.md)): change the workflow one dimension at a time, and keep a change only when repo evidence improves.
 
 ## Safety
 

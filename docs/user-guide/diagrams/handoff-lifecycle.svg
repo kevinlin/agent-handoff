@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1270 640">
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
+    .title { font-size: 22px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 13px; fill: #64748b; }
+    .lane { font-size: 15px; font-weight: 700; }
+    .lanesub { font-size: 12px; fill: #64748b; }
+    .name { font-size: 14px; font-weight: 700; fill: #0f172a; }
+    .sub { font-size: 12px; fill: #475569; }
+    .tag { font-size: 12px; font-weight: 600; }
+    .badge { font-size: 13px; font-weight: 700; fill: #ffffff; }
+    .legend { font-size: 12px; fill: #475569; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e11d48"/>
+    </marker>
+    <marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+    <g id="doc">
+      <path d="M0 0 H20 L30 10 V38 H0 Z" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+      <path d="M20 0 V10 H30" fill="none" stroke="#475569" stroke-width="1.4"/>
+      <line x1="6" y1="18" x2="24" y2="18" stroke="#94a3b8" stroke-width="1.2"/>
+      <line x1="6" y1="24" x2="24" y2="24" stroke="#94a3b8" stroke-width="1.2"/>
+      <line x1="6" y1="30" x2="18" y2="30" stroke="#94a3b8" stroke-width="1.2"/>
+    </g>
+  </defs>
+
+  <rect width="1270" height="640" fill="#f8fafc"/>
+  <rect width="1270" height="640" fill="url(#grid)"/>
+
+  <text x="24" y="44" class="title">How Agent Handoff runs</text>
+  <text x="24" y="68" class="subtitle">The driver plans, delegates, watches and reviews. The worker does the work. Every step leaves a file behind.</text>
+
+  <!-- ===== Lanes ===== -->
+  <rect x="24" y="90" width="1222" height="190" rx="10" fill="rgba(124,58,237,0.05)" stroke="#ddd6fe"/>
+  <rect x="24" y="90" width="136" height="190" rx="10" fill="rgba(124,58,237,0.08)"/>
+  <text x="40" y="180" class="lane" fill="#7c3aed">Claude Code</text>
+  <text x="40" y="200" class="lanesub">driver</text>
+
+  <rect x="24" y="296" width="1222" height="160" rx="10" fill="rgba(217,119,6,0.05)" stroke="#fde68a"/>
+  <rect x="24" y="296" width="136" height="160" rx="10" fill="rgba(217,119,6,0.09)"/>
+  <text x="40" y="370" class="lane" fill="#d97706">Worker CLI</text>
+  <text x="40" y="390" class="lanesub">background job</text>
+
+  <rect x="24" y="472" width="1222" height="108" rx="10" fill="rgba(100,116,139,0.05)" stroke="#cbd5e1"/>
+  <rect x="24" y="472" width="136" height="108" rx="10" fill="rgba(100,116,139,0.09)"/>
+  <text x="40" y="522" class="lane" fill="#475569">.handoff/</text>
+  <text x="40" y="542" class="lanesub">state on disk</text>
+
+  <!-- ===== File links (dashed) ===== -->
+  <line x1="250" y1="225" x2="250" y2="503" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrow-slate)"/>
+  <line x1="690" y1="438" x2="690" y2="503" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrow-slate)"/>
+  <line x1="1160" y1="225" x2="1160" y2="503" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrow-slate)"/>
+
+  <!-- ===== Flow arrows ===== -->
+  <!-- plan -> gate -->
+  <line x1="320" y1="190" x2="368" y2="190" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <!-- gate fails -> back to plan -->
+  <path d="M418 148 V116 H250 V153" fill="none" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
+  <text x="334" y="110" class="tag" fill="#e11d48" text-anchor="middle">no: fix the split</text>
+  <!-- gate -> delegate -->
+  <line x1="466" y1="190" x2="518" y2="190" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="492" y="182" class="tag" fill="#059669" text-anchor="middle">yes</text>
+  <!-- delegate -> monitor -->
+  <line x1="660" y1="190" x2="718" y2="190" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <!-- monitor -> review -->
+  <line x1="860" y1="190" x2="912" y2="190" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="887" y="182" class="tag" fill="#475569" text-anchor="middle">done</text>
+  <!-- review -> wrap -->
+  <line x1="1030" y1="190" x2="1088" y2="190" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="1059" y="182" class="tag" fill="#059669" text-anchor="middle">pass</text>
+  <!-- delegate -> job (submit) -->
+  <line x1="590" y1="225" x2="590" y2="316" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="600" y="268" class="tag" fill="#475569">submit</text>
+  <!-- job -> monitor (status) -->
+  <line x1="790" y1="318" x2="790" y2="227" stroke="#64748b" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+  <text x="800" y="268" class="tag" fill="#475569">status</text>
+  <!-- review fails -> fix round -->
+  <path d="M972 236 V378 H864" fill="none" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
+  <text x="984" y="258" class="tag" fill="#e11d48">no</text>
+  <text x="984" y="340" class="tag" fill="#e11d48">fix round</text>
+  <text x="984" y="358" class="sub">resume, max 2</text>
+  <text x="984" y="376" class="sub">then driver takes over</text>
+
+  <!-- ===== Driver steps ===== -->
+  <!-- 1 Plan & split -->
+  <rect x="180" y="155" width="140" height="70" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="250" y="185" class="name" text-anchor="middle">Plan &amp; split</text>
+  <text x="250" y="205" class="sub" text-anchor="middle">task per identity</text>
+  <circle cx="180" cy="155" r="12" fill="#7c3aed"/>
+  <text x="180" y="160" class="badge" text-anchor="middle">1</text>
+
+  <!-- split gate -->
+  <polygon points="418,148 466,190 418,232 370,190" fill="#fff1f2" stroke="#e11d48" stroke-width="1.5"/>
+  <text x="418" y="186" class="tag" fill="#0f172a" text-anchor="middle">split</text>
+  <text x="418" y="202" class="tag" fill="#0f172a" text-anchor="middle">holds?</text>
+  <text x="418" y="254" class="tag" fill="#e11d48" text-anchor="middle">adversarial gate</text>
+
+  <!-- 2 Delegate -->
+  <rect x="520" y="155" width="140" height="70" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="590" y="185" class="name" text-anchor="middle">Delegate</text>
+  <text x="590" y="205" class="sub" text-anchor="middle">packet + role</text>
+  <circle cx="520" cy="155" r="12" fill="#7c3aed"/>
+  <text x="520" y="160" class="badge" text-anchor="middle">2</text>
+
+  <!-- 3 Monitor -->
+  <rect x="720" y="155" width="140" height="70" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="790" y="185" class="name" text-anchor="middle">Monitor</text>
+  <text x="790" y="205" class="sub" text-anchor="middle">loop, 5 min</text>
+  <circle cx="720" cy="155" r="12" fill="#7c3aed"/>
+  <text x="720" y="160" class="badge" text-anchor="middle">3</text>
+
+  <!-- 4 Full review -->
+  <polygon points="972,144 1030,190 972,236 914,190" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+  <text x="972" y="186" class="tag" fill="#0f172a" text-anchor="middle">diff meets</text>
+  <text x="972" y="202" class="tag" fill="#0f172a" text-anchor="middle">goal.md?</text>
+  <circle cx="924" cy="124" r="12" fill="#059669"/>
+  <text x="924" y="129" class="badge" text-anchor="middle">4</text>
+  <text x="942" y="129" class="name">Full review</text>
+
+  <!-- 5 Wrap up -->
+  <rect x="1090" y="155" width="140" height="70" rx="8" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+  <text x="1160" y="185" class="name" text-anchor="middle">Wrap up</text>
+  <text x="1160" y="205" class="sub" text-anchor="middle">receipt, memory</text>
+  <circle cx="1090" cy="155" r="12" fill="#475569"/>
+  <text x="1090" y="160" class="badge" text-anchor="middle">5</text>
+
+  <!-- ===== Worker job ===== -->
+  <rect x="520" y="318" width="340" height="120" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <text x="690" y="344" class="name" text-anchor="middle">Background job, one jobId</text>
+  <rect x="535" y="360" width="94" height="28" rx="14" fill="#f1f5f9" stroke="#334155"/>
+  <text x="582" y="379" class="tag" fill="#334155" text-anchor="middle">codex</text>
+  <rect x="643" y="360" width="94" height="28" rx="14" fill="#fff4ed" stroke="#c2410c"/>
+  <text x="690" y="379" class="tag" fill="#c2410c" text-anchor="middle">claude</text>
+  <rect x="751" y="360" width="94" height="28" rx="14" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="798" y="379" class="tag" fill="#2563eb" text-anchor="middle">copilot</text>
+  <text x="690" y="420" class="sub" text-anchor="middle">implement → run checks → report</text>
+
+  <!-- ===== Files on disk ===== -->
+  <use href="#doc" x="235" y="507"/>
+  <text x="276" y="522" class="name">goal.md</text>
+  <text x="276" y="540" class="sub">tasks, status</text>
+
+  <use href="#doc" x="675" y="507"/>
+  <text x="716" y="522" class="name">jobs/&lt;jobId&gt;/</text>
+  <text x="716" y="540" class="sub">prompt, log, meta</text>
+
+  <use href="#doc" x="1145" y="507"/>
+  <text x="1135" y="522" class="name" text-anchor="end">receipts/</text>
+  <text x="1135" y="540" class="sub" text-anchor="end">session receipt</text>
+
+  <!-- ===== Legend ===== -->
+  <line x1="24" y1="610" x2="60" y2="610" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="70" y="614" class="legend">flow</text>
+  <line x1="130" y1="610" x2="166" y2="610" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
+  <text x="176" y="614" class="legend">rework</text>
+  <line x1="250" y1="610" x2="286" y2="610" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrow-slate)"/>
+  <text x="296" y="614" class="legend">reads or writes state</text>
+</svg>
