@@ -37,6 +37,7 @@ Every field in every artifact traces back to a file read during the run. Three c
 | `.handoff/jobs/<jobId>/` | `delegate-codex.sh`, while the job runs | monitor loop, all three renderers | `delegate-codex.sh` header |
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
 | `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
+| `.handoff/rejected/<task-id>.patch` | driver, when the arbiter rejects a main-repo row | the user, a run reopening that row | none; `git apply` input |
 | `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py --save` | `validate-receipt.py`, `render-cost-receipt.py` | `docs/receipt-schema.json` |
 | `.handoff/transcripts/<jobId>.html` | `render-transcript.py` | a human | none; it is a page |
 | `.handoff/cost-receipts/cost-receipt-<stamp>.{md,html}` | `render-cost-receipt.py` | a human, and the README showcase | none; it is a page |
@@ -70,11 +71,11 @@ Phase 0 stamps `.handoff/session-start` **before** any job is submitted. `make-r
 
 ### The review record is kept in the goal file
 
-Both review gates write their record into `.handoff/goal.md` through `goal-sync.py`. The `## Spec Review` block holds every spec round. Task statuses carry `rework-<n>`, `arbitration`, and `rejected`. The `## Arbitration` block holds one line per escalation, approve or reject, naming the arbiter's jobId, and a rejection adds a handover to Notes. The file is rewritten per run, which is what lets the spec review's once-per-run marker reset without a cleanup step.
+Both review gates write their record into `.handoff/goal.md` through `goal-sync.py`. The `## Spec Review` block holds every spec round. Task statuses carry `rework-<n>`, `arbitration`, and `rejected`. The `## Arbitration` block holds one line per escalation whatever the verdict, naming the arbiter's jobId, or the refusal message when `submit` failed before a job existed. A rejection adds a handover to Notes and sets the row's diff aside, as a patch or a kept worktree. The file is rewritten per run, which is what lets the spec review's once-per-run marker reset without a cleanup step.
 
 The driver types those lines. What makes them checkable is the jobId: the arbiter's ruling is the last agent message in that job's `log.jsonl`, and `render-transcript.py` shows it. A driver that records `approve` against a job whose log says `reject` is caught only if someone opens the job; no script compares the two. That guard is weaker than the receipt's, and *Not doing* names the stronger one this design deferred.
 
-A refused round leaves nothing behind. `resume` checks the cap before it creates a job directory, so the `-r<n>` directories on disk are exactly the rounds that ran, and the receipt's job counts cannot include a round the cap stopped.
+A refused round leaves nothing behind. `resume` checks the cap before it creates a job directory, so every `-r<n>` directory on disk is a round that was allowed and started, and the receipt's job counts cannot include a round the cap stopped. A directory does not prove the review pass completed: it is created before launch, and the job's own state says how it ended.
 
 ### Phase 5 probes; it does not recall
 
@@ -84,7 +85,7 @@ Every receipt field has a source the driver reads at wrap-up:
 - `duration`: the start marker to now, wall clock, including time blocked on a human approval
 - `scope` and `config_source`: `handoff-config.py resolve`
 - `roles_used`: each job's `meta` for role, model and effort; `handoff-config.py resolve` for `verified`
-- `anomalies` and `checks`: what the run actually did, including a denial count that a zero exit code hides, and one `arbitration:` entry per line of the goal file's `## Arbitration` block
+- `anomalies` and `checks`: what the run actually did, including a denial count that a zero exit code hides, and one `arbitration:` entry per line of the goal file's `## Arbitration` block, joined with the other anomalies on a single line
 
 A role with `verified: false` is listed with the flag as it stands. Dropping it, or promoting it to look cleaner, is the failure mode the field exists to catch.
 
@@ -108,7 +109,7 @@ Codex `exec --json` emits no timestamp on any event; across 280 events in the or
 
 A job's `log.jsonl` holds whatever the worker read: the largest single event in the sample set was 110 KB of file contents. `.handoff/` is gitignored in this repo and in the target repos observed so far, but that is not a repo-wide guarantee — `handoff-setup.py` accepts `--exclude-choice self` and `track`, both of which leave `.handoff/` tracked. `render-transcript.py` therefore runs `git check-ignore -q` on its own output path and prints a one-line warning when the page is not ignored. Committing a transcript by accident is a real disclosure, and the warning is the cheapest thing that catches it.
 
-What a resumed session inherits is this directory and nothing else: the final task statuses in `goal.md`, the job directories, the saved receipts, and the e2e verdicts. `/agent-handoff resume` reads those rather than re-deriving state from the repository. A row marked `rejected` is shown first, with its `## Arbitration` line and the handover in Notes, and the resume never reopens it by itself: an arbiter rejection is final for the run, and what happens next is the user's call.
+What a resumed session inherits is this directory and nothing else: the final task statuses in `goal.md`, the job directories, the saved receipts, and the e2e verdicts. `/agent-handoff resume` reads those rather than re-deriving state from the repository. A row marked `rejected` is shown first, with its `## Arbitration` line, the handover in Notes, and its saved patch or kept worktree, and the resume never reopens it by itself: an arbiter rejection is final for the run, and what happens next is the user's call.
 
 ---
 
@@ -163,7 +164,7 @@ An event or block matching no rule renders as a labelled row with its JSON colla
 
 ### The header is a snapshot
 
-The header carries what the job's own files know: label, role, backend, model, effort, `read_only`, the job window, state from `job_state()`, and usage from the terminal event. `generated_at` renders alongside them, so a page of a job that was still running is not mistaken for its final state. A resumed job legitimately has no `backend` or `role` line and carries `model=inherit`; those render as "not recorded" and "inherited from parent", never as a blank or a guess, and the parent job id links out where its directory exists.
+The header carries what the job's own files know: label, role, backend, model, effort, `read_only`, the job window, state from `job_state()`, and usage from the terminal event. `generated_at` renders alongside them, so a page of a job that was still running is not mistaken for its final state. A resumed job carries `model=inherit`, and one written before v3.5.0 has no `backend` or `role` line either; those render as "inherited from parent" and "not recorded", never as a blank or a guess, and the parent job id links out where its directory exists.
 
 ### Escaping and the markdown boundary
 
@@ -200,6 +201,8 @@ The Handoff Session Receipt (`docs/receipt-schema.json`, schema v6) records phas
 ### Arbitration rides in `anomalies`
 
 An escalation ruling reaches the receipt as `arbitration: <task> approve|reject (<jobId>)` in the free-text `anomalies` field. Approvals are recorded too, because an approval that overruled the driver is the ruling a reader most needs to find. A dedicated field would need schema v7, a breaking change for `validate-receipt.py`, `make-receipt.py`, the cost reader's version check, the session page, and every example, to carry a fact the receipt already indexes: the arbiter job is in its backend's job count, its duration list, and `roles_used`. The evidence for the ruling is that job's log; the receipt line only points at it.
+
+All rulings share one line with the other anomalies, joined with `; `. `make-receipt.py` writes `--anomalies` into the block verbatim, and a second line would read back as an unknown field and fail validation.
 
 ---
 
