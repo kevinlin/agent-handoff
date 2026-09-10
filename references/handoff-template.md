@@ -1,6 +1,6 @@
 # Agent Handoff Packet Templates
 
-Three packets, all bounded: the delegation packet the driver sends to a delegated job, the spec review packet it sends to `deep_reasoner` during planning, and the Goal Packet it sends to the user for authorization. Cite evidence; do not paste the whole repo.
+Four packets, all bounded: the delegation packet the driver sends to a delegated job, the spec review packet it sends to `deep_reasoner` during planning, the arbitration packet it sends to `arbiter` when a review gate runs out of rounds, and the Goal Packet it sends to the user for authorization. Cite evidence; do not paste the whole repo.
 
 ## Handoff Delegation Packet
 
@@ -37,12 +37,12 @@ Delegation packet rules:
 
 - Acceptance criteria are what the Phase 4 full review checks against; write them as commands or observable behavior, never vibes.
 - Keep the constraints section short — genuine blockers only. Trust the model with approach decisions inside the scope boundary.
-- For fix rounds (`delegate-codex.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet.
+- For fix rounds (`delegate-codex.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet. A fix round past `[review] implementation_max_rounds` is refused by `resume`; the dispute goes to the Arbitration Packet instead.
 - The e2e packets in `references/e2e-gauntlet.md` **replace** the "Do not commit" constraint line with a commit-on-this-worktree-branch rule. They are the only packets that do; do not append a commit permission to this template. The Spec Review Packet below moves in the opposite direction — it removes the write permission this template implies rather than widening it.
 
-## Spec Review Packet (Phase 1, optional)
+## Spec Review Packet (Phase 1, every plan)
 
-Use this packet when `deep_reasoner` reviews the plan before it reaches the user — automatically when its config carries `auto_review_spec = true`, or on request. It runs once per run. Send it as a read-only job on the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; on a copilot-backed one it becomes `--mode plan`, which never carries `--allow-all-tools`. The job, the jobId, and the receipt entry are the same on all three.
+Use this packet on every plan, before it reaches the user. A later round under the cap is a `resume` of the same job carrying the revised plan, the declined blocking findings, and your reasons, not a new packet. Send it as a read-only job on the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; on a copilot-backed one it becomes `--mode plan`, which never carries `--allow-all-tools`. The job, the jobId, and the receipt entry are the same on all three.
 
 The spec goes in the packet verbatim. The reviewer starts cold and must not go looking for the plan itself; what it is given is what it judges.
 
@@ -64,7 +64,7 @@ Review this plan and report what you would change before any of it is
 built.
 
 ## Acceptance
-- Prioritized findings, worst first, each naming what breaks and where.
+- Prioritized findings, worst first, each tagged `blocking` (the plan should not go ahead as written) or `advisory`, each naming what breaks and where.
 - Say plainly which acceptance criteria are not verifiable as written.
 - Say plainly where the plan is wrong about the repository, and cite the
   evidence you were given for it.
@@ -84,9 +84,59 @@ built.
 
 Spec review rules:
 
-- **The driver rules.** The findings are input to a judgment, never a verdict. Fold in what holds, say what you rejected and why, and keep ownership of the plan.
-- **Once per run.** Record the outcome in the goal file's `## Spec Review` block; a non-empty block means the automatic review is spent. Another one takes an explicit user request.
+- **The driver rules.** The findings are input to a judgment, never a verdict. Fold in what holds, say what you rejected and why, and keep ownership of the plan. A declined blocking finding that survives the cap is the one call you do not make alone: it goes to the arbiter.
+- **Once per run, capped.** Record every round in the goal file's `## Spec Review` block: a status line and one line per round. Any status other than `not run` means the automatic review is spent. Declined blocking findings go back to the same session while under `[review] spec_max_rounds`, and to the Arbitration Packet at the cap.
 - **Not blind, and not arbitration.** The plan under review is the driver's own answer, so nothing here is withheld. When the same problem has to be solved twice independently, that is the arbiter protocol in `references/claude-driven.md`, not this packet.
+
+## Arbitration Packet (escalation ruling)
+
+Use this packet when a review gate reaches its cap without consensus. Send it as a read-only job to `arbiter`: `delegate-codex.sh submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan). Unlike blind arbitration, nothing is withheld: the arbiter judges a dispute and needs both sides of it.
+
+```markdown
+# Handoff Arbitration
+
+## Context
+I'm working on [the larger task] for [who it's for]. A review gate ran out
+of rounds without agreement, and your ruling decides what happens next.
+Gate: [spec | implementation]. Task: [task id, or "plan"].
+
+## Brief
+[The plan, or the task brief with its acceptance criteria, verbatim.]
+
+## Evidence
+[Implementation: the full scoped diff and the results of the checks the
+driver ran. Spec: the plan as the driver revised it.]
+
+## Dispute
+[Every round in order: each finding with its tag, and the other side's
+response, whether the driver's disposition and reason or the worker's report.]
+
+## Task
+Rule on the dispute: does the [plan | diff] satisfy the brief, given the
+findings still open?
+
+## Acceptance
+- The first line of your answer is exactly `verdict: approve` or
+  `verdict: reject`.
+- Then one reason per disputed point, citing the evidence above.
+- Approve only if every open finding is wrong or does not block the brief.
+
+## Constraints
+- Read-only. Do not edit any file, write the goal file, or change product
+  code.
+- Rule on the open findings. Do not propose your own solution, and do not
+  reopen points both sides already agreed on.
+
+## Output
+- DO NOT send optional commentary. Answer only what was asked.
+- End with at most 3 lines of lessons learned.
+```
+
+Arbitration rules:
+
+- **The ruling binds.** Record it whatever it says, and do not re-argue it.
+- **Only a well-formed verdict counts.** A first line other than the two above, or reasons that contradict it, is no verdict. Resubmit once; a second failure is recorded as `no verdict`, and the user decides.
+- **Not blind.** Blind arbitration (`references/claude-driven.md`) withholds each solver's answer from the other; this packet carries both sides on purpose.
 
 ## Goal Packet (Plan→Goal→PR→Verification, `references/goal-to-pr.md`)
 

@@ -229,8 +229,8 @@ driver records sha256 of the reviewed .feature files
 T_verify  identity e2e_verifier  depends T_spec,T_impl  base <sha1>
 
 PASS    -> driver reviews verifier diff and evidence -> merge decision
-FAIL    -> original implementer fixes product -> new combined sha -> rerun
-BLOCKED -> driver resolves the prerequisite; never treated as PASS
+FAIL    -> original implementer fixes product (a review round on its chain) -> new combined sha -> rerun
+BLOCKED -> driver resolves the prerequisite -> fresh verifier submit on the same sha; never treated as PASS
 ```
 
 Three properties this ordering buys:
@@ -239,4 +239,4 @@ Three properties this ordering buys:
 - **`T_verify` depends on both rows**, not just the implementation — it needs the tests in its tree. The goal file's `depends` column carries both ids.
 - **The verifier tests an exact commit.** `<sha1>` is pinned before submission and echoed back in the verdict.
 
-A FAIL goes to the original implementer, never to the verifier: the verifier does not fix product code. A BLOCKED is resolved by the driver and is never read as a PASS.
+A FAIL goes to the original implementer, never to the verifier: the verifier does not fix product code. A BLOCKED is resolved by the driver and is never read as a PASS. A FAIL counts as a review round on the implementation row's chain and reopens that row: its `done` was provisional, it goes back to `rework-<n>`, and the verifier row goes back to `pending`. A BLOCKED rerun is a fresh `submit`, never a `resume`, so it is not a round. When the implementation cap runs out with a FAIL still open, an arbiter approval cannot replace a PASS: it means the scenario was judged wrong, so the scenario goes back to the driver's review, a new hash is recorded, and the verifier reruns.

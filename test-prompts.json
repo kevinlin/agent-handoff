@@ -77,7 +77,7 @@
       "Write the refined plan and task split into .handoff/goal.md with verifiable acceptance criteria per task.",
       "Delegate mechanical tasks to Codex via scripts/delegate-codex.sh background jobs at effort high, recording jobIds in the goal file.",
       "Monitor long-running jobs with a loop and update task statuses from job state, not guesses.",
-      "Full-review every Codex diff before accepting it, with at most two bounded fix rounds via delegate-codex.sh resume.",
+      "Full-review every Codex diff before accepting it, within the review cap ([review] implementation_max_rounds, default 3 review passes) via delegate-codex.sh resume.",
       "End with a Handoff Session Receipt whose codex_jobs counts all delegated jobs including fix rounds."
     ],
     "must_not": [
@@ -110,13 +110,13 @@
     "expected_behavior": [
       "Collect each job with delegate-codex.sh result and read the complete diff scoped to the files the job touched.",
       "Run the fastest relevant check from the task's acceptance criteria before accepting.",
-      "Send findings back as a bounded fix round to the same Codex session when the work falls short, and take the task back into Claude after two failed rounds.",
+      "Send findings back as a bounded fix round to the same Codex session when the work falls short, and escalate to the arbiter when the review cap runs out with findings still open.",
       "Emit a Handoff Session Receipt with an honest codex_jobs count and any monitoring anomalies."
     ],
     "must_not": [
       "Mark a task done based on the job's own summary instead of repo evidence.",
       "Fabricate token savings or hide rework rounds from the receipt.",
-      "Exceed two fix rounds without taking the task back.",
+      "Resume past the review cap, or take the task back instead of escalating to the arbiter.",
       "render a cost receipt instead of the Handoff Session Receipt"
     ]
   },
@@ -363,29 +363,28 @@
     ]
   },
   {
-    "id": "spec-review-runs-once-when-configured",
-    "prompt": "Agent handoff: plan the subscription cancellation flow and split it. (deep_reasoner has auto_review_spec = true in this repo's config.)",
+    "id": "spec-review-runs-on-every-plan",
+    "prompt": "Agent handoff: plan the subscription cancellation flow and split it.",
     "should_trigger": true,
     "expected_behavior": [
-      "Write the plan and attack the split first, then send the Spec Review Packet to deep_reasoner through its configured backend before the plan reaches the user.",
-      "Submit it read-only with delegate-codex.sh --role deep_reasoner --read-only, or spawn handoff-deep-reasoner when that identity's backend is claude.",
-      "Put the plan in the packet verbatim; the reviewer starts cold and judges only what it was given.",
-      "Assess the findings, fold in the ones that hold, and say which were rejected and why.",
-      "Record the outcome in the goal file's ## Spec Review block, then hand the adjusted plan to the user."
+      "Write the plan and attack the split first, then send the Spec Review Packet to deep_reasoner before the plan reaches the user, whatever the config says; there is no toggle.",
+      "Submit it with delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review, with the plan verbatim in the packet.",
+      "Expect each finding tagged blocking or advisory; accept or decline each one and write down why.",
+      "Record the status and the round in the goal file's ## Spec Review block, then hand the adjusted plan to the user."
     ],
     "must_not": [
+      "Skip the review because deep_reasoner has no auto_review_spec setting.",
       "Let deep_reasoner rewrite the plan, edit the goal file, or touch product code.",
       "Apply the findings unread as if they were a verdict rather than input to the driver's judgment.",
-      "Withhold the plan from the reviewer as though this were the blind arbiter protocol.",
-      "Run a second review because the plan changed after the first one."
+      "Withhold the plan from the reviewer as though this were blind arbitration."
     ]
   },
   {
     "id": "spec-review-not-repeated-in-the-same-run",
-    "prompt": "(The Spec Review block in .handoff/goal.md already records a completed review, and the plan changed after it.) Agent handoff: keep going with this plan.",
+    "prompt": "(The Spec Review block in .handoff/goal.md already reads status: consensus, and the plan changed after it.) Agent handoff: keep going with this plan.",
     "should_trigger": true,
     "expected_behavior": [
-      "Read the goal file's ## Spec Review block and treat the non-empty entry as the automatic review already being spent.",
+      "Read the goal file's ## Spec Review block and treat any status other than not run as the automatic review already being spent.",
       "Continue into delegation without starting another review.",
       "Offer a further review only if the user asks for one."
     ],
@@ -396,19 +395,20 @@
     ]
   },
   {
-    "id": "spec-review-on-request-while-the-toggle-is-off",
-    "prompt": "Agent handoff: plan the CSV export change. Get a second pair of eyes on the plan before I read it. (auto_review_spec is not set in this repo.)",
+    "id": "spec-review-declined-blocking-finding-escalates",
+    "prompt": "(deep_reasoner's spec review returned one blocking finding you disagree with, and [review] spec_max_rounds is 1.) Agent handoff: carry on with the plan.",
     "should_trigger": true,
     "expected_behavior": [
-      "Run the spec review on request even though auto_review_spec is off; the toggle only decides whether it fires on its own.",
-      "Use deep_reasoner through its configured backend, read-only, with the plan inline in the packet.",
-      "Record the outcome in the goal file's ## Spec Review block like an automatic run.",
-      "Note same-vendor if deep_reasoner resolves to the driver's own vendor, rather than claiming independent review."
+      "Record the declined blocking finding and the reason for declining it in the ## Spec Review block.",
+      "Recognise the spec cap is reached and submit an escalation ruling with delegate-codex.sh submit --role arbiter --read-only --label arbitrate-spec.",
+      "Put the plan, every finding with its tag, and the driver's dispositions and reasons into the Arbitration Packet.",
+      "Record the verdict in the ## Arbitration block whatever it is; on approve send the plan to the user, on reject stop before Phase 2 and still emit a receipt with phase planning."
     ],
     "must_not": [
-      "Refuse the review, or require /agent-handoff config to be re-run first.",
-      "Write auto_review_spec into the config as a side effect of one requested review.",
-      "Repeat the review automatically later in the same run."
+      "Resume the spec-review job past the cap.",
+      "Overrule the blocking finding alone and continue into delegation.",
+      "Withhold the driver's reasons from the arbiter as if the ruling were blind.",
+      "Escalate a declined advisory finding."
     ]
   },
   {
@@ -453,7 +453,7 @@
       "Use delegate-codex.sh resume <jobId> with a prompt file holding only the prioritized findings and the criteria that failed.",
       "Let resume read the parent job's backend from its meta so the fix round lands on the same CLI and the same worker session.",
       "Expect the child job to inherit the parent's worktree and role, so roles_used keeps its provenance across the fix round.",
-      "Cap the task at two fix rounds, then take it back into the driving session and record the takeback."
+      "Stop at the review cap, then escalate to the arbiter and record its verdict."
     ],
     "must_not": [
       "Resubmit the task from zero as a fresh job instead of resuming the session.",
@@ -598,13 +598,13 @@
       "Use delegate-codex.sh resume <jobId> so the fix round lands on the same session on the same backend.",
       "Rely on the parent job's meta backend= and session_id rather than resubmitting the task from zero.",
       "Send only the prioritized findings and the failed acceptance criteria, not the whole packet again.",
-      "Keep the bound at two fix rounds per task, then take the task back into the driving session."
+      "Keep within the review cap per task, then escalate to the arbiter rather than taking the task back."
     ],
     "must_not": [
       "Start a fresh copilot job and call it a fix round.",
       "Move the fix round to a different backend or identity than the parent job's.",
       "Report an unresumable session as a bug when the parent died before Copilot created one.",
-      "Exceed two fix rounds without recording a takeback."
+      "Resume past the review cap, or settle the dispute without an arbiter ruling."
     ]
   },
   {
@@ -670,6 +670,52 @@
       "Attribute an unrelated goal file to the selected receipt.",
       "Zero a missing measurement.",
       "Change the receipt schema or modify the two existing renderers."
+    ]
+  },
+  {
+    "id": "implementation-cap-escalates-to-arbiter",
+    "prompt": "(T3's third review pass still has findings open, and [review] implementation_max_rounds is 3.) Agent handoff: continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Do not resume T3 again: resume refuses a fourth round.",
+      "Submit an escalation ruling with delegate-codex.sh submit --role arbiter --read-only --label arbitrate-T3, carrying the brief, the acceptance criteria, the full scoped diff with check results, and every round's findings with the worker's last report.",
+      "On approve, accept the diff, mark T3 done, and record which findings were overruled.",
+      "On reject, mark T3 rejected, set its diff aside, hold rows that depend on it, keep independent rows going, write a handover into Notes, and add arbitration: T3 reject (<jobId>) to the receipt's anomalies line."
+    ],
+    "must_not": [
+      "Take T3 back into the driving session instead of escalating.",
+      "Start a fresh submit to reset the round count.",
+      "Raise the cap in config to avoid the ruling.",
+      "Leave an approval out of the ## Arbitration block."
+    ]
+  },
+  {
+    "id": "arbiter-failure-is-not-approval",
+    "prompt": "(The arbiter job for T3 exited without a verdict line.) Agent handoff: continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Record the anomaly and resubmit one fresh arbiter job with the same Arbitration Packet.",
+      "If the second job also produces no well-formed verdict, record no verdict in the ## Arbitration block, leave T3 in arbitration, and wrap up for the user to decide."
+    ],
+    "must_not": [
+      "Read the missing verdict as an approval.",
+      "Take the dispute back into the driving session.",
+      "Resubmit the arbiter job more than once."
+    ]
+  },
+  {
+    "id": "rejected-row-waits-for-the-user",
+    "prompt": "/agent-handoff resume (.handoff/goal.md has T3 marked rejected by the arbiter.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Show T3 first, with its ## Arbitration line, the handover in Notes, and the saved patch or kept worktree.",
+      "Ask the user which route to take: raise the cap and resume the chain with the work restored, rewrite the brief as a new chain, or have the driver take the task over.",
+      "Treat reopening T3 as a new run that stamps a new session start."
+    ],
+    "must_not": [
+      "Resume T3's chain without the user's decision.",
+      "Delete the saved patch or clean up the kept worktree.",
+      "Re-argue the arbiter's ruling."
     ]
   }
 ]

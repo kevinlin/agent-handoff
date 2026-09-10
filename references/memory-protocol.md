@@ -8,7 +8,7 @@ One compact record per session, structured:
 
 - repo + one-line task summary
 - what was delegated to Codex vs kept in Claude, and why
-- per delegated task type: quality outcome (accepted first pass / rework rounds / taken back)
+- per delegated task type: quality outcome (accepted first pass / rework rounds / escalated, with the arbiter's verdict / taken back after an anomaly)
 - effort level used and whether it fit
 - any monitoring anomaly and what fixed it
 

@@ -50,7 +50,7 @@
     "anomalies": {
       "type": "string",
       "minLength": 1,
-      "description": "'none' or a short description: job stalled, job failed, takeback, failed check, other."
+      "description": "'none' or a short description: job stalled, job failed, takeback, failed check, arbitration, other. Several entries share this one line, joined with '; '; an escalation ruling reads 'arbitration: <task> approve|reject|no verdict (<jobId>)'."
     },
     "codex_jobs": {
       "type": "integer",
