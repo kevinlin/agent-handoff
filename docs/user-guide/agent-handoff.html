@@ -137,7 +137,7 @@
   }
   .skip:focus { left: 0; }
   .toc a.sub { display: none; font-size: 12px; padding: 0 8px; color: var(--ink-faint); }
-  .toc.show-sub a.sub { display: inline-flex; }
+  .toc a.sub.show { display: inline-flex; }
   h3[id], h2[id], h1[id] { scroll-margin-top: 72px; }
   @media (max-width: 720px) {
     .toc-inner { padding: 0 20px; }
@@ -161,15 +161,18 @@
       <a href="#overview">Overview</a>
       <a href="#identities">1 · Identities &amp; setup</a>
       <a href="#handoff">2 · The handoff</a>
-      <a class="sub" href="#plan">2.1 Plan</a>
-      <a class="sub" href="#split">2.2 Split</a>
-      <a class="sub" href="#delegate">2.3 Delegate</a>
-      <a class="sub" href="#monitor">2.4 Monitor</a>
-      <a class="sub" href="#anomalies">2.5 Anomalies</a>
-      <a class="sub" href="#resume">2.6 Resume</a>
+      <a class="sub" data-parent="handoff" href="#plan">2.1 Plan</a>
+      <a class="sub" data-parent="handoff" href="#split">2.2 Split</a>
+      <a class="sub" data-parent="handoff" href="#delegate">2.3 Delegate</a>
+      <a class="sub" data-parent="handoff" href="#monitor">2.4 Monitor</a>
+      <a class="sub" data-parent="handoff" href="#anomalies">2.5 Anomalies</a>
+      <a class="sub" data-parent="handoff" href="#resume">2.6 Resume</a>
       <a href="#review">3 · Review gates</a>
       <a href="#drift">4 · Feedback &amp; drift</a>
       <a href="#evidence">5 · Evidence</a>
+      <a class="sub" data-parent="evidence" href="#metadata">5.1 Metadata</a>
+      <a class="sub" data-parent="evidence" href="#receipt">5.2 Receipt</a>
+      <a class="sub" data-parent="evidence" href="#readback">5.3 Read back</a>
     </div>
   </div>
   <div class="toc-progress" role="presentation"></div>
@@ -502,7 +505,7 @@ implementation_max_rounds = 3</code></pre>
   <figcaption>The receipt indexes the run rather than summarising it, and each reader on the right opens what it points at.</figcaption>
 </figure>
 
-<h3>Session metadata: what a run writes while it runs</h3>
+<h3 id="metadata">5.1 Session metadata: what a run writes while it runs</h3>
 
 <p>Each job’s directory is the unit, and every file in it is read by something later.</p>
 
@@ -524,7 +527,7 @@ implementation_max_rounds = 3</code></pre>
   <p><strong>These files hold whatever the worker read.</strong> The largest single event in one sampled run was 110 KB of file contents. <code>.handoff/</code> is git-ignored by default, and the transcript renderer warns when its own output is not ignored, because committing a transcript by accident is a real disclosure.</p>
 </div>
 
-<h3>Session state capture: the receipt</h3>
+<h3 id="receipt">5.2 Session state capture: the receipt</h3>
 
 <p>Every non-trivial run ends with a fixed-schema receipt. It lists which jobs belonged to it, what executed them, how long each took, what was checked, what went wrong.</p>
 
@@ -553,7 +556,7 @@ receipt_schema_version: 6</code></pre>
   <p><strong>Do not fabricate token savings.</strong> When exact telemetry is unavailable, the run reports verifiable behaviour instead: which work ran on which backend, how many jobs and fix rounds, that the full diff was read against the acceptance criteria, and that the checks passed. Three claims are specifically out of bounds, because no counter supports them: context the driver avoided, money actually billed, and any difference between two figures presented as a saving.</p>
 </div>
 
-<h3>Reading a finished run back</h3>
+<h3 id="readback">5.3 Reading a finished run back</h3>
 
 <figure>
   <img src="diagrams/session-page.svg" alt="A receipt feeds a local server on 127.0.0.1 with a one-run key, which opens a page with five tabs: Overview, Transcript, Cost receipt, Session facts, and Denials and anomalies. The overview shows the run as lanes on a time axis — the driver plus three jobs, one of them failed — with a dashed hotspot over a lane and a note that clicking a lane opens its transcript. Three side notes: the timeline is drawn rather than measured, the other four tabs come straight from the files, and a lane the files contradict loses its click. A bottom row covers the three cases: a timeline with lanes, one without, and none at all.">
@@ -581,7 +584,6 @@ receipt_schema_version: 6</code></pre>
 <script>
 (function () {
   var links = Array.prototype.slice.call(document.querySelectorAll('.toc-links a'));
-  var nav = document.querySelector('.toc');
   var strip = document.querySelector('.toc-links');
   var bar = document.querySelector('.toc-progress');
   var sections = links.map(function (a) { return document.getElementById(a.hash.slice(1)); });
@@ -590,10 +592,11 @@ receipt_schema_version: 6</code></pre>
   function setActive(index) {
     if (index === current) return;
     current = index;
-    // sub-section chips show only while section 2 or one of its parts is active
+    // sub-section chips show only while their parent section or one of its parts is active
     var active = links[index];
-    nav.classList.toggle('show-sub', active.hash === '#handoff' || active.classList.contains('sub'));
+    var parent = active.dataset.parent || active.hash.slice(1);
     links.forEach(function (a, i) {
+      if (a.dataset.parent) a.classList.toggle('show', a.dataset.parent === parent);
       if (i === index) {
         a.setAttribute('aria-current', 'true');
         // keep the active chip in view on narrow screens
