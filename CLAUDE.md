@@ -16,7 +16,6 @@ python3 -m unittest tests.test_handoff_config  # one module
 python3 -m unittest tests.test_handoff_config.ClassName.test_name  # one test
 
 bash scripts/check-skill-repo.sh .             # publish-readiness gate (required files, triggers, secret scan)
-python3 scripts/english-only-scan.py           # fail on CJK in any tracked file
 python3 scripts/run-test-prompts.py            # static validation of test-prompts.json
 bash install.sh --dry-run                      # install without writing
 ```
@@ -66,7 +65,7 @@ The run terminates in a **Handoff Session Receipt** (schema v6, `docs/receipt-sc
 
 ## Conventions that CI enforces
 
-- **The repo is English-only.** `english-only-scan.py` (run from `check-skill-repo.sh`) fails on CJK in any tracked file, including trigger phrases and UI strings. Adding a top-level doc means updating both the doc and `check-skill-repo.sh`'s required-file list.
+- Adding a top-level doc means updating both the doc and `check-skill-repo.sh`'s required-file list.
 - **Version strings appear in several places** — `SKILL.md` frontmatter, README badges, `CHANGELOG.md`, `docs/releases/`. Bump them together.
 - Risky command text (`git reset --hard`, `rm -rf`, `--force`) in docs is scanned. `check-skill-repo.sh` warns; `run-test-prompts.py` requires such text to sit in a `must_not` list. Use the `# risk-ok:` marker for genuine detection patterns.
 - Don't fabricate token savings. The cost numbers are a workload *pressure model*, not billing telemetry. Report verifiable behavior instead: which work ran on the Codex subscription, job and fix-round counts, the full diff reviewed against acceptance criteria, checks passed.

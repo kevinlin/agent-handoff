@@ -11,7 +11,6 @@
 ## Global Constraints
 
 - **Standard library only.** No third-party imports in any script or test.
-- **English only.** `scripts/english-only-scan.py` fails on CJK in any tracked file, UI strings included.
 - **`from __future__ import annotations`** at the top of every new Python module, matching every existing script.
 - **Version is `3.6.1`** in `SKILL.md` frontmatter, the README badge, `CHANGELOG.md`, and `docs/releases/v3.6.1.md`. Bump them together.
 - **`receipt_schema_version` stays `5`.** This feature reads receipts and does not extend them.

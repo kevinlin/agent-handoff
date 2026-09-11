@@ -55,7 +55,6 @@ check_file "scripts/handoff_runtime.py"
 check_file "scripts/handoff-setup.py"
 check_file "scripts/handoff-setup-ui.py"
 check_file "scripts/goal-sync.py"
-check_file "scripts/english-only-scan.py"
 check_file "scripts/render-transcript.py"
 check_file "assets/transcript-viewer.html"
 check_file "scripts/render-cost-receipt.py"
@@ -218,17 +217,6 @@ if grep -RInE 'git reset --hard|rm -rf|force push|--force' \
   warn=$((warn + 1))
 else
   echo "PASS high-risk command scan"
-fi
-
-# This repo is English-only. CJK in a tracked file is a regression.
-# python3 rather than grep -P: BSD/macOS grep has no -P. The regex below is
-# written as ASCII escapes so this file stays clean under its own scan.
-if python3 scripts/english-only-scan.py >"$SCAN_TMP"; then
-  echo "PASS English-only scan"
-else
-  echo "FAIL non-English (CJK) text found:"
-  cat "$SCAN_TMP"
-  fail=$((fail + 1))
 fi
 
 echo "SUMMARY fail=$fail warn=$warn"

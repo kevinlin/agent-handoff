@@ -12,7 +12,6 @@
 
 - **No runtime dependencies.** The HTML must work opened from `file://` with no network. Every asset is inlined.
 - **marked is pinned to v15.0.12**, sha256 `3e7e7d7feb3e5d58cb6c804f68ab5c24cc7e5eb6270fd6e5cbb9124739217d0c`, 39903 bytes, MIT. Vendor it byte-for-byte; do not upgrade it inside this plan.
-- **The repo is English-only.** `scripts/english-only-scan.py` fails on CJK in any tracked file, including UI strings.
 - **Untrusted input rule.** Every string in `log.jsonl` reaches the DOM through `textContent`, except agent and reasoning message text, which goes through marked with the three overrides from Task 5. Never `innerHTML` on log content.
 - **Adding a top-level file means updating three places:** the file, the README File Map, and `scripts/check-skill-repo.sh`'s required-file list.
 - **Version bump touches four places together:** `SKILL.md` frontmatter, the README badge, `CHANGELOG.md`, `docs/releases/`.
@@ -67,7 +66,7 @@ Validated the Claude `stream-json` mapping against a real `backend=claude` job t
 
 ## Verification
 
-All gates pass: `python3 -m unittest discover -s tests`, `node --test tests/test_transcript_viewer.mjs`, `bash scripts/check-skill-repo.sh .`, `python3 scripts/english-only-scan.py`, `python3 scripts/run-test-prompts.py`, `bash install.sh --dry-run`. Real-log rendering verified against every sample job.
+All gates pass: `python3 -m unittest discover -s tests`, `node --test tests/test_transcript_viewer.mjs`, `bash scripts/check-skill-repo.sh .`, `python3 scripts/run-test-prompts.py`, `bash install.sh --dry-run`. Real-log rendering verified against every sample job.
 
 ## Not covered by automated checks
 

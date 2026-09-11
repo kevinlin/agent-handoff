@@ -311,7 +311,6 @@ The acceptance is the full CI set in `.github/workflows/checks.yml`, not a subse
 python3 -m unittest discover -s tests
 node --test tests/test_transcript_viewer.mjs
 bash scripts/check-skill-repo.sh .
-python3 scripts/english-only-scan.py
 python3 scripts/run-test-prompts.py
 bash -n scripts/delegate-codex.sh
 python3 -m py_compile scripts/*.py

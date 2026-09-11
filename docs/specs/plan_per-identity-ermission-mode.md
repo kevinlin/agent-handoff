@@ -245,7 +245,6 @@ bash -n scripts/delegate-codex.sh && python3 -m py_compile scripts/handoff-confi
 python3 -m unittest discover -s tests
 node --test tests/test_transcript_viewer.mjs
 python3 scripts/run-test-prompts.py
-python3 scripts/english-only-scan.py
 SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown
 git diff --exit-code -- examples/showcase-cost-ledger.json
 bash install.sh --dry-run

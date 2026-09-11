@@ -503,7 +503,7 @@ metadata-free drop path, a failed tool call, ephemeral events, and a truncated l
   denials is treated as failed whatever its exit code says; the receipt splits three counts rather
   than folding copilot into either existing one.
 
-Verify: `bash scripts/check-skill-repo.sh .`, `python3 scripts/english-only-scan.py`,
+Verify: `bash scripts/check-skill-repo.sh .`,
 `python3 scripts/run-test-prompts.py`, and the SVG well-formedness parse
 (`python3 -c "import xml.dom.minidom,glob;[xml.dom.minidom.parse(f) for f in glob.glob('docs/user-guide/diagrams/*.svg')]"`).
 Two caveats on what those establish: `run-test-prompts.py` validates the file's structure, not agent
@@ -565,7 +565,6 @@ python3 -m unittest discover -s tests
 node --test tests/test_transcript_viewer.mjs
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
-python3 scripts/english-only-scan.py
 bash install.sh --dry-run
 
 SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown

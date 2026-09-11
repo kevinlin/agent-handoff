@@ -166,7 +166,7 @@ mechanism exactly as it did around the old one.
 - `docs/config-schema.md` — note that `backend = "claude"` is a fully supported execution
   channel, not a subagent-only marker.
 
-Verify: `bash scripts/check-skill-repo.sh .`, `python3 scripts/english-only-scan.py`.
+Verify: `bash scripts/check-skill-repo.sh .`.
 
 ### 4. Regression prompts — `test-prompts.json`
 
@@ -250,7 +250,6 @@ glob.glob('docs/user-guide/diagrams/*.svg')]"`, then open the page and check no 
 python3 -m unittest discover -s tests          # 178 tests green before this change
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
-python3 scripts/english-only-scan.py
 
 SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown
 git diff --exit-code -- examples/showcase-cost-ledger.json

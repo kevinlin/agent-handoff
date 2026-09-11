@@ -6,7 +6,7 @@
 
 **Architecture:** A new `[review]` section in the config engine carries the two caps; setup and the wizard write it; `delegate-codex.sh resume` resolves it and refuses a round past the cap. Everything else (consensus, escalation, recording) is flow prose in `references/` and `SKILL.md`, because no script can judge a dispute. Receipt schema stays v6.
 
-**Tech Stack:** Python 3 stdlib (`unittest`), Bash (`set -euo pipefail`), single-file HTML/JS wizard, Markdown/JSON prose gated by `check-skill-repo.sh`, `english-only-scan.py`, `run-test-prompts.py`.
+**Tech Stack:** Python 3 stdlib (`unittest`), Bash (`set -euo pipefail`), single-file HTML/JS wizard, Markdown/JSON prose gated by `check-skill-repo.sh`, `run-test-prompts.py`.
 
 **Spec:** `docs/specs/design_agent-handoff.md` (sections *Spec review — every plan, capped, and last*, *Rework is a resume, and it is bounded*, *The two review gates, and where they escalate*) and `docs/specs/design_agent-handoff-evidence.md` (*The review record is kept in the goal file*, *Arbitration rides in `anomalies`*).
 
@@ -465,8 +465,6 @@ If an existing `ResolveTests` assertion compares the whole resolved mapping, add
   - Ownership: the writer may rewrite `[hosts.claude_code.identities.*]` sections and `[review]`; drop `auto_review_spec` from the field order; add "`[review]` is emitted as `spec_max_rounds`, then `implementation_max_rounds`, replaced where it stands, or appended at the end of the file when absent."
   - Supported subset: the engine parses top-level metadata, `[routing]`, `[review]`, and the identity sections; the array-of-tables guard also names `[review]`.
   - CLI block: delete the `set --role deep_reasoner --spec-review` and `--override deep_reasoner.auto_review_spec=true` lines; add `python3 scripts/handoff-config.py --scope project set-review --spec-max-rounds 1 --implementation-max-rounds 3`. Replace the `--spec-review / --no-spec-review` sentence with: "`set-review` writes the `[review]` section; pass either flag or both, and a value below 1 is refused without writing. `--override` targets identity fields only; the review caps cannot be overridden per call."
-
-- [ ] **Step 6: Check.** `python3 scripts/english-only-scan.py` → PASS.
 
 ---
 
@@ -1067,7 +1065,7 @@ Arbitration rules:
 
 - [ ] **Step 8: `docs/receipt-schema.json`.** The `anomalies` description becomes: "'none' or a short description: job stalled, job failed, takeback, failed check, arbitration, other. Several entries share this one line, joined with '; '; an escalation ruling reads 'arbitration: <task> approve|reject|no verdict (<jobId>)'." No other change; the schema stays v6.
 
-- [ ] **Step 9: Check.** `python3 -m json.tool docs/receipt-schema.json >/dev/null`; `bash scripts/check-skill-repo.sh .` → `fail=0`; `python3 scripts/english-only-scan.py` → PASS; `rg -n "auto_review_spec|--spec-review|Maximum two fix rounds|take the task back and finish" references SKILL.md CLAUDE.md --glob '!references/setup.md'` → no hits. (`references/setup.md` belongs to R1, which runs in parallel; the new Phase 4 text says "the default allows two fix rounds" on purpose, so that phrase is not searched for.)
+- [ ] **Step 9: Check.** `python3 -m json.tool docs/receipt-schema.json >/dev/null`; `bash scripts/check-skill-repo.sh .` → `fail=0`; `rg -n "auto_review_spec|--spec-review|Maximum two fix rounds|take the task back and finish" references SKILL.md CLAUDE.md --glob '!references/setup.md'` → no hits. (`references/setup.md` belongs to R1, which runs in parallel; the new Phase 4 text says "the default allows two fix rounds" on purpose, so that phrase is not searched for.)
 
 ---
 
@@ -1258,7 +1256,7 @@ Setup takes `--spec-max-rounds` and `--implementation-max-rounds`, and the wizar
 Limits: `resume` is the only script that counts rounds, so a fresh `submit` starts a chain it never sees, and escalating instead of quietly finishing a task remains a rule in the flow prose.
 ~~~~
 
-- [ ] **Step 7: Check.** `bash scripts/check-skill-repo.sh .` → `fail=0`; `python3 scripts/english-only-scan.py` → PASS; `rg -n "3\.7\.2" SKILL.md README.md | head` shows only the session-page section heading and its release link.
+- [ ] **Step 7: Check.** `bash scripts/check-skill-repo.sh .` → `fail=0`; `rg -n "3\.7\.2" SKILL.md README.md | head` shows only the session-page section heading and its release link.
 - [ ] **Step 8: Behaviour audit beyond the listed phrases.** `rg -n -i "optional|toggle|take.{0,20}back|takeback|two rounds|once per run|second pair of eyes" README.md docs/user-guide` and read every hit. Fix any that still describe spec review as optional or the post-cap takeback, in the same voice. Leave the optional e2e pair and the monitoring-anomaly takeback alone; both are still true.
 
 - [ ] **Step 9 (driver, after review): commit** `feat: Agent Handoff 3.8.0 -- review gates`.
@@ -1278,7 +1276,6 @@ Limits: `resume` is the only script that counts rounds, so a fresh `submit` star
   python3 scripts/make-receipt.py --start --repo . && python3 scripts/make-receipt.py --repo . --phase review --claude-session ci-test --checks "ci" --codex-jobs 0 --cc-jobs 0 --copilot-jobs 0 --scope project --config-source project --roles-used '[]' | python3 scripts/validate-receipt.py -
   SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown && git diff --exit-code -- examples/showcase-cost-ledger.json
   bash install.sh --dry-run
-  python3 scripts/english-only-scan.py
   ```
   Note the receipt roundtrip restamps `.handoff/session-start`; run it after this run's own receipt is saved, or pass `--started-at` to this run's receipt.
 - [ ] Manual check: `python3 scripts/handoff-setup-ui.py --repo <scratch repo>` opens; the Review gates fields show 1 and 3; preview shows a `[review]` section in the diff.

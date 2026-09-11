@@ -45,7 +45,6 @@ subagent for a claude backend).
 once-per-run rule and where the marker lives, how it differs from the adversarial gate and the arbiter,
 the same-vendor caveat, and one line saying this is not part of the Gauntlet borrow — it reuses that
 feature's optional-add-on shape only.
-→ verify: `python3 scripts/english-only-scan.py`
 
 ### 2. Config engine — `scripts/handoff-config.py`
 
@@ -164,7 +163,6 @@ the review as user authorization, or block the run when the identity is unconfig
 python3 -m unittest discover -s tests
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
-python3 scripts/english-only-scan.py
 
 # end-to-end config round trip in a scratch repo
 python3 scripts/handoff-setup.py --preview --repo <tmp> --mode balanced --spec-review

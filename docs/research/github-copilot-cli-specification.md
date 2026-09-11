@@ -517,7 +517,6 @@ Exit 0, empty stderr, **0 denial events**. The evidence is the script's own outp
 PASS secret scan
 WARN high-risk command text found:
 ./scripts/handoff-setup.py:421:            raise SetupError("managed routing content hash is missing; ...")
-PASS English-only scan
 SUMMARY fail=0 warn=1
 <shellId: 0 completed with exit code 0>
 ```

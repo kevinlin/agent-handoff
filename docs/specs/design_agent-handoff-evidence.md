@@ -336,7 +336,6 @@ Asserted by prose rather than by a script: that the driver actually probes evide
 python3 -m unittest discover -s tests
 node --test tests/test_transcript_viewer.mjs
 bash scripts/check-skill-repo.sh .
-python3 scripts/english-only-scan.py
 python3 scripts/run-test-prompts.py
 ```
 

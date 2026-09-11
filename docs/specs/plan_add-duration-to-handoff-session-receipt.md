@@ -75,7 +75,6 @@ Prose edits (SKILL.md, README.md, CHANGELOG.md, examples/, references/) get a `d
 python3 -m unittest discover -s tests
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
-python3 scripts/english-only-scan.py
 
 # end-to-end in a scratch repo
 R=$(mktemp -d)

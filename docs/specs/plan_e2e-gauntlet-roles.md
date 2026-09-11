@@ -25,7 +25,6 @@ Pre-existing and untouched: `test_receipt.MakeReceiptTests.test_start_marker_is_
 
 ## Global Constraints
 
-- **This repo is English-only.** `scripts/english-only-scan.py` fails CI on any CJK character in any tracked file, including UI strings and trigger phrases.
 - **Python 3 standard library only.** No third-party imports in `scripts/` or `tests/`.
 - **Prose files are product surface.** `SKILL.md`, `README.md`, and `references/*.md` are gated by `scripts/check-skill-repo.sh`. Adding a top-level doc means updating the doc, the README File Map, and the required-file list in that script, or CI fails.
 - **Risky command text is scanned.** `git reset --hard`, `rm -rf`, and `--force` in docs trigger warnings; in `test-prompts.json` such text must sit in a `must_not` list.
