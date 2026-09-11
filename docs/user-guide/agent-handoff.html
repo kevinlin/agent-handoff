@@ -179,7 +179,7 @@
 
 <header>
   <h1>Agent Handoff — user guide</h1>
-  <p class="lede">Handoff splits coding work between a driving Claude Code session and a worker CLI. The driver plans, splits, and signs off; the worker executes each task as a background job on its own meter. What you save is the driver’s quota and its context window. What you keep is a review of the whole diff against criteria written before the work started.</p>
+  <p class="lede">Handoff splits coding work between a driving Claude Code session and a worker CLI. The driver plans, splits, and signs off; the worker executes each task as a background job on its own meter. The driver’s quota and context window go further, and the driver still reviews the whole diff against criteria written before the work started.</p>
   <p class="meta">user guide · kevinlin/agent-handoff @ v3.8.0 · updated 2026-09-11</p>
 </header>
 
@@ -195,7 +195,7 @@
 <p>Three things in that picture matter more than the rest.</p>
 
 <ul>
-  <li><strong>Which CLI runs a job is a configuration answer, never a decision made while delegating.</strong> Each task row names an identity; the identity’s configured backend picks the CLI and therefore the meter.</li>
+  <li><strong>Config decides which CLI runs a job.</strong> Each task row names an identity, and the identity’s configured backend picks the CLI and therefore the meter. Nothing is re-decided at delegation time.</li>
   <li><strong>Everything a job does lands on disk under <code>.handoff/</code>.</strong> That is what lets a monitor tick, a session resumed after a crash, or you tomorrow pick the run up without reconstructing anything.</li>
   <li><strong>The driver reads the diff.</strong> Delegation is only worth something if the work that comes back is checked, so the review gate reads the whole diff against the written acceptance criteria and never accepts a worker’s summary in place of it.</li>
 </ul>
@@ -215,7 +215,7 @@
 
 <h2 id="identities">1 · Agent identities and setup</h2>
 
-<p>An identity is a capability tier with a concrete home: a backend, a model, an effort level, and a permission posture. It is not a task assignment and not a person. When the driver splits work, it asks one question per row: which capability does this need. The identity’s configuration answers the rest.</p>
+<p>An identity is a capability tier with a concrete home: a backend, a model, an effort level, and a permission posture. When the driver splits work, it asks one question per row: which capability does this need. The identity’s configuration answers the rest.</p>
 
 <figure>
   <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus identity dash for what the driver keeps. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print or copilot -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
@@ -231,7 +231,7 @@
   <div class="card driver"><h4>The driver itself <span class="src">not an identity</span></h4><p>What the driver keeps: the split decision, cross-task integration, security- and correctness-critical paths, final acceptance. These rows run inline and are marked <code>-</code> in the goal file’s identity column.</p></div>
 </div>
 
-<p>The three core identities are always configured. The e2e pair is written only when setup runs with <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five can be mixed across the three vendors, and their values live in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global) and nowhere else.</p>
+<p>The three core identities are always configured. The e2e pair is written only when setup runs with <code>--with-e2e</code>, and a config carrying just the core three is complete. All five can be mixed across the three vendors, and their values live in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global) and nowhere else.</p>
 
 <h3>How a row becomes a job on a meter</h3>
 
@@ -252,9 +252,9 @@
 
 <h3>Permission posture</h3>
 
-<p>Each identity picks <code>default</code> or <code>allow-all</code>. Default means Claude’s <code>dontAsk</code> with a worker tool set, Codex inheriting your own config with no sandbox flags, and Copilot keeping its path and URL checks. Allow-all means each provider’s own unrestricted mode, not one posture forced onto three CLIs. Read-only wins over both and is inherited by fix rounds.</p>
+<p>Each identity picks <code>default</code> or <code>allow-all</code>. Default means Claude’s <code>dontAsk</code> with a worker tool set, Codex inheriting your own config with no sandbox flags, and Copilot keeping its path and URL checks. Allow-all uses each provider’s own unrestricted mode, so the three CLIs do not share one posture. Read-only wins over both and is inherited by fix rounds.</p>
 
-<p>Two limits are worth saying plainly. This is the permission-rule layer only: no OS-level sandbox is added for a Claude worker running under <code>default</code>. And a denied tool call does not change a job’s exit code, so a worker can finish “successfully” having skipped checks it was refused — which is why the review gate reads the denial count first and re-runs blocked commands itself. Details in <a href="../config-schema.md">the config schema</a>.</p>
+<p>This has two limits. It is the permission-rule layer only: no OS-level sandbox is added for a Claude worker running under <code>default</code>. And a denied tool call does not change a job’s exit code, so a worker can finish “successfully” having skipped checks it was refused — which is why the review gate reads the denial count first and re-runs blocked commands itself. Details in <a href="../config-schema.md">the config schema</a>.</p>
 
 <h3>Setting it up</h3>
 
@@ -306,7 +306,7 @@ implementation_max_rounds = 3</code></pre>
   <tr><td>Anomalies · Arbitration · Notes</td><td>What went wrong, every ruling, and the handover for anything left open</td></tr>
 </table>
 
-<p>Three of those columns pull more weight than they look. <code>acceptance</code> has to be a command or an observable behaviour, because the review gate judges against it. <code>depends</code> is what the monitor reads before submitting a row. And <code>status</code> is the deduplication key across ticks and sessions, so a stale row gets delegated twice.</p>
+<p>Three of those columns matter more than they look. <code>acceptance</code> has to be a command or an observable behaviour, because the review gate judges against it. <code>depends</code> is what the monitor reads before submitting a row. And <code>status</code> is the deduplication key across ticks and sessions, so a stale status gets a row delegated twice.</p>
 
 <p>The driver and the monitor loop both write this file, so writes go through a hash check rather than a lock: a write states the sha256 it last read, and a mismatch aborts and asks for a re-read instead of clobbering the other update. Small work skips the file entirely — ceremony for a five-line fix buys no safety.</p>
 
@@ -327,7 +327,7 @@ implementation_max_rounds = 3</code></pre>
   <figcaption>The packet says what to do. Config says where it runs. Neither path can reach into the other.</figcaption>
 </figure>
 
-<p>Nothing generates the delegation prompt. The driver composes it in its own context, writes it to a temporary file, and passes the path; the script’s only check is that the file exists. That is authorship discipline rather than validation, and it is deliberate — a packet the script assembled would be a packet nobody had to think about.</p>
+<p>Nothing generates the delegation prompt. The driver composes it in its own context, writes it to a temporary file, and passes the path; the script’s only check is that the file exists. This is deliberate: a packet the script assembled would be one nobody had to think about.</p>
 
 <p>What goes into it is bounded by cost. The driver has already read the repository; it pays once to select the evidence so the worker spends its tokens on the work.</p>
 
@@ -336,7 +336,7 @@ implementation_max_rounds = 3</code></pre>
   <figcaption>Climb only as far as the ask needs. A packet that hands over the repository is the cost this whole workflow exists to avoid.</figcaption>
 </figure>
 
-<p>Every crossing in the flow has a named shape, and they differ in what they permit rather than in how much they say.</p>
+<p>Every crossing in the flow has a named packet. The packets differ mainly in what they let the receiver do.</p>
 
 <figure>
   <img src="diagrams/handoff-packet-anatomy.svg" alt="Claude Code at the centre sending five named packets: a delegation packet to the worker; a goal packet to you with the plan, the open decisions and what a yes authorizes; a spec review packet to deep_reasoner carrying the plan verbatim with no permission to change anything; an arbitration packet to the arbiter with both sides and the evidence; and e2e packets to the acceptance pair with the spec inline, a named test target and a branch of their own. A strip below lists what every packet carries: why the work matters, one clear task, acceptance you can run, where it may not go, and a reply without filler.">
@@ -351,7 +351,7 @@ implementation_max_rounds = 3</code></pre>
 
 <figure>
   <img src="diagrams/monitor-loop.svg" alt="One decision — how long will it run — splits into waiting on a short job with status --wait, or arming a five-minute loop. The loop is a cycle of four stations: read goal.md first for the split and the statuses, ask each running job for its status, read its last event from log.jsonl, write the statuses back for the next tick. It exits when no job is left running. Two side notes: depends holds a row until the rows it waits on have finished, and an anomaly branch covering a failed job, two quiet ticks, cancelling, reading the logs, resubmitting or taking it back.">
-  <figcaption>Each tick rebuilds its whole picture from files, which is exactly why a tick an hour later, or a session resumed after a crash, works the same as the first one.</figcaption>
+  <figcaption>Each tick rebuilds its whole picture from files, which is why a tick an hour later, or a session resumed after a crash, works the same as the first one.</figcaption>
 </figure>
 
 <p>One decision shapes the phase: how long the job is expected to run. Under about five minutes, block on it and read the printed state line — the exit code alone cannot tell “finished cleanly” from “still going”. Longer or parallel work gets a five-minute loop, and the tick prompt is the whole monitoring program.</p>
@@ -398,7 +398,7 @@ implementation_max_rounds = 3</code></pre>
 
 <h3>Spec review: every plan gets an outside read</h3>
 
-<p>The adversarial gate has the driver judging its own split, which leaves the one decision every later gate is measured against read only by its author. So before a plan reaches you, <code>deep_reasoner</code> reads it as a real read-only job on its own configured backend and tags each finding blocking or advisory. The driver accepts or declines each one and writes down why. There is no toggle; until 3.8.0 there was, it defaulted to off, and most plans went unread by anyone else.</p>
+<p>At the adversarial gate the driver judges its own split. Without a second reader, the plan every later gate measures against would be read only by its author. So before a plan reaches you, <code>deep_reasoner</code> reads it as a real read-only job on its own configured backend and tags each finding blocking or advisory. The driver accepts or declines each one and writes down why. There is no toggle; until 3.8.0 there was, it defaulted to off, and most plans went unread by anyone else.</p>
 
 <p>Three rules keep an extra job from turning into an argument with no end:</p>
 
@@ -409,16 +409,16 @@ implementation_max_rounds = 3</code></pre>
 </ul>
 
 <div class="callout claude">
-  <p><strong>This one is deliberately not blind.</strong> The plan under review is the driver’s own answer, so withholding it would leave nothing to read. That makes it a second pair of eyes rather than a second opinion: it inherits the author’s framing and will catch a wrong premise less often than an independent solve would. The flow says so rather than letting you read arbitration into it, and when <code>deep_reasoner</code> lands on the driver’s own vendor the run records <code>same-vendor</code> instead of claiming independence it does not have.</p>
+  <p><strong>This one is deliberately not blind.</strong> The plan under review is the driver’s own answer, so withholding it would leave nothing to read. The reviewer therefore starts from the author’s framing, and it will catch a wrong premise less often than an independent solve would. The flow does not call this arbitration, and when <code>deep_reasoner</code> lands on the driver’s own vendor the run records <code>same-vendor</code> instead of claiming independence it does not have.</p>
 </div>
 
 <p>A review that fails, stalls, or comes back with neither findings nor a one-line “this is sound” proves nothing, so it is not a round. It is retried once as a fresh job; a second failure stops the run there and waits for you.</p>
 
 <h3>Implementation review: the diff against the brief</h3>
 
-<p>The driver collects the job’s result, reads the denial count first, then re-reads the acceptance column and the task brief, and only then reads the complete diff — scoped to the files the job touched, plus the fastest relevant check. The whole diff, never a sample.</p>
+<p>The driver collects the job’s result, reads the denial count first, then re-reads the acceptance column and the task brief, and only then reads the complete diff — scoped to the files the job touched, plus the fastest relevant check. It reads the whole diff, never a sample.</p>
 
-<p>The question is “does this diff satisfy that brief”, never “is this diff self-consistent”. That distinction is measured rather than asserted: in the Superpowers 6 runs, reviewers holding only a diff caught <strong>none of five</strong> missing task briefs, because a reviewer with nothing but a diff quietly redefines the spec as “consistent with whatever changed” and misses work that was never started.</p>
+<p>The question is “does this diff satisfy that brief”, never “is this diff self-consistent”. There is data behind this: in the Superpowers 6 runs, reviewers holding only a diff caught <strong>none of five</strong> missing task briefs, because a reviewer with nothing but a diff quietly redefines the spec as “consistent with whatever changed” and misses work that was never started.</p>
 
 <h3>When the run carries acceptance tests</h3>
 
@@ -486,16 +486,16 @@ implementation_max_rounds = 3</code></pre>
 </table>
 
 <div class="callout alert">
-  <p><strong>The most load-bearing check is the least enforced one.</strong> Config resolution, base pinning, verdict validation, the round cap and receipt validation all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about delegation being safe rests on that check actually being performed — which is why it is worth knowing it exists, and worth asking for the evidence when a run reports success.</p>
+  <p><strong>The check that matters most is the one no script enforces.</strong> Config resolution, base pinning, verdict validation, the round cap and receipt validation all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about safe delegation rests on that check actually being done. When a run reports success, ask for the evidence that it was.</p>
 </div>
 
 <h3>What the next run learns</h3>
 
-<p>At wrap-up the run is turned into input for the next one, and the line between the two stores is explicit. Facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>: architecture, commands, conventions. Memory carries experience instead — which task types an identity handled well, which effort levels fitted, where rework happened, what an escalation ruled. Instruction files are law; memory is what the next split decision reads.</p>
+<p>At wrap-up the run is turned into input for the next one, and the line between the two stores is explicit. Facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>: architecture, commands, conventions. Memory carries experience instead — which task types an identity handled well, which effort levels fitted, where rework happened, what an escalation ruled. Instruction files always apply; memory informs the next split decision.</p>
 
 <h2 id="evidence">5 · Evidence</h2>
 
-<p>The headline claim is that delegated work ran on another meter and stayed out of the driver’s context. Any driver can say that in one sentence. A sentence is exactly what an unverified claim looks like. So everything below exists to make the claim checkable against files nobody typed by hand.</p>
+<p>Handoff claims that delegated work ran on another meter and stayed out of the driver’s context. A driver saying so proves nothing. The files below let you check the claim, and scripts write them, not the driver.</p>
 
 <figure>
   <img src="diagrams/evidence-flow.svg" alt="Left, while the run is going: a session-start marker stamped before the first job; goal.md with every task status, review round, ruling and note; and one directory per job holding prompt.md, run.sh, meta, log.jsonl, stderr.log and exit_code. Middle, at wrap up: the receipt is generated by measuring those files, carrying duration, the three job counts, checks, anomalies and roles_used, and is then checked again with the same check the project's CI runs. Right, afterwards: the job transcript, the cost receipt, the session page, and a resume that reads this rather than the repo. Three rules: generated never typed, measured never repriced, and a gap is named rather than written as zero.">
@@ -526,7 +526,7 @@ implementation_max_rounds = 3</code></pre>
 
 <h3>Session state capture: the receipt</h3>
 
-<p>Every non-trivial run ends with a fixed-schema receipt. It indexes the run rather than summarising it: which jobs belonged to it, what executed them, how long each took, what was checked, what went wrong.</p>
+<p>Every non-trivial run ends with a fixed-schema receipt. It lists which jobs belonged to it, what executed them, how long each took, what was checked, what went wrong.</p>
 
 <pre><code>[Handoff session receipt]
 phase: final fix
@@ -545,7 +545,7 @@ config_source: project
 roles_used: [{"role":"fast_worker","host":"codex","model":"gpt-fast","effort":"high","verified":true}]
 receipt_schema_version: 6</code></pre>
 
-<p>The interesting part is that none of it is recalled. <code>duration</code> is wall clock from the start marker, so a run that sat waiting on a permission prompt carries that wait in the number. Per-job durations come from each job’s submission time and the timestamp on its exit code, with jobs left over from an earlier run excluded and a job still going reading <code>running</code>. The three job counts partition the run by each job’s own recorded backend, which is what makes “four jobs ran on the Codex subscription” a claim you can check rather than a sentence. A role that was never verified is listed with that flag as it stands, never dropped to make the receipt look cleaner.</p>
+<p>None of it comes from memory. <code>duration</code> is wall clock from the start marker, so a run that sat waiting on a permission prompt carries that wait in the number. Per-job durations come from each job’s submission time and the timestamp on its exit code, with jobs left over from an earlier run excluded and a job still going reading <code>running</code>. The three job counts partition the run by each job’s own recorded backend, which is what makes “four jobs ran on the Codex subscription” a claim you can check rather than a sentence. A role that was never verified is listed with that flag as it stands, never dropped to make the receipt look cleaner.</p>
 
 <p>The receipt is generated and then re-checked: the generator refuses to emit an invalid receipt, and the validator re-reads the written one with the same check the project’s CI runs. A receipt from an older schema fails, and that failure is the signal to regenerate it rather than hand-patch it.</p>
 
@@ -562,7 +562,7 @@ receipt_schema_version: 6</code></pre>
 
 <ul>
   <li><strong>The transcript</strong> (<code>/agent-handoff transcript</code>) renders one job’s event log as a page: the prompt, every command, every file change, every denied call, and the final answer. It answers “what did this job actually do”, which the job’s summary cannot. You can also drop a log file onto the page to read a job from another repository.</li>
-  <li><strong>The cost receipt</strong> (<code>/agent-handoff cost-receipt</code>) reports what each meter recorded, in that meter’s own units: token counters for Codex jobs with no cost figure, because that CLI emits none; the CLI’s own reported cost for Claude jobs, labelled as CLI-reported; premium requests and AI credits for Copilot jobs, which are never printed as money. Figures that overlap are said to overlap, and nothing is added that should not be.</li>
+  <li><strong>The cost receipt</strong> (<code>/agent-handoff cost-receipt</code>) reports what each meter recorded, in that meter’s own units: token counters for Codex jobs with no cost figure, because that CLI emits none; the CLI’s own reported cost for Claude jobs, labelled as CLI-reported; premium requests and AI credits for Copilot jobs, which are never printed as money. Overlapping figures are marked as overlapping and are not added together.</li>
   <li><strong>The session page</strong> (<code>/agent-handoff visualise</code>) puts the run on one local page: the timeline, each job’s transcript, the cost receipt, the receipt’s own facts, and one list of every denied tool call across the run. The timeline is drawn by a model reading the receipt, so its prose is a narrative and labelled as one; its lanes, though, are checked against the files — a lane naming a job the receipt does not index, or claiming a window the evidence contradicts, loses its hotspot and says so.</li>
 </ul>
 
