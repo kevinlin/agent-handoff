@@ -836,9 +836,12 @@ HTML = r'''<!doctype html>
     .e2e-addon > p { max-width:530px; margin-top:6px; color:var(--muted-v2); font-size:13px; line-height:1.5; }
     .e2e-toggle { display:flex; align-items:center; gap:8px; width:max-content; margin:12px 0 0; color:var(--ink); font-size:13px; letter-spacing:0; cursor:pointer; }
     .e2e-toggle input { flex:0 0 auto; width:16px; height:16px; margin:0; accent-color:var(--accent-v2); }
-    .review-gates { margin:18px 0 0; }
-    .review-caps { display:flex; flex-wrap:wrap; gap:12px; }
-    .review-caps .field { flex:1 1 180px; }
+    .review-gates { margin:0 20px 20px; padding:16px 0 0; border-top:1px solid var(--line-v2); }
+    .review-gates h3 { color:var(--ink); font:680 15px var(--body); }
+    .review-gates > p { max-width:530px; margin-top:6px; color:var(--muted-v2); font-size:13px; line-height:1.5; text-wrap:pretty; }
+    .review-caps { display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; }
+    .review-caps .field { flex:1 1 200px; }
+    .review-caps input { font-variant-numeric:tabular-nums; }
     .e2e-addon .matrix { padding:14px 0 0; }
     .identity { display:grid; grid-template-columns:minmax(155px,.82fr) minmax(130px,.7fr) minmax(220px,1.2fr) minmax(120px,.62fr) minmax(120px,.62fr); gap:12px; align-items:start; position:relative; min-height:110px; overflow:hidden; padding:17px; border:1px solid var(--line-v2); border-radius:17px; background:var(--card); box-shadow:var(--shadow-card); }
     .identity:nth-child(1) { --row:0; }
@@ -852,7 +855,7 @@ HTML = r'''<!doctype html>
     .identity-code { display:block; margin-top:8px; color:var(--muted-v2); font:11px var(--mono-v2); overflow-wrap:anywhere; }
     .field { min-width:0; }
     label,.field-label { display:block; margin:0 0 6px; color:var(--muted-v2); font-size:11px; letter-spacing:.02em; }
-    select,input[type=text] { width:100%; min-height:44px; padding:9px 10px; border:1px solid var(--line-v2); border-radius:11px; background:var(--field); color:var(--ink); font:13px var(--mono-v2); outline:none; }
+    select,input[type=text],input[type=number] { width:100%; min-height:44px; padding:9px 10px; border:1px solid var(--line-v2); border-radius:11px; background:var(--field); color:var(--ink); font:13px var(--mono-v2); outline:none; }
     .source { margin-top:5px; color:var(--muted-v2); font-size:11px; overflow-wrap:anywhere; }
     /* Permission switch: the track carries the current value's label and turns red on allow-all. */
     .perm-switch { position:relative; margin:0; cursor:pointer; }
@@ -910,7 +913,7 @@ HTML = r'''<!doctype html>
       .mode.active:hover { color:var(--on-accent); background:transparent; }
       .identity:hover { box-shadow:var(--shadow-card-hover); }
       .identity:hover::before { transform:scaleY(1); }
-      select:hover,input[type=text]:hover { border-color:var(--line-strong); }
+      select:hover,input[type=text]:hover,input[type=number]:hover { border-color:var(--line-strong); }
       button.primary:hover { background:var(--invert-bg-hover); border-color:var(--invert-bg-hover); color:var(--invert-fg-hover); }
       button.apply:hover { background:var(--accent-strong-hover); border-color:var(--accent-strong-hover); }
       button:disabled:hover { background:var(--invert-bg); border-color:var(--invert-bg); color:var(--invert-fg); }
@@ -1071,8 +1074,8 @@ HTML = r'''<!doctype html>
             <h3>Review gates</h3>
             <p>Every plan gets one read from deep_reasoner before you see it, and every delegated diff gets the driver's review. When a gate runs out of passes without agreement, the arbiter rules.</p>
             <div class="review-caps">
-              <div class="field"><label for="specMaxRounds">Spec review passes</label><input id="specMaxRounds" type="number" min="1" step="1" inputmode="numeric"></div>
-              <div class="field"><label for="implementationMaxRounds">Implementation review passes</label><input id="implementationMaxRounds" type="number" min="1" step="1" inputmode="numeric"></div>
+              <div class="field"><label for="specMaxRounds">Spec review passes</label><input id="specMaxRounds" type="number" min="1" step="1" inputmode="numeric" aria-describedby="specMaxRoundsHint"><p class="source" id="specMaxRoundsHint">Reads of the plan before the arbiter rules. Default 1.</p></div>
+              <div class="field"><label for="implementationMaxRounds">Implementation review passes</label><input id="implementationMaxRounds" type="number" min="1" step="1" inputmode="numeric" aria-describedby="implementationMaxRoundsHint"><p class="source" id="implementationMaxRoundsHint">Reads of each diff, fix rounds included. Default 3.</p></div>
             </div>
           </div>
         </section>
