@@ -57,6 +57,7 @@
   .callout p + p { margin-top: 8px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 20px 0; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card.driver { background: #f5f3ff; border: 1px dashed var(--claude); }
   .card h4 { margin: 0 0 6px; font-size: 13.5px; }
   .card p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
   .src { font-size: 12.5px; color: var(--ink-faint); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
@@ -187,7 +188,7 @@
 <p>One flow, one driver. Claude Code refines your request into a plan, attacks its own split before acting on it, hands each delegable row to a worker CLI as a background job, watches those jobs by reading files rather than by holding their history in context, and reads every returned diff against the plan before accepting it. The run ends with a receipt whose numbers were measured rather than remembered.</p>
 
 <figure>
-  <img src="diagrams/handoff-lifecycle.svg" alt="Three lanes. Claude Code plans and splits, passes an adversarial gate, sends the plan for a spec review, delegates, monitors, reviews the diff against goal.md, and wraps up. The worker CLI runs each row as a background job on codex, claude or copilot, with fix rounds coming back by resume and an arbiter ruling when the rounds run out. Each step reads or writes state under .handoff/.">
+  <img src="diagrams/handoff-lifecycle.svg" alt="Agent Handoff as five phase columns over three lanes. In plan and split, Claude Code writes goal.md, attacks its own split at the adversarial gate, and sends the plan to deep_reasoner for a read-only spec review before it reaches you. In delegate, a packet and a role become one background job per row on codex, claude or copilot, and bad routing is refused before any job exists. Monitor reads each job's state off disk and handles anomalies. Full review checks the whole diff against goal.md and sends a failing one back as a resume fix round. The spec review and the fix rounds both go to the arbiter at their cap. Wrap up writes the receipt, and a strip below lists what every packet carries.">
   <figcaption>The five steps, the worker beneath them, and the files each step leaves behind.</figcaption>
 </figure>
 
@@ -227,7 +228,7 @@
   <div class="card"><h4>arbiter</h4><p>The independent second solver for a contested call, and the judge when a review gate runs out of rounds. It never gets routine rows.</p></div>
   <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Turns a frozen spec into Gherkin scenarios with stable IDs plus tests in the repo’s own stack. Depends on the spec, so it runs beside the implementation.</p></div>
   <div class="card"><h4>e2e_verifier <span class="src">opt-in</span></h4><p>Runs those reviewed tests against a pinned commit and returns a verdict that is validated before anyone acts on it.</p></div>
-  <div class="card"><h4>identity <code>-</code></h4><p>What the driver keeps: the split decision, cross-task integration, security- and correctness-critical paths, final acceptance.</p></div>
+  <div class="card driver"><h4>The driver itself <span class="src">not an identity</span></h4><p>What the driver keeps: the split decision, cross-task integration, security- and correctness-critical paths, final acceptance. These rows run inline and are marked <code>-</code> in the goal file’s identity column.</p></div>
 </div>
 
 <p>The three core identities are always configured. The e2e pair is written only when setup runs with <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five can be mixed across the three vendors, and their values live in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global) and nowhere else.</p>

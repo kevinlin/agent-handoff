@@ -106,7 +106,7 @@ python3 ~/.claude/skills/agent-handoff/scripts/handoff-session-ui.py --repo /pat
 
 <div align="center">
 <a href="docs/user-guide/diagrams/handoff-lifecycle.svg">
-<img src="docs/user-guide/diagrams/handoff-lifecycle.svg" alt="Handoff lifecycle in three lanes. Claude Code plans and splits, passes an adversarial gate, sends the plan to deep_reasoner for a read-only spec review, delegates, monitors, reviews the diff against goal.md, and wraps up. The worker CLI runs each task as a background job on codex, claude, or copilot, with fix rounds returning by resume and the arbiter ruling once the rounds run out. Each step writes goal.md, the job directory, or the receipt under .handoff/." width="900" />
+<img src="docs/user-guide/diagrams/handoff-lifecycle.svg" alt="Agent Handoff as five phase columns over three lanes. In plan and split, Claude Code writes goal.md, attacks its own split at the adversarial gate, and sends the plan to deep_reasoner for a read-only spec review before it reaches you. In delegate, a packet and a role become one background job per row on codex, claude or copilot, and bad routing is refused before any job exists. Monitor reads each job's state off disk and handles anomalies. Full review checks the whole diff against goal.md and sends a failing one back as a resume fix round. The spec review and the fix rounds both go to the arbiter at their cap. Wrap up writes the receipt, and a strip below lists what every packet carries." width="900" />
 </a>
 </div>
 
