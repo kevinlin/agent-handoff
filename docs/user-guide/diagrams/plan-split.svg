@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 540">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+    .m { font-family: "SF Mono", Menlo, Consolas, ui-monospace, monospace; }
+    .title { font-size: 22px; font-weight: 700; }
+    .sub { font-size: 14px; fill: #64748b; }
+    .name { font-size: 15px; font-weight: 700; }
+    .line { font-size: 13px; fill: #475569; }
+    .small { font-size: 12px; fill: #64748b; }
+    .q { font-size: 13px; fill: #0f172a; }
+    .rose { font-size: 12px; font-weight: 600; fill: #be123c; }
+    .head { font-size: 12px; font-weight: 700; fill: #64748b; letter-spacing: 0.06em; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e11d48"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="540" fill="#f8fafc"/>
+  <rect width="1240" height="540" fill="url(#grid)"/>
+
+  <text x="40" y="44" class="title">Plan and split: one judgment per row</text>
+  <text x="40" y="68" class="sub">Which capability does this work need? Everything else — the CLI, the model, the meter — follows from that one answer.</text>
+
+  <!-- request -->
+  <rect x="40" y="220" width="130" height="70" rx="35" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="105" y="250" class="name" text-anchor="middle">the request</text>
+  <text x="105" y="272" class="small" text-anchor="middle">what you asked for</text>
+  <line x1="170" y1="255" x2="204" y2="255" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- goal.md -->
+  <rect x="210" y="110" width="360" height="330" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.6"/>
+  <rect x="210" y="110" width="360" height="44" rx="10" fill="#f5f3ff"/>
+  <text x="230" y="139" class="name m" fill="#6d28d9">.handoff/goal.md</text>
+  <text x="550" y="139" class="small" text-anchor="end">written first</text>
+
+  <text x="230" y="180" class="line">Goal — one sentence, ending in</text>
+  <text x="230" y="200" class="line m">done_when</text>
+  <text x="230" y="224" class="small">Checkpoint rule — when to pause for you</text>
+
+  <text x="230" y="262" class="head">TASKS</text>
+  <line x1="230" y1="272" x2="550" y2="272" stroke="#e2e8f0"/>
+
+  <circle cx="238" cy="292" r="6" fill="#4f46e5"/>
+  <text x="254" y="297" class="line m">T1 deep_reasoner</text>
+  <rect x="420" y="286" width="130" height="10" rx="5" fill="#e2e8f0"/>
+
+  <circle cx="238" cy="320" r="6" fill="#d97706"/>
+  <text x="254" y="325" class="line m">T2 fast_worker</text>
+  <rect x="420" y="314" width="130" height="10" rx="5" fill="#e2e8f0"/>
+
+  <circle cx="238" cy="348" r="6" fill="#d97706"/>
+  <text x="254" y="353" class="line m">T3 fast_worker</text>
+  <rect x="420" y="342" width="130" height="10" rx="5" fill="#e2e8f0"/>
+
+  <circle cx="238" cy="376" r="6" fill="#7c3aed"/>
+  <text x="254" y="381" class="line m">T4 -  driver keeps it</text>
+  <rect x="420" y="370" width="130" height="10" rx="5" fill="#e2e8f0"/>
+
+  <circle cx="238" cy="404" r="6" fill="none" stroke="#0891b2" stroke-width="1.6"/>
+  <text x="254" y="409" class="small m" fill="#0e7490">T5 e2e_verifier — only when</text>
+  <text x="254" y="425" class="small" fill="#0e7490">behaviour changes at a real interface</text>
+
+  <line x1="570" y1="255" x2="606" y2="255" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- adversarial gate -->
+  <rect x="610" y="150" width="250" height="230" rx="10" fill="#fff1f2" stroke="#e11d48" stroke-width="1.6"/>
+  <text x="735" y="184" class="name" fill="#be123c" text-anchor="middle">Adversarial gate</text>
+  <text x="735" y="206" class="small" text-anchor="middle">the driver attacks its own split</text>
+
+  <circle cx="646" cy="244" r="10" fill="#ffffff" stroke="#e11d48" stroke-width="1.4"/>
+  <path d="M 641 244 l 4 4 l 7 -8" fill="none" stroke="#e11d48" stroke-width="1.6"/>
+  <text x="666" y="249" class="q">cheap tier really enough?</text>
+
+  <circle cx="646" cy="286" r="10" fill="#ffffff" stroke="#e11d48" stroke-width="1.4"/>
+  <path d="M 641 286 l 4 4 l 7 -8" fill="none" stroke="#e11d48" stroke-width="1.6"/>
+  <text x="666" y="291" class="q">is the split worth its seams?</text>
+
+  <circle cx="646" cy="328" r="10" fill="#ffffff" stroke="#e11d48" stroke-width="1.4"/>
+  <path d="M 641 328 l 4 4 l 7 -8" fill="none" stroke="#e11d48" stroke-width="1.6"/>
+  <text x="666" y="333" class="q">does it match the stakes?</text>
+
+  <text x="735" y="366" class="small" text-anchor="middle">answered in writing, not felt</text>
+
+  <!-- fail loop -->
+  <path d="M 735 380 V 470 H 390 V 444" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow-rose)"/>
+  <text x="562" y="492" class="rose" text-anchor="middle">a row that fails: correct its identity, merge it into a neighbour, or keep it inline</text>
+
+  <!-- pass -->
+  <line x1="860" y1="220" x2="896" y2="220" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <rect x="900" y="150" width="300" height="110" rx="10" fill="#ffffff" stroke="#4f46e5" stroke-width="1.6"/>
+  <text x="924" y="184" class="name">Spec review</text>
+  <text x="924" y="210" class="line m" fill="#4f46e5">deep_reasoner</text>
+  <text x="924" y="234" class="small">an outside read before you see the plan</text>
+
+  <line x1="1050" y1="260" x2="1050" y2="296" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <rect x="900" y="300" width="300" height="110" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+  <text x="924" y="334" class="name">Ready to delegate</text>
+  <text x="924" y="360" class="line">every row carries its acceptance</text>
+  <text x="924" y="384" class="small m">jobId still empty</text>
+</svg>

@@ -20,7 +20,7 @@ Covered: the `.handoff/` evidence store, transcript rendering, session receipt g
 | E2E verdicts | `docs/verdict-schema.json`, `references/e2e-gauntlet.md` |
 | The illustrative workload model and its ledger | `examples/showcase-cost-ledger.json` |
 
-The prose contract agents load is `references/claude-driven.md`, Phase 0 and Phase 5; the same flow drawn for a human reader is `docs/user-guide/diagrams/phase5-wrap-up.svg`.
+The prose contract agents load is `references/claude-driven.md`, Phase 0 and Phase 5; the same flow drawn for a human reader is `docs/user-guide/diagrams/evidence-flow.svg`.
 
 ### The rule all four flows obey
 

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 470">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+    .m { font-family: "SF Mono", Menlo, Consolas, ui-monospace, monospace; }
+    .title { font-size: 22px; font-weight: 700; }
+    .sub { font-size: 14px; fill: #64748b; }
+    .name { font-size: 15px; font-weight: 700; }
+    .line { font-size: 13px; fill: #475569; }
+    .small { font-size: 12px; fill: #64748b; }
+    .num { font-size: 12px; font-weight: 700; fill: #ffffff; }
+    .head { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="470" fill="#f8fafc"/>
+  <rect width="1240" height="470" fill="url(#grid)"/>
+
+  <text x="40" y="44" class="title">Acceptance tests: the gate itself is reviewed first</text>
+  <text x="40" y="68" class="sub">Whoever writes the assertions does not get to decide whether they passed.</text>
+
+  <!-- row 1 -->
+  <g>
+    <rect x="40" y="110" width="260" height="88" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
+    <circle cx="64" cy="134" r="12" fill="#0891b2"/><text x="64" y="139" class="num" text-anchor="middle">1</text>
+    <text x="86" y="139" class="name">the tests get written</text>
+    <text x="58" y="168" class="line m" fill="#0e7490">e2e_specifier</text>
+    <text x="58" y="188" class="small">in its own worktree, from the spec</text>
+  </g>
+  <line x1="300" y1="154" x2="320" y2="154" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <g>
+    <rect x="324" y="110" width="260" height="88" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
+    <circle cx="348" cy="134" r="12" fill="#7c3aed"/><text x="348" y="139" class="num" text-anchor="middle">2</text>
+    <text x="370" y="139" class="name">the driver reads them</text>
+    <text x="342" y="168" class="line">against the acceptance criteria</text>
+    <text x="342" y="188" class="small">a weak gate would pass a broken feature</text>
+  </g>
+  <line x1="584" y1="154" x2="604" y2="154" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <g>
+    <rect x="608" y="110" width="260" height="88" rx="10" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+    <circle cx="632" cy="134" r="12" fill="#475569"/><text x="632" y="139" class="num" text-anchor="middle">3</text>
+    <text x="654" y="139" class="name">their hash is recorded</text>
+    <text x="626" y="168" class="line">so a later edit to them shows up</text>
+    <text x="626" y="188" class="small">the reviewed version is the one that counts</text>
+  </g>
+  <line x1="868" y1="154" x2="888" y2="154" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <g>
+    <rect x="892" y="110" width="260" height="88" rx="10" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+    <circle cx="916" cy="134" r="12" fill="#475569"/><text x="916" y="139" class="num" text-anchor="middle">4</text>
+    <text x="938" y="139" class="name">tests meet the code</text>
+    <text x="910" y="168" class="line">one commit on the feature branch</text>
+    <text x="910" y="188" class="small">main is not touched yet</text>
+  </g>
+
+  <path d="M 1022 198 C 1022 226, 180 226, 180 250" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- row 2 -->
+  <g>
+    <rect x="50" y="254" width="260" height="88" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
+    <circle cx="74" cy="278" r="12" fill="#0891b2"/><text x="74" y="283" class="num" text-anchor="middle">5</text>
+    <text x="96" y="283" class="name">the tests are run</text>
+    <text x="68" y="312" class="line m" fill="#0e7490">e2e_verifier</text>
+    <text x="68" y="332" class="small">pinned to that exact commit</text>
+  </g>
+
+  <path d="M 310 282 C 340 282, 340 262, 366 262" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="310" y1="298" x2="366" y2="298" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M 310 314 C 340 314, 340 334, 366 334" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="370" y="240" width="830" height="44" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+  <text x="392" y="268" class="name m" fill="#047857">PASS</text>
+  <text x="466" y="268" class="line">every scenario passed — the merge decision is still yours to make</text>
+
+  <rect x="370" y="292" width="830" height="44" rx="8" fill="#fff1f2" stroke="#e11d48" stroke-width="1.4"/>
+  <text x="392" y="320" class="name m" fill="#be123c">FAIL</text>
+  <text x="466" y="320" class="line">a finding for whoever wrote the code, never for the verifier — and it spends a round</text>
+
+  <rect x="370" y="344" width="830" height="44" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="392" y="372" class="name m" fill="#475569">BLOCKED</text>
+  <text x="490" y="372" class="line">nothing was proved: clear the blocker and run it again, which costs no round</text>
+
+  <!-- what the verifier may touch -->
+  <text x="40" y="428" class="head" fill="#64748b">WHAT THE VERIFIER MAY TOUCH</text>
+  <rect x="290" y="406" width="290" height="34" rx="17" fill="#ffffff" stroke="#e11d48"/>
+  <text x="435" y="428" class="small" text-anchor="middle">not a scenario, not an expected value</text>
+  <rect x="594" y="406" width="290" height="34" rx="17" fill="#ffffff" stroke="#059669"/>
+  <text x="739" y="428" class="small" text-anchor="middle">how the tests are launched, if it says so</text>
+  <rect x="898" y="406" width="290" height="34" rx="17" fill="#ffffff" stroke="#e11d48"/>
+  <text x="1043" y="428" class="small" text-anchor="middle">never the product code</text>
+</svg>

@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 600">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+    .m { font-family: "SF Mono", Menlo, Consolas, ui-monospace, monospace; }
+    .title { font-size: 22px; font-weight: 700; }
+    .sub { font-size: 14px; fill: #64748b; }
+    .name { font-size: 15px; font-weight: 700; }
+    .line { font-size: 13px; fill: #475569; }
+    .small { font-size: 12px; fill: #64748b; }
+    .tag { font-size: 12px; font-weight: 600; fill: #475569; }
+    .rose { font-size: 12px; font-weight: 600; fill: #be123c; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#059669"/>
+    </marker>
+    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#e11d48"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="600" fill="#f8fafc"/>
+  <rect width="1240" height="600" fill="url(#grid)"/>
+
+  <text x="40" y="44" class="title">Monitor: progress is read off disk, not remembered</text>
+  <text x="40" y="68" class="sub">One decision, then a tick that rebuilds its whole picture from files every time it fires.</text>
+
+  <!-- decision -->
+  <polygon points="200,250 272,300 200,350 128,300" fill="#ffffff" stroke="#2563eb" stroke-width="1.8"/>
+  <text x="200" y="296" class="tag" text-anchor="middle">how long</text>
+  <text x="200" y="314" class="tag" text-anchor="middle">will it run?</text>
+
+  <path d="M 200 250 V 186 H 286" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <text x="212" y="222" class="tag" fill="#2563eb">short</text>
+
+  <rect x="290" y="140" width="230" height="92" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="405" y="170" class="name" text-anchor="middle">just wait for it</text>
+  <text x="405" y="194" class="small m" text-anchor="middle">status --wait --timeout 300</text>
+  <text x="405" y="216" class="small" text-anchor="middle">read the state line, not the exit code</text>
+
+  <line x1="272" y1="300" x2="426" y2="300" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <text x="349" y="290" class="tag" fill="#2563eb" text-anchor="middle">long or parallel</text>
+
+  <!-- loop -->
+  <circle cx="700" cy="300" r="140" fill="none" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="3,5"/>
+  <text x="700" y="288" class="name m" text-anchor="middle">/loop tick</text>
+  <text x="700" y="310" class="line" text-anchor="middle">every 5 minutes</text>
+  <text x="700" y="332" class="small" text-anchor="middle">nothing is carried over</text>
+
+  <path d="M 545 265 A 140 140 0 0 1 605 190" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <path d="M 795 190 A 140 140 0 0 1 855 265" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <path d="M 855 335 A 140 140 0 0 1 795 410" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+  <path d="M 605 410 A 140 140 0 0 1 545 335" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#arrow-blue)"/>
+
+  <rect x="430" y="268" width="190" height="64" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="525" y="294" class="line m" text-anchor="middle">read goal.md first</text>
+  <text x="525" y="316" class="small" text-anchor="middle">the split and the statuses</text>
+
+  <rect x="605" y="126" width="190" height="64" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="700" y="152" class="line" text-anchor="middle">ask each running job</text>
+  <text x="700" y="174" class="small m" text-anchor="middle">status &lt;jobId&gt;</text>
+
+  <rect x="780" y="268" width="190" height="64" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="875" y="294" class="line" text-anchor="middle">read its last event</text>
+  <text x="875" y="316" class="small m" text-anchor="middle">tail log.jsonl</text>
+
+  <rect x="605" y="410" width="190" height="64" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="700" y="436" class="line" text-anchor="middle">write the statuses back</text>
+  <text x="700" y="458" class="small" text-anchor="middle">for the next tick</text>
+
+  <!-- exit -->
+  <path d="M 700 474 V 512" fill="none" stroke="#059669" stroke-width="1.8" marker-end="url(#arrow-green)"/>
+  <rect x="520" y="516" width="360" height="56" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+  <text x="700" y="550" class="name" text-anchor="middle">no job left running → the review gate</text>
+
+  <!-- side notes -->
+  <path d="M 970 286 C 1000 286, 1000 220, 1026 220" fill="none" stroke="#64748b" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+  <rect x="1030" y="160" width="180" height="116" rx="10" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="1050" y="190" class="name m">depends</text>
+  <text x="1050" y="216" class="small">a row is not submitted</text>
+  <text x="1050" y="234" class="small">until the rows it waits</text>
+  <text x="1050" y="252" class="small">on have finished</text>
+
+  <path d="M 970 314 C 1000 314, 1000 370, 1026 370" fill="none" stroke="#e11d48" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrow-rose)"/>
+  <rect x="1030" y="316" width="180" height="130" rx="10" fill="#fff1f2" stroke="#e11d48" stroke-width="1.4"/>
+  <text x="1050" y="346" class="name" fill="#be123c">anomaly</text>
+  <text x="1050" y="372" class="small">failed, or two quiet ticks</text>
+  <text x="1050" y="392" class="small">cancel and read the logs</text>
+  <text x="1050" y="412" class="small">resubmit or take it back</text>
+  <text x="1050" y="432" class="small">record it either way</text>
+</svg>

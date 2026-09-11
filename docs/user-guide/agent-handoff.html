@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Handoff: how the agent handoff works</title>
+<title>Agent Handoff — user guide</title>
 <style>
   :root {
     --bg: #f8fafc;
@@ -34,13 +34,14 @@
   h1 { font-size: 30px; line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.01em; }
   .lede { color: var(--ink-soft); margin: 0; font-size: 16px; }
   .meta { margin-top: 16px; font-size: 12.5px; color: var(--ink-faint); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-  h2 { font-size: 20px; margin: 48px 0 12px; letter-spacing: -0.01em; }
-  h3 { font-size: 15px; margin: 28px 0 8px; }
+  h2 { font-size: 20px; margin: 52px 0 12px; letter-spacing: -0.01em; }
+  h3 { font-size: 15px; margin: 30px 0 8px; }
   p { max-width: none; }
   ul, ol { max-width: none; padding-left: 22px; }
   li { margin: 5px 0; }
   code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
   code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
   figure { margin: 26px 0 34px; }
   figure img { width: 100%; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
   figcaption { margin-top: 10px; font-size: 12.5px; color: var(--ink-faint); }
@@ -53,6 +54,7 @@
   .callout.claude { border-color: var(--claude); background: #f5f3ff; }
   .callout.alert { border-color: var(--alert); background: #fff1f3; }
   .callout p { margin: 0; }
+  .callout p + p { margin-top: 8px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin: 20px 0; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
   .card h4 { margin: 0 0 6px; font-size: 13.5px; }
@@ -133,7 +135,9 @@
     z-index: 40;
   }
   .skip:focus { left: 0; }
-  h2[id], h1[id] { scroll-margin-top: 72px; }
+  .toc a.sub { display: none; font-size: 12px; padding: 0 8px; color: var(--ink-faint); }
+  .toc.show-sub a.sub { display: inline-flex; }
+  h3[id], h2[id], h1[id] { scroll-margin-top: 72px; }
   @media (max-width: 720px) {
     .toc-inner { padding: 0 20px; }
     .toc-label { display: none; }
@@ -153,14 +157,18 @@
   <div class="toc-inner">
     <span class="toc-label">On this page</span>
     <div class="toc-links">
-      <a href="#shape">Shape</a>
-      <a href="#stage1">1 · Plan &amp; split</a>
-      <a href="#stage2">2 · Delegate</a>
-      <a href="#stage3">3 · Monitor</a>
-      <a href="#stage4">4 · Review gate</a>
-      <a href="#stage5">5 · Wrap up</a>
-      <a href="#drift">Drift control</a>
-      <a href="#observations">Observations</a>
+      <a href="#overview">Overview</a>
+      <a href="#identities">1 · Identities &amp; setup</a>
+      <a href="#handoff">2 · The handoff</a>
+      <a class="sub" href="#plan">2.1 Plan</a>
+      <a class="sub" href="#split">2.2 Split</a>
+      <a class="sub" href="#delegate">2.3 Delegate</a>
+      <a class="sub" href="#monitor">2.4 Monitor</a>
+      <a class="sub" href="#anomalies">2.5 Anomalies</a>
+      <a class="sub" href="#resume">2.6 Resume</a>
+      <a href="#review">3 · Review gates</a>
+      <a href="#drift">4 · Feedback &amp; drift</a>
+      <a href="#evidence">5 · Evidence</a>
     </div>
   </div>
   <div class="toc-progress" role="presentation"></div>
@@ -169,377 +177,402 @@
 <div class="wrap" id="main">
 
 <header>
-  <h1>Agent Handoff: how the agent handoff works</h1>
-  <p class="lede">Agent Handoff splits coding work between a driving Claude Code session and a delegated worker CLI, moving execution off the driver’s meter <em>and</em> off its context window without lowering the quality bar. Everything interesting in it is in the handoff: what crosses between the two agents, what is enforced at the boundary, and what evidence survives afterwards.</p>
-  <p class="meta">research note · repo: kevinlin/agent-handoff @ v3.7.1 · updated 2026-09-10</p>
+  <h1>Agent Handoff — user guide</h1>
+  <p class="lede">Handoff splits coding work between a driving Claude Code session and a worker CLI. The driver plans, splits, and signs off; the worker executes each task as a background job on its own meter. What you save is the driver’s quota and its context window. What you keep is a review of the whole diff against criteria written before the work started.</p>
+  <p class="meta">user guide · kevinlin/agent-handoff @ v3.8.0 · updated 2026-09-11</p>
 </header>
 
-<h2 id="shape">The shape of the thing</h2>
+<h2 id="overview">How a run works</h2>
 
-<p>Agent Handoff is one flow with one driver. Claude Code plans, splits, gates and reviews; a worker CLI executes the delegable bulk of the implementation as background jobs. Which CLI is not a per-run decision: each task row names an identity, and that identity’s configured <code>backend</code> says whether the job runs on <code>codex exec</code>, on a second Claude Code, or on GitHub Copilot CLI. Codex is the common answer, not the definition — delegation still pays when the backend is <code>claude</code> or <code>copilot</code>, because the execution history stays in the job directory instead of the driver’s context. The skill went through a two-direction era where Codex could also be the orchestrator, and that half is gone: there is no <code>direction</code> field, no second host adapter, and no second monitoring surface. What is left is a single spine of five stages, and the interesting design lives in what crosses between them.</p>
+<p>One flow, one driver. Claude Code refines your request into a plan, attacks its own split before acting on it, hands each delegable row to a worker CLI as a background job, watches those jobs by reading files rather than by holding their history in context, and reads every returned diff against the plan before accepting it. The run ends with a receipt whose numbers were measured rather than remembered.</p>
 
 <figure>
-  <img src="diagrams/flow-overview.svg" alt="Five stacked phase bands — plan and split, delegate, monitor, review gate, wrap up — each holding three step cards, plus cards describing the job directory layout and the arbiter protocol. The plan and split band notes the mandatory spec review and its once-per-run status.">
-  <figcaption>The flow, phase by phase. The job primitive turns each delegated task into filesystem state that a later tick or a resumed session can read.</figcaption>
+  <img src="diagrams/handoff-lifecycle.svg" alt="Three lanes. Claude Code plans and splits, passes an adversarial gate, sends the plan for a spec review, delegates, monitors, reviews the diff against goal.md, and wraps up. The worker CLI runs each row as a background job on codex, claude or copilot, with fix rounds coming back by resume and an arbiter ruling when the rounds run out. Each step reads or writes state under .handoff/.">
+  <figcaption>The five steps, the worker beneath them, and the files each step leaves behind.</figcaption>
 </figure>
 
-<p>The driver plans, writes the split into <code>.handoff/goal.md</code>, and delegates. Each task row carries one judgment: which capability the work needs. That single choice determines everything downstream, because the identity's configured <code>backend</code> decides which CLI executes and which meter bills.</p>
+<p>Three things in that picture matter more than the rest.</p>
+
+<ul>
+  <li><strong>Which CLI runs a job is a configuration answer, never a decision made while delegating.</strong> Each task row names an identity; the identity’s configured backend picks the CLI and therefore the meter.</li>
+  <li><strong>Everything a job does lands on disk under <code>.handoff/</code>.</strong> That is what lets a monitor tick, a session resumed after a crash, or you tomorrow pick the run up without reconstructing anything.</li>
+  <li><strong>The driver reads the diff.</strong> Delegation is only worth something if the work that comes back is checked, so the review gate reads the whole diff against the written acceptance criteria and never accepts a worker’s summary in place of it.</li>
+</ul>
+
+<h3>The commands you will use</h3>
+
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>/agent-handoff config</code></td><td>Opens the local setup page: which CLI, model, effort and permission each identity gets, plus the two review caps</td></tr>
+  <tr><td><code>/agent-handoff tryout</code></td><td>Runs one small real task per identity and reports which ones are live</td></tr>
+  <tr><td><code>agent handoff</code> (or “hand this to codex”)</td><td>Starts a run: plan, split, delegate, monitor, review, receipt</td></tr>
+  <tr><td><code>/agent-handoff resume</code></td><td>Picks up an interrupted run from <code>.handoff/</code>, showing rejected rows first</td></tr>
+  <tr><td><code>/agent-handoff transcript</code></td><td>Renders one job’s event log as a readable page</td></tr>
+  <tr><td><code>/agent-handoff cost-receipt</code></td><td>Reports what each meter recorded for a finished run</td></tr>
+  <tr><td><code>/agent-handoff visualise</code></td><td>Opens the whole run on one local page: timeline, transcripts, cost, facts, denials</td></tr>
+</table>
+
+<h2 id="identities">1 · Agent identities and setup</h2>
+
+<p>An identity is a capability tier with a concrete home: a backend, a model, an effort level, and a permission posture. It is not a task assignment and not a person. When the driver splits work, it asks one question per row: which capability does this need. The identity’s configuration answers the rest.</p>
+
+<figure>
+  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus identity dash for what the driver keeps. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print or copilot -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
+  <figcaption>One identity resolves into one CLI on one meter. Nothing in a prompt can change that.</figcaption>
+</figure>
 
 <div class="grid">
-  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find late: architecture, root-cause diagnosis, config changes that fail silently. Also the reviewer of every plan before it reaches the user.</p></div>
-  <div class="card"><h4>fast_worker</h4><p>Mechanical, specification-complete work whose acceptance criteria are enough to verify it. The bulk of what gets delegated.</p></div>
-  <div class="card"><h4>arbiter</h4><p>The blind second solver for contentious calls, and the judge a review gate escalates to when its cap runs out. Never assigned routine rows.</p></div>
-  <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Turns a frozen specification into Gherkin scenarios with stable IDs plus repo-native executable tests. Depends only on the spec, so it runs beside the implementation.</p></div>
-  <div class="card"><h4>e2e_verifier <span class="src">opt-in</span></h4><p>Runs the reviewed tests against a pinned commit and writes a validated verdict. Depends on both the specifier and the implementation.</p></div>
-  <div class="card"><h4>identity <code>-</code></h4><p>Kept inline by the driver: the split decision itself, cross-task integration, security-critical paths, final acceptance.</p></div>
+  <div class="card"><h4>deep_reasoner</h4><p>Ambiguous work where a wrong premise in step one is expensive to find later: architecture, hard diagnosis, config changes that fail quietly. It also reads every plan before you see it.</p></div>
+  <div class="card"><h4>fast_worker</h4><p>Mechanical work that the acceptance criteria alone can verify: refactors, test writing, batch migrations, doc generation, wide read-only scans. Most delegated rows are these.</p></div>
+  <div class="card"><h4>arbiter</h4><p>The independent second solver for a contested call, and the judge when a review gate runs out of rounds. It never gets routine rows.</p></div>
+  <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Turns a frozen spec into Gherkin scenarios with stable IDs plus tests in the repo’s own stack. Depends on the spec, so it runs beside the implementation.</p></div>
+  <div class="card"><h4>e2e_verifier <span class="src">opt-in</span></h4><p>Runs those reviewed tests against a pinned commit and returns a verdict that is validated before anyone acts on it.</p></div>
+  <div class="card"><h4>identity <code>-</code></h4><p>What the driver keeps: the split decision, cross-task integration, security- and correctness-critical paths, final acceptance.</p></div>
 </div>
 
-<p>Three of the five are always configured; the two e2e identities are written only when setup runs <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five are a <code>backend + model + effort</code> triple that can be mixed across the three vendors, and the values live only in <code>.handoff/config.toml</code> or <code>~/.config/handoff/config.toml</code> — never in a prompt, never in a doc.</p>
+<p>The three core identities are always configured. The e2e pair is written only when setup runs with <code>--with-e2e</code>, and a config carrying just the core three is complete rather than half-finished. All five can be mixed across the three vendors, and their values live in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global) and nowhere else.</p>
 
-<p>No identity carries a spec-review toggle any more. Until 3.8.0 <code>deep_reasoner.auto_review_spec</code> decided whether the plan got a second read; now every plan does, and the engine drops the old key when it reads a config. The round caps for both review gates live in their own <code>[review]</code> section: <code>spec_max_rounds</code> (default 1) and <code>implementation_max_rounds</code> (default 3).</p>
+<h3>How a row becomes a job on a meter</h3>
 
-<h3>The job primitive</h3>
+<p>Values resolve per field, highest first: a session override, then the project file, then the global file, then built-in defaults. Whatever each field resolves to is recorded in the job’s <code>meta</code> together with where it came from, so a later question about why a job ran on a given model has a written answer.</p>
 
-<p><code>delegate-codex.sh</code> wraps <code>codex exec --json</code> — or <code>claude --print --output-format stream-json</code>, or <code>copilot -p --output-format json</code>, per the identity’s backend — as a detached background job with durable state under <code>&lt;repo&gt;/.handoff/jobs/&lt;jobId&gt;/</code>. The name is historical; one script, one job shape, one code path. State lives on disk, so a <code>/loop</code> tick or a resumed session reconstructs progress without carrying it in context.</p>
+<p>Four refusals keep that honest, and each of them happens before a job directory exists:</p>
+
+<ul>
+  <li>No Handoff config at all is an error pointing at <code>/agent-handoff config</code>, never a default model.</li>
+  <li>A per-job <code>--backend</code> that contradicts a named identity is refused, with the config command that would make it legitimate.</li>
+  <li>An effort value the chosen CLI does not accept is refused. The enums are per vendor: <code>ultra</code> is Codex-only, <code>none</code> is Copilot-only, Claude takes <code>low</code> through <code>max</code>.</li>
+  <li><code>model = "auto"</code> on Copilot is refused, because the receipt would then record what the vendor picked rather than what you configured.</li>
+</ul>
+
+<div class="callout claude">
+  <p><strong>Moving work to another vendor is a config change you can see.</strong> Swapping a row onto a different identity to get a cheaper meter is not allowed, and the flow says so rather than leaving it to judgment. If the configured identity is wrong for the work, the driver says so and asks.</p>
+</div>
+
+<h3>Permission posture</h3>
+
+<p>Each identity picks <code>default</code> or <code>allow-all</code>. Default means Claude’s <code>dontAsk</code> with a worker tool set, Codex inheriting your own config with no sandbox flags, and Copilot keeping its path and URL checks. Allow-all means each provider’s own unrestricted mode, not one posture forced onto three CLIs. Read-only wins over both and is inherited by fix rounds.</p>
+
+<p>Two limits are worth saying plainly. This is the permission-rule layer only: no OS-level sandbox is added for a Claude worker running under <code>default</code>. And a denied tool call does not change a job’s exit code, so a worker can finish “successfully” having skipped checks it was refused — which is why the review gate reads the denial count first and re-runs blocked commands itself. Details in <a href="../config-schema.md">the config schema</a>.</p>
+
+<h3>Setting it up</h3>
+
+<figure>
+  <img src="diagrams/setup-flow.svg" alt="Six steps left to right: detect which CLIs are installed and read their model lists; pick a preset of balanced, quality or cost; tune each identity's backend, model, effort and permission plus the two review caps; preview the exact file diff; apply as one atomic write with a backup that rollback restores; smoke test each backend, where a pass writes verified true and a failure says so and leaves it false. Below, the tryout command runs one real task per identity.">
+  <figcaption>Everything before apply is reversible, and <code>verified</code> means a CLI actually answered rather than that a file was written.</figcaption>
+</figure>
+
+<p><code>/agent-handoff config</code> opens a page bound to <code>127.0.0.1</code>. Model lists come from each CLI itself — Codex from its own <code>model/list</code>, Claude from <code>claude --help</code>. Copilot publishes no catalog, so you type the model name and the CLI validates the model-and-effort pair when you apply. Nothing is guessed, and nothing is quietly downgraded. A pair the CLI rejects is reported in its own words.</p>
+
+<p>The page also carries the two review caps, because they belong to the same configuration and not to a prompt:</p>
+
+<pre><code>[hosts.claude_code.identities.fast_worker]
+backend = "codex"           # claude | codex | copilot
+model = "gpt-5.6-sol"
+effort = "medium"
+permission_mode = "default" # default | allow-all
+verified = false
+
+[review]
+spec_max_rounds = 1
+implementation_max_rounds = 3</code></pre>
+
+<p>After a successful apply, run <code>/agent-handoff tryout</code>. Each identity does one small self-contained task, and the report tells you in one glance that they are live on the models you chose. A row that fails says what failed and what to do about it; it never quietly substitutes another model.</p>
+
+<div align="center">
+  <a href="../../assets/config-switch-demo.mp4"><img src="../../assets/config-switch-demo.gif" alt="The setup page: switching operating mode, then each identity's CLI, model and reasoning effort, then the exact diff before applying." style="max-width:860px;width:100%;border:1px solid var(--line);border-radius:12px;"></a>
+</div>
+
+<h2 id="handoff">2 · The handoff mechanism</h2>
+
+<p>This is the body of a run: turning a request into rows, sending rows out as jobs, watching them, and getting a stalled or failed one back on track. Five parts follow, in the order they happen.</p>
+
+<h3 id="plan">2.1 Plan: the goal file comes first</h3>
+
+<figure>
+  <img src="diagrams/plan-split.svg" alt="The request enters and becomes .handoff/goal.md, holding a goal sentence with its done_when, the checkpoint rule and a task table where each row carries an identity — deep_reasoner, fast_worker, the driver itself, and optionally an e2e row. The plan then goes through an adversarial gate asking three questions: is the cheap tier really enough, is the split worth its seams, does it match the stakes. A failing row loops back to be corrected, merged or kept inline. A surviving split goes to the spec review, then to ready-to-delegate with no jobIds yet.">
+  <figcaption>The acceptance criteria are written here, before any code exists. A criterion written after seeing the diff describes the diff instead of testing it.</figcaption>
+</figure>
+
+<p><code>.handoff/goal.md</code> is the one written reference the rest of the run judges against. It holds:</p>
 
 <table>
-  <tr><th>File</th><th>What it carries</th></tr>
-  <tr><td><code>prompt.md</code></td><td>The exact prompt sent, kept as the audit record of what was asked</td></tr>
-  <tr><td><code>run.sh</code></td><td>The command actually executed, including sandbox and effort overrides</td></tr>
-  <tr><td><code>log.jsonl</code></td><td>The event stream; <code>result</code> reduces it to session id, last agent message, commands, usage, and the count of tool calls the worker was denied</td></tr>
-  <tr><td><code>stderr.log</code></td><td>Tokens, warnings, auth errors; the first thing to read on a FAILED job</td></tr>
-  <tr><td><code>pid</code> / <code>exit_code</code> / <code>cancelled</code></td><td>The three inputs to <code>job_state</code>: RUNNING, DONE, FAILED, CANCELLED</td></tr>
-  <tr><td><code>session_id</code></td><td>Extracted from the stream on codex and claude, and <em>assigned</em> before launch on copilot, which emits its id only in the terminal event; either way, the handle that makes <code>resume</code> possible</td></tr>
-  <tr><td><code>usage.json</code> / <code>copilot-logs</code></td><td>copilot only: the final token and credit counters written by <code>--usage-output-file</code>, and the CLI’s own <code>--log-dir</code> output kept beside the rest of the job state</td></tr>
-  <tr><td><code>meta</code></td><td>Label, role, backend, model, effort, and the <em>source</em> of each of backend, model and effort (config vs explicit vs parent), plus <code>submitted_at</code>, requested <code>permission_posture</code>, <code>permission_posture_source</code> and effective <code>permission_mode</code> for every job, <code>session_id_source</code> for a copilot one, and, for a worktree job, <code>worktree</code> / <code>branch</code> / <code>base_commit</code></td></tr>
+  <tr><th>Section</th><th>What it carries</th></tr>
+  <tr><td>Goal</td><td>One why-forward sentence ending in a <code>done_when</code> condition, with the anti-Goodhart clause attached: a check you can satisfy by deleting tests or lowering the bar is not a valid check, and the fix is the check</td></tr>
+  <tr><td>Checkpoint rule</td><td>When the worker should stop and ask you: a destructive action, a real scope change, or something only you can provide</td></tr>
+  <tr><td>Spec review</td><td>The status of the plan’s outside read, and one line per round</td></tr>
+  <tr><td>Tasks</td><td>One row per task: <code>id · identity · task · acceptance · depends · effort · status · jobId</code></td></tr>
+  <tr><td>Anomalies · Arbitration · Notes</td><td>What went wrong, every ruling, and the handover for anything left open</td></tr>
 </table>
 
-<p>Five of its behaviours are worth calling out because they encode failures someone clearly hit:</p>
+<p>Three of those columns pull more weight than they look. <code>acceptance</code> has to be a command or an observable behaviour, because the review gate judges against it. <code>depends</code> is what the monitor reads before submitting a row. And <code>status</code> is the deduplication key across ticks and sessions, so a stale row gets delegated twice.</p>
 
-<ul>
-  <li><strong>Fail-closed routing.</strong> With <code>--role</code>, backend, model and effort resolve from <code>handoff-config.py</code>. No config is a hard error, never a silent default. The configured backend then selects the CLI, always; a per-job <code>--backend</code> that contradicts a named role is refused, naming the <code>handoff-config.py set</code> command that would actually change the routing. That is the guard against a job landing on a vendor the config never chose — and against the driver quietly re-deciding the meter mid-run.</li>
-  <li><strong>Stdin is closed (<code>&lt;/dev/null</code>).</strong> A long prompt can otherwise make the worker wait for more input, and a detached job's stdin never closes on its own, so the job would hang forever with no further events.</li>
-  <li><strong>Non-git targets get <code>--skip-git-repo-check</code></strong>, detected via <code>git rev-parse</code> rather than a <code>.git</code> directory test, so worktrees and submodules still count as repos. That flag is codex-only; a claude job never carries it.</li>
-  <li><strong>Per-identity permission posture.</strong> Both setup UIs select <code>default</code> or <code>allow-all</code>. Default uses Claude <code>dontAsk</code> with <code>Read Glob Grep Edit Write Bash</code>, inherited Codex config without sandbox flags, and Copilot <code>--allow-all-tools</code> retaining path/URL checks. Allow-all selects the provider's native unrestricted mode, not a shared security posture. Only Claude default changes behaviour. Read-only wins and is inherited on resume; missing parent posture means default. Claude's env override remains supported and warnings follow effective mode. No OS-level sandbox is added for Claude default. Codex denials are not counted, and <code>permission_denied</code> is advisory, not enforced: DONE follows exit code. Verify edits and checks on disk. Copilot read-only uses plan without allow-all flags. See <a href="../config-schema.md">the schema</a> for the research deviations and limitations.</li>
+<p>The driver and the monitor loop both write this file, so writes go through a hash check rather than a lock: a write states the sha256 it last read, and a mismatch aborts and asks for a re-read instead of clobbering the other update. Small work skips the file entirely — ceremony for a five-line fix buys no safety.</p>
 
-  <li><strong>A claude worker gets a clean credential environment.</strong> The generated <code>run.sh</code> unsets every <code>ANTHROPIC_*</code> and <code>CLAUDE_CODE_*</code> variable with Bash prefix expansion before exec, so the child authenticates like a fresh terminal rather than inheriting the host’s injected provider URL and key. The copilot branch does not mirror this, deliberately: Copilot authenticates through <code>gh auth</code> and <code>~/.copilot</code> and reads none of those variables. What it does carry instead is a binary identity check, because AWS Copilot CLI shares the name <code>copilot</code> and only the <code>--version</code> string tells them apart.</li>
-</ul>
+<h3 id="split">2.2 Split: one judgment per row, then attack it</h3>
 
-<p>The five stages below each get one flow diagram: events down the spine, guards and consequences to the right, dashed edges for the paths that go backwards. The actor tag on each box is who acts; the label on each edge is what crosses.</p>
+<p>Splitting means answering one question per row: which capability does this work need. There is deliberately no second “owner” or “meter” decision, because each one would be another place to get routing wrong. The two failure directions are named so they can be checked: never route a quality-critical step to a cheaper identity to save money, and never spend the driver’s seat on mechanical work.</p>
 
-<h2 id="stage1">Stage 1 — Plan and split</h2>
-
-<figure>
-  <img src="diagrams/phase1-plan-split.svg" alt="Event flowchart: the user's request enters the Claude driver, which preflights, drafts the split, reads and compare-and-set writes the goal file through goal-sync.py, then attacks its own split at the adversarial gate; a refusal box and a failed-question box branch right, with a dashed loop back to the compose step. Below the gate, a mandatory deep_reasoner spec review node feeds an adjusted plan into the ready-to-delegate step, with a side card on why that review is informed rather than blind.">
-  <figcaption><strong>Stage 1.</strong> The two branches are the ones that stop the run: a compare-and-set refusal, and a gate answer that sends the split back to be rewritten. The last step reviews every plan, and is the only one that leaves the driver before the user has seen anything.</figcaption>
-</figure>
-
-<p>Preflight does four cheap things, and one of them is a clock. <code>make-receipt.py --start</code> stamps <code>.handoff/session-start</code>, which is what the Stage 5 receipt measures <code>duration</code> against; without the marker the tool later refuses to emit rather than accept a remembered start time. The other three are a version check on each worker CLI the config actually uses — a missing CLI stops the flow instead of pretending the job primitives exist, and for <code>copilot</code> the check reads the version string rather than the exit code, since AWS Copilot CLI answers to the same name —, a one-time offer to add the <code>DO NOT send optional commentary</code> line to the repo's <code>AGENTS.md</code>, and a <code>git status --short</code> so pre-existing dirt can be told apart from Codex's diff later.</p>
-
-<h3>The goal file is the one written reference</h3>
-
-<p><code>.handoff/goal.md</code> is written before any job exists, which is what makes the acceptance criteria authorable at all — a criterion written after seeing the diff is a description, not a test. Its goal line is a single why-forward sentence ending in a <code>done_when</code> condition, and the template attaches an anti-Goodhart clause to that condition: a check that can be satisfied by deleting tests, skipping steps, or lowering the bar is not a valid check, and the fix is the check rather than the standard. Below it sit the checkpoint rule, an optional <code>Delivery</code> block used only under the full PR protocol, and the task table (<code>id</code>, <code>identity</code>, <code>task</code>, <code>acceptance</code>, <code>depends</code>, <code>effort</code>, <code>status</code>, <code>jobId</code>), plus sections for anomalies and notes.</p>
-
-<p>Three constraints on that table matter more than they look. <code>acceptance</code> has to be a command or an observable behavior rather than a vibe, because Stage 4 reviews against it. <code>depends</code> is what the monitor loop reads before submitting a row, so a verifier cannot start before the tests it is meant to run exist. And the <code>status</code> enum is frozen, because <code>/loop</code>'s stop rule and older goal files both depend on the existing values. The skill also refuses to demand the file for small work — a dedicated regression case exists to keep a one-line fix off the goal path, on the grounds that ceremony for a five-line change buys no safety.</p>
-
-<p>Two writers touch that file: the driver and the Stage 3 monitor tick. <code>goal-sync.py</code> replaces locking with a hash check — a write must state the sha256 it last read, and a mismatch aborts with "re-read and retry" instead of clobbering the other update. A first write that states no hash refuses to overwrite an existing file at all, and every write goes through an atomic replace. Write frequency is low enough that compare-and-set beats a lock nobody would release correctly.</p>
-
-<h3>Attacking your own split</h3>
-
-<p>Before any job is submitted the split goes through an adversarial gate, which has to answer three questions in writing: does each delegated task genuinely not need the expensive tier, does the integration cost of the split boundary eat the savings, and does each row's identity match the stakes. A row that survives all three gets delegated; anything else has its identity corrected, gets merged into a neighbour, or stays inline with the driver. Earlier versions of the skill shipped this as a separate bundled companion skill; it now lives inline as part of Stage 1, with the same three questions and the same requirement that they be answered on the page rather than felt.</p>
+<p>Before anything is delegated, the driver attacks its own split in writing. Does each delegated row really not need the expensive tier? Does the integration cost of the split boundary eat the saving? Does each row’s identity match the stakes, with a reason it is not a more expensive one? A row that survives all three gets delegated. Anything else gets its identity corrected, merged into a neighbour, or kept inline.</p>
 
 <div class="callout claude">
-  <p><strong>Acceptance coverage is decided here too.</strong> When the change alters user-observable behaviour at a real interface (a UI, an API surface, a mobile screen), the split gains an <code>e2e_specifier</code> row and an <code>e2e_verifier</code> row, with <code>depends</code> wired so the verifier waits on both the specifier and the implementation. Internal refactors, docs, config, and pure library work skip them. When the criterion fires but the identities are unconfigured, the rule is to say so exactly once, name <code>/agent-handoff config --with-e2e</code>, and continue without them: setup state does not get to quietly override the driver's judgment, and it does not block the run either.</p>
+  <p><strong>Acceptance coverage is decided here too.</strong> When a change alters user-observable behaviour at a real interface (a UI, an API surface, a mobile screen), the split gains an <code>e2e_specifier</code> row and an <code>e2e_verifier</code> row, with <code>depends</code> wired so the verifier waits on both the tests and the implementation. Internal refactors, docs, config and library work skip them. If the criterion fires and the identities are not configured, the driver says so once, names <code>/agent-handoff config --with-e2e</code>, and carries on without them.</p>
 </div>
 
-<h3>A second reader for the plan itself</h3>
+<h3 id="delegate">2.3 Delegate: two paths that never cross</h3>
 
-<p>Everything above is the driver checking its own work. The adversarial gate attacks a split the driver just wrote, which means the agent that authored the plan is the only agent that judged it — the maker-is-also-judge failure the Darwin ratchet names, sitting on the one decision every later stage is judged against. The spec review is what closes it: before any plan reaches the user, <code>deep_reasoner</code> reads it on its own configured backend and reports what it would change, each finding tagged blocking or advisory.</p>
+<figure>
+  <img src="diagrams/delegate-paths.svg" alt="Two parallel paths. The upper one carries the work: a task row becomes a delegation packet the driver writes by hand, saved as prompt.md and kept unchanged as the record of the ask. The lower one carries the routing: --role resolves through config into run.sh flags naming backend, model and effort, with four refusals listed — no config, a backend contradicting the role, an unsupported effort, and model equals auto. Both meet at the job directory, which holds prompt.md, run.sh, meta, log.jsonl, stderr.log, pid, exit_code and session_id, and the configured backend launches it detached. The jobId goes back into the row as status delegated.">
+  <figcaption>The packet says what to do. Config says where it runs. Neither path can reach into the other.</figcaption>
+</figure>
 
-<p>Three properties keep a mandatory extra job from turning into an argument that never ends. It is <strong>capped</strong>: <code>spec_max_rounds</code> (default 1) bounds how many times the same reviewer reads the plan, and a blocking finding the driver still declines at the cap goes to the arbiter, whose ruling binds. It runs <strong>once per run</strong>: the goal file's <code>## Spec Review</code> block carries a status, any status other than <code>not run</code> means the automatic review is spent, and a resumed session finishes an open chain instead of starting a new one. And it is <strong>read-only</strong>: <code>--read-only</code> on the job, findings as the whole output, no edit to the spec, the goal file, or product code.</p>
+<p>Nothing generates the delegation prompt. The driver composes it in its own context, writes it to a temporary file, and passes the path; the script’s only check is that the file exists. That is authorship discipline rather than validation, and it is deliberate — a packet the script assembled would be a packet nobody had to think about.</p>
 
-<div class="callout claude">
-  <p><strong>This one is deliberately not blind.</strong> Blind arbitration withholds every hint because two independent solutions to the same problem are what it is measuring. Here the plan under review <em>is</em> the driver's answer, so withholding it would leave nothing to read; the packet carries the goal line, the task table, and the design document verbatim. The cost is real and stated rather than hidden: an informed reader inherits the author's framing and will catch a wrong premise less often than an independent solve would. It is a second pair of eyes, not a second opinion. When <code>deep_reasoner</code> resolves to the driver's own vendor, the run says <code>same-vendor</code> the way the arbiter protocol does.</p>
+<p>What goes into it is bounded by cost. The driver has already read the repository; it pays once to select the evidence so the worker spends its tokens on the work.</p>
+
+<figure>
+  <img src="diagrams/context-ladder.svg" alt="A staircase of evidence from cheap to expensive: why the work matters plus the one task plus how it will be checked; which files changed and by how much; the tail of the failing check; the snippet the worker asked for; a whole file when it is small; and, crossed out in red, the repository itself. A dashed arrow back along the bottom says the worker asks for the next rung when it needs it.">
+  <figcaption>Climb only as far as the ask needs. A packet that hands over the repository is the cost this whole workflow exists to avoid.</figcaption>
+</figure>
+
+<p>Every crossing in the flow has a named shape, and they differ in what they permit rather than in how much they say.</p>
+
+<figure>
+  <img src="diagrams/handoff-packet-anatomy.svg" alt="Claude Code at the centre sending five named packets: a delegation packet to the worker; a goal packet to you with the plan, the open decisions and what a yes authorizes; a spec review packet to deep_reasoner carrying the plan verbatim with no permission to change anything; an arbitration packet to the arbiter with both sides and the evidence; and e2e packets to the acceptance pair with the spec inline, a named test target and a branch of their own. A strip below lists what every packet carries: why the work matters, one clear task, acceptance you can run, where it may not go, and a reply without filler.">
+  <figcaption>The spec review packet is the only one that narrows the shared template rather than widening it: findings only, no edits anywhere.</figcaption>
+</figure>
+
+<p>Some rows must not share a working tree: the e2e pair, and anything else you want kept apart. Those run in a Git worktree cut from an immutable commit SHA. Four rules make that usable, and each is a bug somebody already hit: the repo argument always names the main repo, never the worktree; the base is resolved to a SHA before the job directory exists, so a moving branch cannot leave a verdict naming a commit nobody tested; the worker commits on its own branch and does nothing else; and the driver reviews, integrates and cleans up. Cleanup refuses a worktree with uncommitted changes rather than discarding work.</p>
+
+<p>One consequence catches people out: a worktree receives tracked content only, and <code>.handoff/</code> is ignored by Git. So no worktree job reads the goal file. The spec, the frozen goal excerpt and the artifact paths all go inline into the packet.</p>
+
+<h3 id="monitor">2.4 Monitor: read the files, not your memory</h3>
+
+<figure>
+  <img src="diagrams/monitor-loop.svg" alt="One decision — how long will it run — splits into waiting on a short job with status --wait, or arming a five-minute loop. The loop is a cycle of four stations: read goal.md first for the split and the statuses, ask each running job for its status, read its last event from log.jsonl, write the statuses back for the next tick. It exits when no job is left running. Two side notes: depends holds a row until the rows it waits on have finished, and an anomaly branch covering a failed job, two quiet ticks, cancelling, reading the logs, resubmitting or taking it back.">
+  <figcaption>Each tick rebuilds its whole picture from files, which is exactly why a tick an hour later, or a session resumed after a crash, works the same as the first one.</figcaption>
+</figure>
+
+<p>One decision shapes the phase: how long the job is expected to run. Under about five minutes, block on it and read the printed state line — the exit code alone cannot tell “finished cleanly” from “still going”. Longer or parallel work gets a five-minute loop, and the tick prompt is the whole monitoring program.</p>
+
+<p>Monitoring is evidence-only. The signals are the job’s own status, the tail of its event log, its stderr, and repository evidence. Chat text is not a signal, and neither is a claim about progress that nothing on disk supports.</p>
+
+<h3 id="anomalies">2.5 Anomalies: what a stuck job looks like</h3>
+
+<figure>
+  <img src="diagrams/job-lifecycle.svg" alt="Top: a state machine. Submit leads to RUNNING while its process is alive, then to DONE on a zero exit code, FAILED on a bad exit or a dead process, or CANCELLED when it was stopped. A red box lists what counts as an anomaly — a job that failed, a job that went quiet, a finished job whose tool calls were denied — and the handling: cancel it, read the logs, resubmit corrected or take it back, and it goes in the receipt either way. A side card names the evidence: pid, exit_code, cancelled. Bottom: a resume chain of job, -r2 and -r3 review passes, a fourth refused before it starts, and the arbiter ruling on the dispute, with a bracket saying each round inherits the session, the backend and the worktree.">
+  <figcaption>State is derived from files. A worker that died without writing an exit code reads as failed rather than hanging as running forever.</figcaption>
+</figure>
+
+<p>A failed status, or two consecutive ticks with no new event, is an anomaly with a fixed handling: cancel the job, read <code>stderr.log</code> and the tail of the event log, then either resubmit with a corrected prompt or take the task back into the driver. Either way it is recorded for the receipt. On Copilot the log is not optional — an API failure can arrive with stderr empty and the detail carried only as an error event inside the log. And an idle or API timeout that arrives after successful model events is not a login error; the wrong diagnosis produces a resubmit that fails the same way.</p>
+
+<div class="callout alert">
+  <p><strong>A denied tool call does not move the exit code.</strong> A worker that was blocked runs to completion believing it ran checks it never ran, so its report of those checks is worthless. Treat any non-zero denial count as a failed job. Re-run the blocked commands yourself, and record it. Codex denials are not counted at all, which is another reason the driver verifies checks on disk instead of trusting a summary.</p>
 </div>
 
-<p>Every plan gets a review, regardless of setup state. A resumed session finishes any open review chain within the configured cap; it does not start a second automatic review.</p>
+<h3 id="resume">2.6 Resume: two different things with one name</h3>
 
-<h2 id="stage2">Stage 2 — Delegate</h2>
+<p><strong>A fix round</strong> is <code>resume &lt;jobId&gt;</code>. It continues the same worker session, inheriting the parent’s backend, identity, effort and worktree from its <code>meta</code>, and creates its own round directory with its own prompt. That prompt carries only the prioritised findings and the criteria that failed, plus “continue end-to-end from here” — the session still holds the original packet, so sending it again would only cost tokens. A round past the configured cap is refused before the job directory exists.</p>
 
-<figure>
-  <img src="diagrams/phase2-delegate.svg" alt="Event flowchart: a task row becomes a delegation packet written to a temp file, then submit resolves the identity through handoff-config.py, creates the job directory, launches the configured worker CLI detached, and returns a jobId written back into the row; the fail-closed branch is a red box off the resolve step, and a worktree box branches off the job-directory step.">
-  <figcaption><strong>Stage 2.</strong> Two paths run down this phase and never meet: the prompt carries the work, config carries the routing. The red box is where a wrong meter gets caught.</figcaption>
-</figure>
+<p><strong>A session resume</strong> is <code>/agent-handoff resume</code>. It picks a run up from <code>.handoff/</code> after an interruption: the final statuses in the goal file, the job directories, the saved receipts and verdicts. It reads those rather than re-deriving state from the repository, presents any row an arbiter rejected first, and never reopens one by itself.</p>
 
-<p>This is the crossing where money is either saved or spent again — and where the driver’s own context is either protected or squandered. The receiving agent starts cold, and the flow refuses to solve that by letting it read the repository itself: the driver already holds the context, so it pays once to select the evidence, and the delegate spends its tokens on judgment instead of discovery. What comes back is a result, not the transcript that produced it; that stays in the job directory.</p>
+<h2 id="review">3 · The two review gates</h2>
 
-<figure>
-  <img src="diagrams/context-ladder.svg" alt="Left: a six-rung evidence ladder from why-forward context and the one-line task, through diff stat, check output tail, requested snippets and small whole files, down to a crossed-out rung for the whole repository. Right: five rule cards covering who gathers evidence, situation-specific shaping, worktree self-containment, dense replies, and state carried forward.">
-  <figcaption>The ladder is ordered by cost. Each handoff climbs only as far as the ask actually needs.</figcaption>
-</figure>
-
-<p>The first three rungs cost almost nothing and answer most questions. Why-forward context plus a one-sentence task plus acceptance-as-a-command tells the delegate what it is for and how it will be judged. The changed-file list plus <code>git diff --stat</code> gives the shape of a change without its content. Check output goes in as a summary or a tail, never as the whole log. The upper rungs are conditional: full diffs are for small files only, a large file contributes the excerpt that carries the decision, and beyond that the packet stops and hands control to the receiver — ask for the smallest file or snippet that unblocks the work. Context is pulled on demand rather than pushed in advance, which is what keeps a handoff from degenerating into a repository dump with extra steps.</p>
-
-<h3>The packet contracts</h3>
+<p>Both gates are the same shape: a maker, a reviewer, an argument bounded by a cap, and a third reader for the argument that does not settle. What differs is who plays which part.</p>
 
 <figure>
-  <img src="diagrams/handoff-packet-anatomy.svg" alt="Three side-by-side cards — the Claude-to-Codex Delegation Packet, the E2E specifier and verifier packets that run in a worktree, and the Goal Packet sent to the user for authorization — over a full-width fourth card for the read-only Spec Review Packet, each with its sections and enforcement rules.">
-  <figcaption>Every crossing has a named shape, a scope boundary, and an acceptance the receiver is asked to judge against.</figcaption>
+  <img src="diagrams/review-gates.svg" alt="Two bands with identical shapes. In the spec review band the driver writes the plan in goal.md, deep_reasoner reads it read-only, and if every blocker is settled the plan reaches you, adjusted; otherwise one more pass runs if the cap allows. In the implementation review band the worker's whole diff is read by the driver against the brief, and if every finding is settled the row is done; otherwise a fix round runs while passes are left. Both bands escalate to a shared arbiter when there is no agreement at the cap, and the arbiter's three outcomes are approve, reject and no verdict. A footer says a round is one review pass, with spec_max_rounds of 1 and implementation_max_rounds of 3.">
+  <figcaption>Same shape, different seats. The caps are configuration, and the escalation is the same protocol for both.</figcaption>
 </figure>
-
-<ul>
-  <li><strong>The Delegation Packet</strong> (driver → delegated job) is prose, disciplined by convention: why-forward context, one-sentence task, acceptance as commands, constraints limited to genuine blockers, the checkpoint rule, and a fixed output rule — no optional commentary, at most three lines of lessons learned. The terse reviewer contract is presented as measured rather than folklore: 41% less reviewer output with no loss in judgment quality.</li>
-  <li><strong>The E2E packets</strong> are the same shape with the "do not commit" constraint <em>replaced</em> by a commit-on-this-worktree-branch rule — they are the only packets that do. They also carry the specification inline, because a worktree has no <code>.handoff/</code> to read it from, and they name an approved local or ephemeral test target rather than letting the verifier guess one.</li>
-  <li><strong>The Spec Review Packet</strong> (driver → <code>deep_reasoner</code>, Stage 1) is the one packet that <em>narrows</em> the template rather than widening it: read-only, findings only, no edit to any file. It carries the plan verbatim because the reviewer starts cold and must judge what it was given rather than go looking for the plan itself, and it asks for what is missing as well as what is wrong — plus a one-line "this is sound" when it is, rather than invented findings.</li>
-  <li><strong>The Goal Packet</strong> (driver → user) is not a delegation at all but a decision artifact: the ask, the plan with <code>file:line</code> evidence, the gate's verdict, the open decisions only the user can settle, and an explicit statement of what confirming it does and does not authorize. It is sent before any branch, worktree, or goal file exists.</li>
-</ul>
-
-<h3>Where a delegation prompt is actually written</h3>
-
-<p>Nothing generates the delegation prompt. The driver composes it in its own context from the delegation packet shape, writes it to a <code>mktemp</code> file, and passes that path to <code>delegate-codex.sh submit --prompt-file</code>; the script's only check is that the file exists.<span class="src"> scripts/delegate-codex.sh:221</span> So the packet contract on this crossing is authorship discipline, not validation — unlike the config resolution happening a few lines later in the same command.</p>
-
-<p>From there the prompt becomes state. <code>submit</code> copies the temp file into the new job directory as <code>prompt.md</code>, and the generated <code>run.sh</code> reads it back with <code>cat</code> and passes it to the worker as an argument, with stdin closed so a long prompt cannot leave the detached job waiting for more input.<span class="src"> scripts/delegate-codex.sh:276</span> The copy is never rewritten afterwards, which is what makes it usable as the audit record of what was asked rather than of what the driver remembers asking.</p>
-
-<p>A fix round takes the same path at a smaller size. <code>resume</code> creates its own directory, <code>&lt;root&gt;-r&lt;n&gt;</code>, and its <code>prompt.md</code> holds only the prioritized findings and the failed criteria, because the resumed worker session already carries the original packet. It reads the parent's <code>backend</code> and <code>role</code> out of <code>meta</code>, so a fix round lands on the same CLI with its provenance intact rather than as an anonymous entry. What stays out of every one of these files is the routing: backend, model, and effort come from <code>handoff-config.py</code> through <code>--role</code> and land in <code>meta</code> and in the <code>run.sh</code> flags, so no wording in a prompt can move a job onto a different vendor. It refuses a round past the review cap before creating anything.</p>
-
-<h3>Worktree jobs</h3>
-
-<p><code>submit --worktree &lt;branch&gt; --base &lt;commit-ish&gt;</code> runs a job in its own Git worktree under <code>.handoff/worktrees/&lt;jobId&gt;</code>, on any of the three backends — the protocol is pure Git, so there is one implementation rather than one per vendor. Four rules make it usable, and each of them is a bug someone would otherwise hit. <code>--repo</code> is always the main repo, because a worktree passed there would fall through to the global config and run the wrong model. The base is resolved to an immutable SHA before the job directory exists, because a branch can advance between cutting the tree and reading the verdict, and then the verdict names a commit nobody tested. The worker commits on its own branch and does nothing else — no merge, no push, no rebase, no removing the tree. And the driver reviews, integrates, and calls <code>cleanup</code>, which is idempotent and refuses a worktree holding uncommitted changes rather than discarding work.</p>
-
-<p>The self-containment consequence is the one worth remembering: a worktree receives <em>tracked content only</em>, and <code>.handoff/</code> is gitignored. So no e2e job reads the goal file, and no e2e job writes it either — workers return artifact paths, and the driver writes them through <code>goal-sync.py</code>. An uncommitted user-supplied spec is either inlined into the packet or committed before the tree is cut; the driver picks, and it cannot be left implicit.</p>
-
-<h3>What crosses at each boundary</h3>
 
 <table>
-  <tr><th>Boundary</th><th>What is sent</th><th>What is deliberately not sent</th></tr>
-  <tr>
-    <td>Driver → delegated job</td>
-    <td>Why-forward context, one-sentence task, acceptance as commands, scope paths, checkpoint rule</td>
-    <td>The backend, model, and effort — those resolve from config, not from prose, and the packet is identical whichever CLI receives it</td>
-  </tr>
-  <tr>
-    <td>Driver → e2e worktree job</td>
-    <td>The frozen goal excerpt and the spec verbatim, the approved test target, the commit-on-this-branch rule</td>
-    <td><code>.handoff/</code> in any form; a worktree carries tracked content only</td>
-  </tr>
-  <tr>
-    <td>Driver → deep_reasoner, spec review</td>
-    <td>The plan verbatim — goal line, task table, acceptance criteria, the design document — and the ask for prioritized findings</td>
-    <td>Any authority to edit: not the plan, not the goal file, not the repo</td>
-  </tr>
-  <tr>
-    <td>Delegated job → driver</td>
-    <td><code>result</code> reduces any backend's stream to the same four fields: session id, last agent message, commands, usage — parsed per backend, because Copilot's terminal event is also called <code>result</code> and carries a different payload from Claude's</td>
-    <td>The full <code>log.jsonl</code>, which stays on disk for when it is actually needed</td>
-  </tr>
-  <tr>
-    <td>Review → fix round</td>
-    <td>Prioritized findings, the acceptance criteria that failed, "continue end-to-end from here"</td>
-    <td>The original packet; the session already holds it</td>
-  </tr>
-  <tr>
-    <td>Verifier → driver</td>
-    <td><code>verdict.json</code>: result, tested commit, scenario counts and ids, harness edits, findings, evidence</td>
-    <td>A prose claim of PASS; the verdict is validated against its own cross-field rules first</td>
-  </tr>
-  <tr>
-    <td>Driver → user, Goal Packet</td>
-    <td>The ask, the plan with <code>file:line</code> evidence, the gate verdict, open decisions, what authorization unlocks</td>
-    <td>Any assumption that a reply answering a question is an authorization to proceed</td>
-  </tr>
-  <tr>
-    <td>Lost session → replacement</td>
-    <td><code>.handoff/goal.md</code> plus the job directories</td>
-    <td>The repository, and the expectation of rebuilding context from zero</td>
-  </tr>
+  <tr><th></th><th>Spec review</th><th>Implementation review</th></tr>
+  <tr><td>What is judged</td><td>The plan in <code>.handoff/goal.md</code></td><td>A delegated row’s diff</td></tr>
+  <tr><td>Maker</td><td>The driver</td><td>The row’s worker</td></tr>
+  <tr><td>Reviewer</td><td><code>deep_reasoner</code>, read-only</td><td>The driver</td></tr>
+  <tr><td>Agreement means</td><td>No blocking finding was declined</td><td>The driver accepts the diff</td></tr>
+  <tr><td>Cap</td><td><code>spec_max_rounds</code>, default 1</td><td><code>implementation_max_rounds</code>, default 3</td></tr>
+  <tr><td>On rejection</td><td>The run stops before anything is delegated</td><td>The row is set aside; independent rows continue</td></tr>
+</table>
+
+<h3>Spec review: every plan gets an outside read</h3>
+
+<p>The adversarial gate has the driver judging its own split, which leaves the one decision every later gate is measured against read only by its author. So before a plan reaches you, <code>deep_reasoner</code> reads it as a real read-only job on its own configured backend and tags each finding blocking or advisory. The driver accepts or declines each one and writes down why. There is no toggle; until 3.8.0 there was, it defaulted to off, and most plans went unread by anyone else.</p>
+
+<p>Three rules keep an extra job from turning into an argument with no end:</p>
+
+<ul>
+  <li><strong>It is capped.</strong> Under the cap, declined blocking findings go back to the same reviewer with the revised plan and the driver’s reasons. At the cap with a blocker still declined, it escalates.</li>
+  <li><strong>It runs once per run.</strong> The goal file’s <code>## Spec Review</code> block carries the status, and anything other than “not run” means the automatic review is spent. A resumed session finishes an open chain instead of starting a new one.</li>
+  <li><strong>It is read-only in both directions.</strong> The reviewer returns findings and nothing else, and its findings are input to the driver’s judgment rather than a verdict applied unread.</li>
+</ul>
+
+<div class="callout claude">
+  <p><strong>This one is deliberately not blind.</strong> The plan under review is the driver’s own answer, so withholding it would leave nothing to read. That makes it a second pair of eyes rather than a second opinion: it inherits the author’s framing and will catch a wrong premise less often than an independent solve would. The flow says so rather than letting you read arbitration into it, and when <code>deep_reasoner</code> lands on the driver’s own vendor the run records <code>same-vendor</code> instead of claiming independence it does not have.</p>
+</div>
+
+<p>A review that fails, stalls, or comes back with neither findings nor a one-line “this is sound” proves nothing, so it is not a round. It is retried once as a fresh job; a second failure stops the run there and waits for you.</p>
+
+<h3>Implementation review: the diff against the brief</h3>
+
+<p>The driver collects the job’s result, reads the denial count first, then re-reads the acceptance column and the task brief, and only then reads the complete diff — scoped to the files the job touched, plus the fastest relevant check. The whole diff, never a sample.</p>
+
+<p>The question is “does this diff satisfy that brief”, never “is this diff self-consistent”. That distinction is measured rather than asserted: in the Superpowers 6 runs, reviewers holding only a diff caught <strong>none of five</strong> missing task briefs, because a reviewer with nothing but a diff quietly redefines the spec as “consistent with whatever changed” and misses work that was never started.</p>
+
+<h3>When the run carries acceptance tests</h3>
+
+<figure>
+  <img src="diagrams/e2e-gate.svg" alt="Five steps: e2e_specifier writes the tests in its own worktree from the spec; the driver reads them against the acceptance criteria, the step that stops a weak gate passing a broken feature; their hash is recorded so a later edit shows up; tests and code meet in one commit on the feature branch, leaving main untouched; e2e_verifier runs them pinned to that commit. Three outcomes: PASS, where the merge decision is still yours; FAIL, a finding for whoever wrote the code and a spent round; BLOCKED, where nothing was proved and the rerun costs no round. A footer says what the verifier may touch: not a scenario or an expected value, the launch scaffolding if it says so, and never the product code.">
+  <figcaption>The gate is reviewed before the verdict counts, because a verdict inherits the weakness of the tests it ran.</figcaption>
+</figure>
+
+<p>The verdict is a validated artifact rather than a sentence in a reply, because it feeds a merge decision and prose lets an agent type “PASS” after a non-zero exit.</p>
+
+<table>
+  <tr><th>Verdict</th><th>What it has to satisfy</th><th>What happens next</th></tr>
+  <tr><td><code>PASS</code></td><td>Zero exit code, every scenario passed, at least one scenario, no findings, and the same scenario hash the driver recorded at review time</td><td>Goes to the merge decision, which still needs the driver’s final review and your authorization</td></tr>
+  <tr><td><code>FAIL</code></td><td>At least one finding, plus a non-zero exit code or fewer passes than scenarios</td><td>A product finding routed to whoever wrote the code, never to the verifier, and it spends a review pass</td></tr>
+  <tr><td><code>BLOCKED</code></td><td>Nothing passed, and a finding naming the blocker</td><td>Nothing was proved: clear the prerequisite and run it again. It is never read as a PASS, and the rerun is not a round</td></tr>
+</table>
+
+<p>If the verifier makes a semantic edit, changing what a scenario asserts rather than how it is launched, the run is invalidated rather than disclosed and accepted. The driver re-reviews the changed acceptance meaning, records a new hash, and starts that part clean.</p>
+
+<h3>The round limits</h3>
+
+<p>A round is one review pass in both gates: the first read is pass one, and every fix round adds one. The default of three on the implementation side therefore allows two fix rounds. The caps live in the config’s <code>[review]</code> section, they merge per field like everything else, and there is no per-call override — the resume path reads the config itself, so a cap the driver believed in but the enforcing process never saw would be worse than no cap at all. Wanting more rounds means raising the number where the change is visible.</p>
+
+<h3>Arbitration, and the two things it is not</h3>
+
+<p>When a gate reaches its cap without agreement, the dispute goes to <code>arbiter</code> as a read-only job with the whole argument in the packet: the plan or the brief, the acceptance criteria, the evidence, and every round’s findings with the other side’s response. It asks for one thing: a verdict line and a reason per disputed point. The ruling binds.</p>
+
+<table>
+  <tr><th>Instrument</th><th>What it acts on</th><th>How independent it is</th></tr>
+  <tr><td>Adversarial gate</td><td>A split the driver just wrote</td><td>None. The driver attacks itself</td></tr>
+  <tr><td>Spec review</td><td>That same plan, read by another agent</td><td>Informed, not blind</td></tr>
+  <tr><td>Blind arbitration</td><td>The problem, solved again from scratch</td><td>Blind. Any hint about the first answer contaminates the run, which is then rerun rather than patched</td></tr>
+  <tr><td>Escalation ruling</td><td>A review dispute that ran out of rounds</td><td>Informed by both sides, on purpose. Nothing is withheld</td></tr>
+</table>
+
+<p>Outcomes are narrow by design. An approval accepts the artifact over the driver’s open findings — on a diff that means the row goes to done, and it never stands in for an acceptance-test PASS. A rejection is final for the run: the row is marked rejected, its diff is set aside as a patch or a kept worktree, rows that depend on it are held, independent rows carry on. An arbiter job that fails or returns something malformed is not an approval; it gets one fresh attempt, and a second failure is recorded as “no verdict” with the row left for you to decide on.</p>
+
+<p>Every ruling, approvals included, lands in three places: a line in the goal file’s <code>## Arbitration</code> block, a handover in Notes when something was rejected, and the receipt’s anomalies line. A rejection is yours to act on — raise the cap and resume the chain, rewrite the brief and start a new one, or take the task over.</p>
+
+<h2 id="drift">4 · Feedback loop and drift control</h2>
+
+<p>Drift is what happens when each stage is judged against the stage before it. The plan bends toward the split, the split bends toward the diff, and the diff is “consistent” with everything except what you asked for. Handoff’s answer is one written reference, read at every stage, plus a rework path that has a defined end.</p>
+
+<figure>
+  <img src="diagrams/feedback-loop.svg" alt="A ring of six stages around .handoff/goal.md at the centre: plan, with acceptance written before the code; spec review, an outside reader every time; delegate, routing from config and not from prose; monitor, state from files and never from memory; review, the diff against the brief and not against itself; wrap up, a measured receipt and then the lessons, which feed the next run. Below, the order of who decides: a script if it can, a second model, the driver, the arbiter, and you for every hard stop.">
+  <figcaption>The goal file is read or written at every stage, and it is never rewritten to match the work that came back.</figcaption>
+</figure>
+
+<h3>Where drift gets in, and what holds it</h3>
+
+<table>
+  <tr><th>The opening</th><th>What holds it</th><th>Held by</th></tr>
+  <tr><td>The goal can be met without being achieved</td><td>The anti-Goodhart clause on <code>done_when</code>, and hard stops that no amount of “done” authorizes</td><td>Convention</td></tr>
+  <tr><td>The plan is judged only by its author</td><td>The spec review, on every plan, recorded in the goal file</td><td>Convention; the round cap is enforced</td></tr>
+  <tr><td>The split is drawn for cost instead of stakes</td><td>The adversarial gate’s three questions, answered in writing</td><td>Convention</td></tr>
+  <tr><td>Work lands on the wrong meter</td><td>Routing resolves from config; a contradicting per-job backend is refused</td><td>Fails closed</td></tr>
+  <tr><td>A worker invents its own stopping points</td><td>The checkpoint rule, in the goal file and in every packet</td><td>Convention</td></tr>
+  <tr><td>A row runs before what it depends on</td><td>The <code>depends</code> column, read on every tick before anything is submitted</td><td>Convention, read every tick</td></tr>
+  <tr><td>A verdict names a commit nobody tested</td><td>The base resolved to an immutable SHA before the job exists, echoed back in the verdict</td><td>Fails closed</td></tr>
+  <tr><td>The reviewer grades the diff instead of the goal</td><td>The review reads acceptance out of the goal file first</td><td>Convention</td></tr>
+  <tr><td>The acceptance tests are weaker than the criteria</td><td>The driver reviews the scenarios and locks their hash before the verdict counts</td><td>Fails closed at verdict validation</td></tr>
+  <tr><td>A failing task loops forever</td><td>The review cap, then a binding ruling</td><td>Fails closed at the cap</td></tr>
+  <tr><td>The run reports better than it went</td><td>A fixed receipt schema, measured durations, unverified roles listed as unverified, and the standing rule against invented savings</td><td>Fails closed at receipt validation</td></tr>
+  <tr><td>A change to the workflow makes it worse</td><td>One dimension at a time, validated against test prompts or a real run, kept only when the evidence improves</td><td>Convention</td></tr>
 </table>
 
 <div class="callout alert">
-  <p><strong>The exclusions are as specific as the inclusions.</strong> Every packet's constraints section forbids committing, pushing, deploying, publishing, and touching secrets or <code>.env</code> values, and the e2e packets narrow that further rather than widening it — the only permission they add is a commit on their own throwaway branch.</p>
+  <p><strong>The most load-bearing check is the least enforced one.</strong> Config resolution, base pinning, verdict validation, the round cap and receipt validation all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about delegation being safe rests on that check actually being performed — which is why it is worth knowing it exists, and worth asking for the evidence when a run reports success.</p>
 </div>
 
-<h2 id="stage3">Stage 3 — Monitor</h2>
+<h3>What the next run learns</h3>
+
+<p>At wrap-up the run is turned into input for the next one, and the line between the two stores is explicit. Facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>: architecture, commands, conventions. Memory carries experience instead — which task types an identity handled well, which effort levels fitted, where rework happened, what an escalation ruled. Instruction files are law; memory is what the next split decision reads.</p>
+
+<h2 id="evidence">5 · Evidence</h2>
+
+<p>The headline claim is that delegated work ran on another meter and stayed out of the driver’s context. Any driver can say that in one sentence. A sentence is exactly what an unverified claim looks like. So everything below exists to make the claim checkable against files nobody typed by hand.</p>
 
 <figure>
-  <img src="diagrams/phase3-monitor.svg" alt="Event flowchart: one decision splits short jobs (blocking status with a wait) from long or parallel jobs (a five-minute /loop tick that reads the goal file then job directories, polls status, updates statuses); a depends-column box and an anomaly box branch right, with dashed loop-back edges for the normal tick cycle and the anomaly resubmit.">
-  <figcaption><strong>Stage 3.</strong> Two cycles and one exit: the tick repeats while anything is RUNNING, the anomaly rule feeds a corrected job back into it, and an all-terminal state ends the loop.</figcaption>
+  <img src="diagrams/evidence-flow.svg" alt="Left, while the run is going: a session-start marker stamped before the first job; goal.md with every task status, review round, ruling and note; and one directory per job holding prompt.md, run.sh, meta, log.jsonl, stderr.log and exit_code. Middle, at wrap up: the receipt is generated by measuring those files, carrying duration, the three job counts, checks, anomalies and roles_used, and is then checked again with the same check the project's CI runs. Right, afterwards: the job transcript, the cost receipt, the session page, and a resume that reads this rather than the repo. Three rules: generated never typed, measured never repriced, and a gap is named rather than written as zero.">
+  <figcaption>The receipt indexes the run rather than summarising it, and each reader on the right opens what it points at.</figcaption>
 </figure>
 
-<p>One decision shapes the whole phase: how long the job is expected to take. A short single job gets blocked on — <code>status &lt;jobId&gt; --wait --timeout 300</code>. Long or parallel work gets a <code>/loop</code> tick at five minutes, and the tick prompt is the entire monitoring program: read <code>.handoff/goal.md</code> first, then the job directories for the jobs it says are running, poll each one's <code>status</code>, tail its <code>log.jsonl</code> for the last event, write the statuses back, and stop when nothing is left RUNNING.</p>
+<h3>Session metadata: what a run writes while it runs</h3>
 
-<p>Reading the goal file first is not an ordering detail. It is what lets a tick reconstruct its picture from disk rather than from context, which is what makes the loop survive a crash, a resumed session, and its own lack of memory between ticks. Statuses are the deduplication key, so a stale row causes duplicate delegation — which is why the template calls out keeping them current, and why <code>depends</code> is read on the same pass: a row whose dependencies have not reached <code>done</code> is not submitted, however idle the tick looks.</p>
+<p>Each job’s directory is the unit, and every file in it is read by something later.</p>
 
-<p>Monitoring is deliberately evidence-only. The signals are the job's own <code>status</code>, the tail of <code>log.jsonl</code>, <code>stderr.log</code>, and repo evidence — never chat text, and never a claim about progress that nothing on disk supports. A job with no new JSONL events across two consecutive ticks, or a <code>FAILED</code> status, is an anomaly with a fixed handling: cancel it, read the stderr, then either resubmit with a corrected prompt or take the task back into the driver, and record the anomaly for the receipt either way. Authentication is kept as its own class inside that rule: an idle or API timeout <em>after</em> successful model events must not be relabeled as a login error.</p>
+<table>
+  <tr><th>File</th><th>What it carries, and who reads it</th></tr>
+  <tr><td><code>prompt.md</code></td><td>Exactly what was asked. Copied once at submit and never rewritten, so it stays the record of the ask rather than of what anyone remembers asking</td></tr>
+  <tr><td><code>run.sh</code></td><td>The command actually executed, flags included</td></tr>
+  <tr><td><code>meta</code></td><td>Identity, backend, model, effort, and the source of each of those values, plus submission time, parent round and permission posture</td></tr>
+  <tr><td><code>log.jsonl</code></td><td>The worker’s event stream: what it read, what it ran, what it concluded. The transcript and the cost receipt both read it</td></tr>
+  <tr><td><code>stderr.log</code></td><td>Tokens, warnings, auth errors. The first thing to read on a failed job</td></tr>
+  <tr><td><code>pid</code> · <code>exit_code</code> · <code>cancelled</code></td><td>The three inputs the job state is derived from</td></tr>
+  <tr><td><code>session_id</code></td><td>The handle that makes a fix round a resume instead of a restart. Extracted from the stream on Codex and Claude, assigned before launch on Copilot, which emits its id only at the end</td></tr>
+  <tr><td><code>usage.json</code></td><td>Copilot only: the token and credit counters its CLI writes at exit</td></tr>
+</table>
 
-<h2 id="stage4">Stage 4 — Review gate</h2>
-
-<figure>
-  <img src="diagrams/phase4-review-gate.svg" alt="Event flowchart: result collection, then re-reading the brief, then the complete scoped diff, into a decision node asking whether the diff satisfies the brief; findings branch into a bounded resume that loops back to the brief, open findings at the review cap escalate to the arbiter, and the satisfied path continues to accept. A side card holds the six-step e2e sequence.">
-  <figcaption><strong>Stage 4.</strong> The decision node is the gate. Rework is a resume carrying findings only, capped at <code>implementation_max_rounds</code> review passes (default 3), and the cap has a named consequence: the arbiter rules.</figcaption>
-</figure>
+<p>Two more files sit outside the job directories. <code>.handoff/session-start</code> is stamped before the first job and is the clock the receipt measures against; without it the receipt tool refuses to emit rather than accept a remembered start time. And <code>.handoff/goal.md</code> carries the review rounds, the rulings and the task statuses, written through the same hash-checked path the monitor uses.</p>
 
 <div class="callout">
-  <p><strong>This is where both claims are earned.</strong> Moving execution off the driver’s meter only holds up if the delegated work is checked properly — and keeping it off the driver’s context window only holds up if what comes back is enough to judge. So Stage 4 reads the complete diff rather than a sample, and reads it against the written criteria rather than against itself. Findings go back to the same worker session through <code>resume</code>, which reads the parent job’s backend from its <code>meta</code> so the round lands on the same CLI, carrying the prioritized findings and the failed criteria and nothing else, since the session still holds the original packet.</p>
+  <p><strong>These files hold whatever the worker read.</strong> The largest single event in one sampled run was 110 KB of file contents. <code>.handoff/</code> is git-ignored by default, and the transcript renderer warns when its own output is not ignored, because committing a transcript by accident is a real disclosure.</p>
 </div>
 
-<p>The review is against the acceptance column in <code>.handoff/goal.md</code> and each task's brief, never against the diff alone. The skill cites its reason: in the Superpowers 6 runs, diff-only reviewers caught none of five missing task briefs, because a reviewer holding only a diff redefines the spec as "consistent with what changed". So the question the gate asks is "does this diff satisfy that brief", not "is this diff self-consistent".</p>
+<h3>Session state capture: the receipt</h3>
 
-<h3>When the run carries e2e rows</h3>
+<p>Every non-trivial run ends with a fixed-schema receipt. It indexes the run rather than summarising it: which jobs belonged to it, what executed them, how long each took, what was checked, what went wrong.</p>
 
-<p>The acceptance rows are sequenced before the fix-round step, and the ordering is load-bearing in a specific way: the driver reviews the <em>tests</em> first. A generated gate weaker than the goal's criteria will green-light a broken feature, and the verifier's verdict inherits that weakness silently. So the driver reads the specifier's scenarios against the acceptance column, records the sha256 of the reviewed <code>.feature</code> files at that moment, integrates the specifier and implementation branches into one combined commit, submits the verifier pinned to that commit, and validates the verdict before acting on it.</p>
+<pre><code>[Handoff session receipt]
+phase: final fix
+claude_session: 9836fe7e-4aca-47a6-83b5-69086b8db275
+duration: 74min 12sec
+codex_jobs: 2
+codex_job_durations: job-t1=18min 12sec; job-t1-r2=6min 05sec
+cc_jobs: 1
+cc_job_durations: job-t2=9min 30sec
+copilot_jobs: 1
+copilot_job_durations: job-t3=4min 47sec
+checks: bash scripts/check-skill-repo.sh .; jq schema check; git diff --check
+anomalies: none
+scope: project
+config_source: project
+roles_used: [{"role":"fast_worker","host":"codex","model":"gpt-fast","effort":"high","verified":true}]
+receipt_schema_version: 6</code></pre>
 
-<table>
-  <tr><th>Verdict</th><th>What it requires</th><th>What the driver does with it</th></tr>
-  <tr>
-    <td><code>PASS</code></td>
-    <td><code>exit_code == 0</code>, every executed scenario passed, at least one scenario, <code>total == len(ids)</code>, empty <code>findings</code>, and <code>scenarios_sha256</code> equal to the hash recorded at review time</td>
-    <td>Goes to the merge decision, which still needs the driver's own final review</td>
-  </tr>
-  <tr>
-    <td><code>FAIL</code></td>
-    <td>At least one finding, plus either a non-zero exit code or <code>passed &lt; total</code></td>
-    <td>Routed to the original implementer as a product finding — never to the verifier, which does not fix product code</td>
-  </tr>
-  <tr>
-    <td><code>BLOCKED</code></td>
-    <td><code>passed == 0</code> and a finding naming the blocker; <code>command</code> and <code>exit_code</code> may be null</td>
-    <td>Nothing was proved: resolve the prerequisite and rerun. It is never read as a PASS</td>
-  </tr>
-</table>
+<p>The interesting part is that none of it is recalled. <code>duration</code> is wall clock from the start marker, so a run that sat waiting on a permission prompt carries that wait in the number. Per-job durations come from each job’s submission time and the timestamp on its exit code, with jobs left over from an earlier run excluded and a job still going reading <code>running</code>. The three job counts partition the run by each job’s own recorded backend, which is what makes “four jobs ran on the Codex subscription” a claim you can check rather than a sentence. A role that was never verified is listed with that flag as it stands, never dropped to make the receipt look cleaner.</p>
 
-<p>The split the verifier must respect is three-way. Scenario text and IDs, expected values, and the identity of what an assertion is about are <strong>frozen</strong>. Launch and runner scaffolding — start commands, base URL, waits, fixtures — is <strong>repairable</strong>, and every repaired file has to be named in <code>harness_edits</code>. Product code is <strong>forbidden</strong>. A semantic edit does not get disclosed and accepted; it invalidates the run, and the driver restarts from a clean state with a new recorded hash. One limit is stated rather than papered over: the hash lock covers the <code>.feature</code> files only, because executable spec files legitimately hold repairable scaffolding. The worktree path itself is no longer a limit — one script-owned code path serves all three backends, and the lifecycle test runs its full set of assertions against each.</p>
-
-<h3>How disagreements are settled</h3>
-
-<p>Three instruments exist for disagreement and they are not variations on each other. The Stage 1 gate attacks a plan that already exists and returns a corrected split; its output is a revision of the plan, and the attacker is the driver itself. The mandatory spec review hands that same plan to another agent for an informed read within the round cap; the driver accepts or declines each finding, and a declined blocking finding at the cap goes to the arbiter. Blind arbitration solves the problem again from scratch: the same problem text goes to <code>deep_reasoner</code> and <code>arbiter</code> as real jobs on their own configured backends, and neither packet may contain the other's answer or a leaning hint. Only the third one is blind, and the difference is not cosmetic: a hint that would merely bias a reviewer invalidates a blind arbitration. "X thinks A, verify it" already counts as contaminated, and a contaminated run is rerun rather than patched, because a hint manufactures the agreement the protocol exists to test. At a review cap, the Arbitration Packet instead carries the whole dispute, including both sides and the evidence; that ruling is informed, and it binds.</p>
-
-<p>What happens after that is a fixed escalation, and every step names a decider:</p>
-
-<ul>
-  <li><strong>Two solvers agree.</strong> The answer is adopted and marked dual-verified. When config puts both on the same vendor, the protocol still runs but the receipt records <code>same-vendor</code>, so the weaker independence stays visible rather than being quietly claimed as two opinions.</li>
-  <li><strong>Two solvers disagree.</strong> The driver rules, and records both the point of divergence and the reasoning. Both solvers still appear in <code>roles_used</code>; losing an argument does not erase the entry.</li>
-  <li><strong>Implementation misses acceptance.</strong> The driver's review is the ruling, and its output is one bounded fix round into the same session.</li>
-  <li><strong>The last review pass still has findings open.</strong> The argument goes to the arbiter with both sides of it. An approval accepts the diff over the driver's findings; a rejection is final for the run: the row is marked <code>rejected</code>, its diff is set aside, and the ruling goes into the goal file's <code>## Arbitration</code> block, the notes, and the receipt, which is what lets the memory protocol learn that this task type does not delegate well.</li>
-  <li><strong>Anything sits behind a hard stop.</strong> Merge, production, tags, force-push, deletion, destructive migration, and external publish are the user's alone. One imperative sentence authorizes one action, a question about whether to proceed is not authorization, and an earlier approval for something else never carries over.</li>
-</ul>
-
-<p>Read together, the escalation is a ladder of decreasing automation: machine checks, then a second model, then the driver, then the human. Nothing in it resolves a disagreement by averaging two answers or by taking the more recent one.</p>
-
-<h3>The optional delivery stage</h3>
-
-<p>Stage 4.5 exists only when the user asked for the full Plan→Goal→PR→Verification protocol, and the trigger grading is explicit that a one-line fix must not be escalated into it — a regression case exists to keep ordinary changes off that path. When it does run, it takes the work up to "merge-ready PR plus preview verified" and stops there, filling in the goal file's <code>Delivery</code> block (branch, PR, CI, preview, live) as each becomes known and recording each authorization actually given with the user's verbatim intent. Its verify ladder escalates from the single targeted test through lint, module suite, full build, and then the rung that matters most: re-reading the acceptance criteria against the actual diff rather than the maker's self-report. It only ever runs commands the repo itself documents; a rung the repo has no command for is marked <code>n/a</code> out loud rather than skipped silently.</p>
-
-<h2 id="stage5">Stage 5 — Wrap up</h2>
-
-<figure>
-  <img src="diagrams/phase5-wrap-up.svg" alt="Event flowchart: closing the run, then gathering evidence from job metadata, the config resolve, and the two measured clocks, generating the receipt with make-receipt.py, re-validating it with validate-receipt.py, running the memory protocol, and ending at what the next session inherits from the .handoff directory.">
-  <figcaption><strong>Stage 5.</strong> Every field with a measurement behind it comes from that measurement; the branch names what may not be claimed when nothing measured it.</figcaption>
-</figure>
-
-<p>Every non-trivial run ends with a fixed-schema receipt: <code>phase</code>, <code>claude_session</code>, <code>duration</code>, <code>codex_jobs</code>, <code>codex_job_durations</code>, <code>cc_jobs</code>, <code>cc_job_durations</code>, <code>copilot_jobs</code>, <code>copilot_job_durations</code>, <code>checks</code>, <code>anomalies</code>, <code>scope</code>, <code>config_source</code>, <code>roles_used</code>, and <code>receipt_schema_version: 6</code>. It is generated by <code>make-receipt.py</code>, which refuses to emit an invalid one, and can be re-checked later by <code>validate-receipt.py</code> against <code>docs/receipt-schema.json</code> — the same check CI runs, run on the run's own output.</p>
-
-<p>The measured fields are the interesting part, because they are all derived rather than recalled. <code>duration</code> is wall clock from the <code>.handoff/session-start</code> marker, so a run that sat waiting on a permission prompt carries that wait in the number; with no marker and no explicit <code>--started-at</code>, the tool refuses to emit at all. The per-job durations are measured the same way, from each <code>meta</code>'s <code>submitted_at</code> to the mtime of its <code>exit_code</code>, with jobs from an earlier run excluded and a job still going reading <code>running</code>. The two job counts are a count of job directories including fix rounds, not a recollection. Each role's <code>verified</code> flag comes from the config file, and a role that is unverified still gets an entry with <code>verified: false</code> — it is never dropped to make the receipt look cleaner. In <code>roles_used</code>, an entry's <code>host</code> is the CLI that executed that role, unrelated to the runtime that loaded the skill.</p>
-
-<p>What v5 added, and v6 widens, is a partition rather than a new measurement. <code>codex_jobs</code>/<code>codex_job_durations</code> narrow to the codex-backed jobs, <code>cc_jobs</code>/<code>cc_job_durations</code> carry the claude-backed ones, and <code>copilot_jobs</code>/<code>copilot_job_durations</code> the copilot-backed ones, split by each job <code>meta</code>'s own <code>backend=</code> line rather than by what the driver remembers submitting. A job directory with no such line predates backend dispatch and counts as codex. The point is that a run reporting four jobs on the Codex subscription has to have four jobs whose metadata says so — the receipt can no longer describe work as landing on a meter it never touched. <code>phase</code> gains <code>delegated implementation</code> for the same reason: <code>codex implementation</code> is a false name for a run whose work ran on Claude.</p>
-
-<p>What the schema <em>dropped</em> says as much as what it keeps. <code>direction</code> and <code>monitoring_level</code> were v2 fields describing a second flow and a fragile capability probe; both are gone with the machinery they described, and a receipt still carrying them fails validation, which is the intended signal to regenerate it. A v4 receipt, missing the two <code>cc_</code> fields, fails for the same reason and with the same remedy, and so does a v5 one missing the two <code>copilot_</code> fields.</p>
-
-<p>The cost receipt reads the same partition and reports each meter in its own units. Codex jobs carry token counters and no cost figure, because the CLI emits none. Claude jobs carry <code>total_cost_usd</code> verbatim, labelled CLI-reported. Copilot jobs carry token counters plus premium requests and nano-AIU — AI credits, not a currency, and reporting them as dollars would be a fabrication. The two scopes there were measured rather than assumed: token counters are per invocation and sum across a parent and its fix round, while the top-level credit totals are cumulative for the session, so adding them would double-count every resume.</p>
+<p>The receipt is generated and then re-checked: the generator refuses to emit an invalid receipt, and the validator re-reads the written one with the same check the project’s CI runs. A receipt from an older schema fails, and that failure is the signal to regenerate it rather than hand-patch it.</p>
 
 <div class="callout alert">
-  <p>The closing instruction in <code>SKILL.md</code> is the one that holds the rest together: do not fabricate token savings. When telemetry is unavailable, report verifiable behavior instead — which tasks ran on which backend, how many jobs and fix rounds, that the full diff was reviewed against the acceptance criteria, and that the checks passed.</p>
+  <p><strong>Do not fabricate token savings.</strong> When exact telemetry is unavailable, the run reports verifiable behaviour instead: which work ran on which backend, how many jobs and fix rounds, that the full diff was read against the acceptance criteria, and that the checks passed. Three claims are specifically out of bounds, because no counter supports them: context the driver avoided, money actually billed, and any difference between two figures presented as a saving.</p>
 </div>
 
-<p>Then the run gets turned into input for the next one. The memory protocol draws its line explicitly: facts every future session must see unconditionally belong in <code>CLAUDE.md</code> and <code>AGENTS.md</code>, while the memory layers carry experience — which task types each identity handled well, which effort levels fitted, where rework happened. Instruction files are law; memory is what the next split decision learns from. What stays on disk is the cold-start payload: <code>.handoff/goal.md</code> with its final statuses and notes, <code>.handoff/jobs/</code> with the prompts, logs and session ids, and <code>.handoff/receipts/</code> and <code>.handoff/e2e/</code> with the run's evidence. A resumed session reads those, not the repository.</p>
-
-<h2 id="drift">Drift control across the loop</h2>
-
-<p>The five stages run one control structure: the goal is written down before any work leaves the driver, each gate judges the work against that written goal instead of against the stage before it, and the rework path has a fixed end.</p>
+<h3>Reading a finished run back</h3>
 
 <figure>
-  <img src="diagrams/feedback-loop.svg" alt="Top: five loop stages — plan and split (which includes attacking your own split), delegate, monitor, review gate, accept and wrap — over a goal.md band showing what each stage reads or writes, with return arcs for bounded rework and for anomalies. Middle: two cards for the job directory and the e2e verdict artifact. Bottom: an escalation table from the plan itself through the mandatory outside read of the plan, blind arbitration, the review gate, arbiter rulings, and hard stops.">
-  <figcaption>The loop, its written reference, and the escalation order when two agents disagree.</figcaption>
+  <img src="diagrams/session-page.svg" alt="A receipt feeds a local server on 127.0.0.1 with a one-run key, which opens a page with five tabs: Overview, Transcript, Cost receipt, Session facts, and Denials and anomalies. The overview shows the run as lanes on a time axis — the driver plus three jobs, one of them failed — with a dashed hotspot over a lane and a note that clicking a lane opens its transcript. Three side notes: the timeline is drawn rather than measured, the other four tabs come straight from the files, and a lane the files contradict loses its click. A bottom row covers the three cases: a timeline with lanes, one without, and none at all.">
+  <figcaption>Served on your own machine, for as long as you leave it open. Clicking a lane drops you into that job’s transcript.</figcaption>
 </figure>
 
-<table>
-  <tr><th>Where drift gets in</th><th>What holds it</th><th>Enforced by</th></tr>
-  <tr>
-    <td>The goal is written so it can be met without being achieved</td>
-    <td>The anti-Goodhart clause on <code>done_when</code>; <code>done_when</code> and <code>hard_stops</code> compose by AND, so meeting every condition never authorizes crossing a stop</td>
-    <td>Convention</td>
-  </tr>
-  <tr>
-    <td>The plan is judged only by the agent that wrote it</td>
-    <td>The mandatory spec review: a read by <code>deep_reasoner</code> before the plan reaches the user, recorded in the goal file's <code>## Spec Review</code> block</td>
-    <td>Convention, once per run; <code>resume</code> enforces the round cap</td>
-  </tr>
-  <tr>
-    <td>The split is drawn for cost rather than for stakes</td>
-    <td>The adversarial gate's three questions, answered in writing, and the corrected task→identity map it produces</td>
-    <td>Convention</td>
-  </tr>
-  <tr>
-    <td>Work lands on the wrong agent or the wrong meter</td>
-    <td>Routing comes from <code>handoff-config.py</code>, and the identity's configured backend selects the CLI; a per-job <code>--backend</code> contradicting a named role is refused, and swapping to another identity to change vendor is forbidden in the flow prose</td>
-    <td>Fails closed on the override; convention on the swap</td>
-  </tr>
-  <tr>
-    <td>The delegate invents its own stopping points</td>
-    <td>The checkpoint rule, pause only for a destructive action, a real scope change, or something only the user can give, repeated in the goal file and in every packet</td>
-    <td>Convention</td>
-  </tr>
-  <tr>
-    <td>A dependent row runs before what it depends on</td>
-    <td>The <code>depends</code> column, read by the monitor tick before any submit; an <code>e2e_verifier</code> row names both the specifier and the implementation</td>
-    <td>Convention, read every tick</td>
-  </tr>
-  <tr>
-    <td>A job is judged against a commit nobody tested</td>
-    <td><code>--base</code> resolved to an immutable SHA before the job directory exists, echoed back as <code>tested_commit</code> in the verdict</td>
-    <td>Fails closed</td>
-  </tr>
-  <tr>
-    <td>The reviewer grades the diff instead of the goal</td>
-    <td>Stage 4 reads acceptance from <code>goal.md</code>; the verify ladder's fifth rung compares the diff against the criteria rather than the maker's self-report</td>
-    <td>Convention</td>
-  </tr>
-  <tr>
-    <td>The acceptance gate itself is weaker than the criteria</td>
-    <td>The driver reviews the scenarios before the verdict counts, and locks them with <code>scenarios_sha256</code>; <code>PASS</code> is checked against exit code, scenario counts, and an empty findings list</td>
-    <td>Fails closed at <code>validate-verdict.py</code></td>
-  </tr>
-  <tr>
-    <td>A failing task loops forever</td>
-    <td>Review passes capped by <code>implementation_max_rounds</code> (default 3), each fix round carrying only prioritized findings and the failed criteria; then the arbiter rules</td>
-    <td>Convention</td>
-  </tr>
-  <tr>
-    <td>The run reports better than it went</td>
-    <td>Fixed receipt schema, measured <code>duration</code> and per-job durations, unverified roles listed with <code>verified: false</code>, and the standing rule against fabricated token savings</td>
-    <td>Fails closed at receipt validation</td>
-  </tr>
-  <tr>
-    <td>A change to the workflow itself makes it worse</td>
-    <td>The Darwin ratchet: one dimension per round, a real miniloop or two test prompts before keeping anything, a reviewable revert, and no agent as sole maker and sole judge</td>
-    <td>Convention</td>
-  </tr>
-</table>
-
-<p>The pattern in the third column is worth sitting with. Machine enforcement clusters where a wrong value is cheap to detect: resolving config, pinning a base commit, validating a verdict, validating a receipt. The check that actually keeps the work on the goal — reading the diff against written acceptance criteria — is a rule in a prompt. That is not obviously wrong, since no script can judge whether a diff satisfies a brief, but it does mean the strongest guarantees in the system sit around the weakest-enforced one.</p>
-
-<h2 id="observations">Observations</h2>
-
-<p>Things I noticed while reading that a maintainer might want to look at:</p>
-
 <ul>
-  <li><strong><code>resume</code> used to lose identity metadata</strong> — fixed in v3.5.0. A resumed job's <code>meta</code> recorded <code>label=resume</code>, <code>model=inherit</code>, and no <code>role</code> or <code>backend</code>, so a run whose work happened mostly in fix rounds had thinner <code>roles_used</code> provenance than a clean first pass. <code>resume</code> now carries the parent's <code>role</code> and <code>backend</code> forward, which it has to anyway: the backend is what tells it which CLI to resume on.</li>
-  <li><strong>An empty session id is cached.</strong> <code>extract_session_id</code> pipes through <code>tee</code>, so a scan that finds nothing writes a newline into <code>session_id</code>. The <code>[ -s ... ]</code> guard then treats that file as populated and later calls return the empty value without rescanning a log that has since grown.<span class="src"> scripts/delegate-codex.sh:171, :175</span></li>
-  <li><strong><code>status</code> exits 0 while a job is still RUNNING.</strong> Only the <code>--wait</code> timeout path returns non-zero, so a caller branching on exit status alone cannot distinguish "finished cleanly" from "still going". The printed <code>state:</code> line is the real signal, and callers have to parse it.<span class="src"> scripts/delegate-codex.sh:445</span></li>
-  <li><strong>The adversarial gate is advisory in the way that matters.</strong> Nothing mechanically blocks a submit that skipped it, unlike the config resolution, the base-commit pin, the verdict validation, and the receipt validation, which all fail closed. Given that the gate is what defends the cost claim, it is the least enforced of the guards.</li>
+  <li><strong>The transcript</strong> (<code>/agent-handoff transcript</code>) renders one job’s event log as a page: the prompt, every command, every file change, every denied call, and the final answer. It answers “what did this job actually do”, which the job’s summary cannot. You can also drop a log file onto the page to read a job from another repository.</li>
+  <li><strong>The cost receipt</strong> (<code>/agent-handoff cost-receipt</code>) reports what each meter recorded, in that meter’s own units: token counters for Codex jobs with no cost figure, because that CLI emits none; the CLI’s own reported cost for Claude jobs, labelled as CLI-reported; premium requests and AI credits for Copilot jobs, which are never printed as money. Figures that overlap are said to overlap, and nothing is added that should not be.</li>
+  <li><strong>The session page</strong> (<code>/agent-handoff visualise</code>) puts the run on one local page: the timeline, each job’s transcript, the cost receipt, the receipt’s own facts, and one list of every denied tool call across the run. The timeline is drawn by a model reading the receipt, so its prose is a narrative and labelled as one; its lanes, though, are checked against the files — a lane naming a job the receipt does not index, or claiming a window the evidence contradicts, loses its hotspot and says so.</li>
 </ul>
 
+<div align="center">
+  <img src="../../assets/session-visualise-demo.gif" alt="The session page in use: the run's timeline with hotspots shown, a failed job's transcript, the measured cost receipt, the receipt facts, and the denials and anomalies tab." style="max-width:860px;width:100%;border:1px solid var(--line);border-radius:12px;">
+</div>
+
+<p>What a later session inherits is this directory and nothing else: the final statuses in the goal file, the job directories, the saved receipts, and any verdicts. <code>/agent-handoff resume</code> reads those instead of re-deriving the state of the world from the repository — which is the same property that lets a monitor tick survive a crash, applied one level up.</p>
+
 <footer>
-  Sources read: <span class="mono">SKILL.md</span>, <span class="mono">references/{claude-driven, handoff-template, e2e-gauntlet, fable5-principles, goal-template, goal-to-pr, memory-protocol, darwin-ratchet}.md</span>, <span class="mono">docs/{receipt-schema.json, verdict-schema.json, config-schema.md}</span>, <span class="mono">scripts/{delegate-codex.sh, goal-sync.py, make-receipt.py, validate-verdict.py}</span>. Diagrams are SVG under <span class="mono">docs/research/diagrams/</span>.
+  Read alongside: <span class="mono">SKILL.md</span>, <span class="mono">references/{claude-driven, handoff-template, e2e-gauntlet, goal-template, memory-protocol, darwin-ratchet}.md</span>, <span class="mono">docs/config-schema.md</span>, and the designs of record under <span class="mono">docs/specs/</span>. Diagrams are SVG under <span class="mono">docs/user-guide/diagrams/</span>.
 </footer>
 
 </div>
@@ -547,6 +580,7 @@
 <script>
 (function () {
   var links = Array.prototype.slice.call(document.querySelectorAll('.toc-links a'));
+  var nav = document.querySelector('.toc');
   var strip = document.querySelector('.toc-links');
   var bar = document.querySelector('.toc-progress');
   var sections = links.map(function (a) { return document.getElementById(a.hash.slice(1)); });
@@ -555,6 +589,9 @@
   function setActive(index) {
     if (index === current) return;
     current = index;
+    // sub-section chips show only while section 2 or one of its parts is active
+    var active = links[index];
+    nav.classList.toggle('show-sub', active.hash === '#handoff' || active.classList.contains('sub'));
     links.forEach(function (a, i) {
       if (i === index) {
         a.setAttribute('aria-current', 'true');

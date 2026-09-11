@@ -1,218 +1,102 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1020">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 660">
   <style>
-    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace; }
-    .title { font-size: 21.6px; font-weight: 700; fill: #0f172a; }
-    .subtitle { font-size: 12.6px; fill: #64748b; }
-    .colhead { font-size: 14.4px; font-weight: 700; fill: #334155; }
-    .cardtitle { font-size: 14.4px; font-weight: 700; fill: #0f172a; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+    .m { font-family: "SF Mono", Menlo, Consolas, ui-monospace, monospace; }
+    .title { font-size: 22px; font-weight: 700; }
+    .sub { font-size: 14px; fill: #64748b; }
+    .name { font-size: 14px; font-weight: 700; }
+    .hub { font-size: 16px; font-weight: 700; }
     .line { font-size: 13px; fill: #475569; }
-    .pline { font-size: 12px; fill: #475569; }
-    .hubhead { font-size: 15.6px; font-weight: 700; fill: #0f172a; }
-    .hubcol { font-size: 12.5px; font-weight: 700; fill: #b45309; }
-    .hubnote { font-size: 12.5px; fill: #475569; }
-    .hubfoot { font-size: 12px; fill: #475569; }
-    .arc { font-size: 12.5px; font-weight: 600; fill: #be123c; }
-    .arc2 { font-size: 12.5px; font-weight: 600; fill: #b45309; }
-    .rowhead { font-size: 12px; font-weight: 700; fill: #64748b; }
-    .rowkey { font-size: 12.6px; font-weight: 700; fill: #0f172a; }
-    .rowtext { font-size: 12px; fill: #475569; }
-    .foot { font-size: 12px; fill: #64748b; }
-    .num { font-size: 12px; font-weight: 700; fill: #ffffff; }
+    .small { font-size: 12px; fill: #64748b; }
+    .head { font-size: 12px; font-weight: 700; fill: #64748b; letter-spacing: 0.06em; }
   </style>
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
     </pattern>
     <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
     </marker>
-    <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#e11d48"/>
-    </marker>
-    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="#d97706"/>
+    <marker id="arrow-slate" markerWidth="9" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 9 3, 0 6" fill="#94a3b8"/>
     </marker>
   </defs>
 
-  <rect width="1240" height="1020" fill="#f8fafc"/>
-  <rect width="1240" height="1020" fill="url(#grid)"/>
+  <rect width="1240" height="660" fill="#f8fafc"/>
+  <rect width="1240" height="660" fill="url(#grid)"/>
 
-  <text x="40" y="42" class="title">The goal-drift control loop</text>
-  <text x="40" y="64" class="subtitle">Every gate judges the work against the written goal, not against the stage before it. Rework is bounded; the end of the road is a recorded arbiter ruling.</text>
+  <text x="40" y="44" class="title">One written goal, judged against at every stage</text>
+  <text x="40" y="68" class="sub">Six stages, one reference, and a rework path with a defined end.</text>
 
-  <text x="40" y="102" class="colhead">THE LOOP — five stages, one written reference</text>
+  <!-- ring -->
+  <ellipse cx="620" cy="320" rx="280" ry="170" fill="none" stroke="#ddd6fe" stroke-width="1.4" stroke-dasharray="4,6"/>
+  <path d="M 716 160 A 280 170 0 0 1 800 190" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <path d="M 896 291 A 280 170 0 0 1 896 350" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <path d="M 800 450 A 280 170 0 0 1 716 480" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <path d="M 524 480 A 280 170 0 0 1 440 450" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <path d="M 344 350 A 280 170 0 0 1 344 291" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <path d="M 440 190 A 280 170 0 0 1 524 160" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow)"/>
 
-  <!-- the two backward paths, named once so the arcs stay unlabelled and uncrossed -->
-  <line x1="40" y1="122" x2="56" y2="122" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <text x="62" y="126" class="arc">rework within the cap (3 passes) — resume the same session, send findings + failed criteria only</text>
-  <line x1="40" y1="142" x2="56" y2="142" stroke="#d97706" stroke-width="1.6" stroke-dasharray="4 3"/>
-  <text x="62" y="146" class="arc2">anomaly — cancel, read stderr.log, resubmit or take back</text>
-
-  <path d="M 863 204 C 863 158, 399 158, 399 204" fill="none" stroke="#e11d48" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arrow-rose)"/>
-  <path d="M 625 204 C 625 180, 375 180, 375 204" fill="none" stroke="#d97706" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arrow-amber)"/>
-
-  <!-- stage cards -->
-  <g>
-    <rect x="40" y="204" width="218" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
-    <circle cx="58" cy="222" r="9" fill="#7c3aed"/><text x="58" y="225.5" class="num" text-anchor="middle">1</text>
-    <text x="74" y="226" class="cardtitle">Plan + split</text>
-    <text x="54" y="248" class="line">goal line + done_when</text>
-    <text x="54" y="264" class="line">one identity per row</text>
-    <text x="54" y="280" class="line">acceptance as a command</text>
-    <text x="54" y="296" class="line">attack your own split</text>
-  </g>
-  <g>
-    <rect x="278" y="204" width="218" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
-    <circle cx="296" cy="222" r="9" fill="#059669"/><text x="296" y="225.5" class="num" text-anchor="middle">2</text>
-    <text x="312" y="226" class="cardtitle">Delegate</text>
-    <text x="292" y="248" class="line">one row, one job</text>
-    <text x="292" y="264" class="line">packet has acceptance</text>
-    <text x="292" y="280" class="line">scope + checkpoint rule</text>
-    <text x="292" y="296" class="line">config fails closed</text>
-  </g>
-  <g>
-    <rect x="516" y="204" width="218" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
-    <circle cx="534" cy="222" r="9" fill="#059669"/><text x="534" y="225.5" class="num" text-anchor="middle">3</text>
-    <text x="550" y="226" class="cardtitle">Monitor /loop</text>
-    <text x="530" y="248" class="line">reads goal.md first</text>
-    <text x="530" y="264" class="line">job state on disk</text>
-    <text x="530" y="280" class="line">depends gates each row</text>
-    <text x="530" y="296" class="line">one row per anomaly</text>
-  </g>
-  <g>
-    <rect x="754" y="204" width="218" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
-    <circle cx="772" cy="222" r="9" fill="#7c3aed"/><text x="772" y="225.5" class="num" text-anchor="middle">4</text>
-    <text x="788" y="226" class="cardtitle">Review gate</text>
-    <text x="768" y="248" class="line">whole diff vs criteria</text>
-    <text x="768" y="264" class="line">not diff-internal</text>
-    <text x="768" y="280" class="line">diff-only caught 0 of 5</text>
-    <text x="768" y="296" class="line">cap: 3 review passes</text>
-  </g>
-  <g>
-    <rect x="992" y="204" width="218" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
-    <circle cx="1010" cy="222" r="9" fill="#d97706"/><text x="1010" y="225.5" class="num" text-anchor="middle">5</text>
-    <text x="1026" y="226" class="cardtitle">Accept + wrap</text>
-    <text x="1006" y="248" class="line">receipt from evidence</text>
-    <text x="1006" y="264" class="line">Notes carry rulings</text>
-    <text x="1006" y="280" class="line">memory feeds next run</text>
-    <text x="1006" y="296" class="line">merge stays the user's</text>
-  </g>
-
-  <line x1="259" y1="254" x2="275" y2="254" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <line x1="497" y1="254" x2="513" y2="254" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <line x1="735" y1="254" x2="751" y2="254" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <line x1="973" y1="254" x2="989" y2="254" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrow)"/>
-
-  <!-- ticks into the hub -->
-  <g stroke="#d97706" stroke-width="1" stroke-dasharray="3 3">
-    <line x1="149" y1="304" x2="149" y2="330"/>
-    <line x1="387" y1="304" x2="387" y2="330"/>
-    <line x1="625" y1="304" x2="625" y2="330"/>
-    <line x1="863" y1="304" x2="863" y2="330"/>
-    <line x1="1101" y1="304" x2="1101" y2="330"/>
+  <!-- spokes -->
+  <g stroke="#d97706" stroke-width="1.1" stroke-dasharray="3,4">
+    <line x1="620" y1="182" x2="620" y2="266"/>
+    <line x1="800" y1="252" x2="740" y2="288"/>
+    <line x1="800" y1="388" x2="740" y2="352"/>
+    <line x1="620" y1="458" x2="620" y2="374"/>
+    <line x1="440" y1="388" x2="500" y2="352"/>
+    <line x1="440" y1="252" x2="500" y2="288"/>
   </g>
 
   <!-- hub -->
-  <rect x="40" y="330" width="1170" height="122" rx="10" fill="#fffbeb" stroke="#fcd34d"/>
-  <rect x="40" y="330" width="4" height="122" rx="2" fill="#d97706"/>
-  <text x="62" y="354" class="hubhead">.handoff/goal.md — the one written reference the whole loop reads</text>
+  <rect x="480" y="266" width="280" height="108" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="1.8"/>
+  <text x="620" y="300" class="hub m" text-anchor="middle">.handoff/goal.md</text>
+  <text x="620" y="324" class="line" text-anchor="middle">the goal, the rows, the acceptance</text>
+  <text x="620" y="348" class="small" text-anchor="middle">read or written at every stage,</text>
+  <text x="620" y="364" class="small" text-anchor="middle">never rewritten to match the work</text>
 
-  <text x="149" y="378" class="hubcol" text-anchor="middle">write + correct</text>
-  <text x="387" y="378" class="hubcol" text-anchor="middle">read row</text>
-  <text x="625" y="378" class="hubcol" text-anchor="middle">read + update</text>
-  <text x="863" y="378" class="hubcol" text-anchor="middle">read acceptance</text>
-  <text x="1101" y="378" class="hubcol" text-anchor="middle">close</text>
+  <!-- nodes -->
+  <rect x="515" y="118" width="210" height="64" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="620" y="144" class="name" text-anchor="middle">Plan</text>
+  <text x="620" y="166" class="small" text-anchor="middle">acceptance written before the code</text>
 
-  <text x="149" y="396" class="hubnote" text-anchor="middle">goal, done_when, rows</text>
-  <text x="387" y="396" class="hubnote" text-anchor="middle">acceptance into packet</text>
-  <text x="625" y="396" class="hubnote" text-anchor="middle">status is the dedup key</text>
-  <text x="863" y="396" class="hubnote" text-anchor="middle">criteria, not the diff</text>
-  <text x="1101" y="396" class="hubnote" text-anchor="middle">Notes, receipt, memory</text>
+  <rect x="757" y="188" width="210" height="64" rx="10" fill="#ffffff" stroke="#4f46e5" stroke-width="1.5"/>
+  <text x="862" y="214" class="name" text-anchor="middle">Spec review</text>
+  <text x="862" y="236" class="small" text-anchor="middle">an outside reader, every time</text>
 
-  <line x1="62" y1="410" x2="1188" y2="410" stroke="#fcd34d" stroke-width="1"/>
-  <text x="62" y="428" class="hubfoot">done_when carries the anti-Goodhart clause: a check satisfiable by deleting tests or weakening the bar is not valid — fix the check, not the standard.</text>
-  <text x="62" y="444" class="hubfoot">The status enum is frozen: /loop's stop rule depends on it · concurrent writers use goal-sync.py's compare-and-set, which aborts rather than clobber.</text>
+  <rect x="757" y="388" width="210" height="64" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <text x="862" y="414" class="name" text-anchor="middle">Delegate</text>
+  <text x="862" y="436" class="small" text-anchor="middle">routing from config, not from prose</text>
 
-  <!-- panel B -->
-  <text x="40" y="494" class="colhead">THE OTHER WRITTEN RECORDS — generated, then re-validated</text>
+  <rect x="515" y="458" width="210" height="64" rx="10" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="620" y="484" class="name" text-anchor="middle">Monitor</text>
+  <text x="620" y="506" class="small" text-anchor="middle">state from files, never from memory</text>
 
-  <rect x="40" y="508" width="580" height="106" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
-  <rect x="40" y="508" width="4" height="106" rx="2" fill="#7c3aed"/>
-  <text x="62" y="530" class="cardtitle">.handoff/jobs/&lt;jobId&gt;/</text>
-  <text x="62" y="552" class="pline">prompt.md is copied once and never rewritten: the record of the ask</text>
-  <text x="62" y="570" class="pline">session_id is what makes a fix round a resume instead of a restart</text>
-  <text x="62" y="588" class="pline">meta carries role, backend, model, effort, and each value's source —</text>
-  <text x="62" y="604" class="pline">which is where the receipt's roles_used and job durations are read from</text>
+  <rect x="273" y="388" width="210" height="64" rx="10" fill="#ffffff" stroke="#059669" stroke-width="1.5"/>
+  <text x="378" y="414" class="name" text-anchor="middle">Review</text>
+  <text x="378" y="436" class="small" text-anchor="middle">the diff against the brief, not itself</text>
 
-  <rect x="630" y="508" width="580" height="106" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
-  <rect x="630" y="508" width="4" height="106" rx="2" fill="#059669"/>
-  <text x="652" y="530" class="cardtitle">.handoff/e2e/&lt;jobId&gt;/verdict.json</text>
-  <text x="652" y="552" class="pline">the acceptance run's result: written by the verifier, validated by</text>
-  <text x="652" y="570" class="pline">PASS needs exit_code 0, every scenario passed, and empty findings</text>
-  <text x="652" y="588" class="pline">scenarios_sha256 must equal the hash recorded at review time</text>
-  <text x="652" y="604" class="pline">BLOCKED proves nothing and is never read as PASS</text>
+  <rect x="273" y="188" width="210" height="64" rx="10" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+  <text x="378" y="214" class="name" text-anchor="middle">Wrap up</text>
+  <text x="378" y="236" class="small" text-anchor="middle">a measured receipt, then the lessons</text>
 
-  <!-- panel C -->
-  <text x="40" y="656" class="colhead">WHEN THE AGENTS DISAGREE — escalation order, and who rules</text>
+  <!-- next run -->
+  <path d="M 273 210 H 190 V 150 H 515" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrow-slate)"/>
+  <text x="196" y="172" class="small">what the next run starts from</text>
 
-  <text x="52" y="682" class="rowhead">DISPUTE</text>
-  <text x="330" y="682" class="rowhead">PROCEDURE</text>
-  <text x="860" y="682" class="rowhead">WHO RULES / WHAT IS RECORDED</text>
-
-  <g>
-    <rect x="40" y="690" width="1170" height="42" rx="6" fill="#ffffff" stroke="#e2e8f0"/>
-    <text x="52" y="708" class="rowkey">the plan itself</text>
-    <text x="52" y="724" class="rowtext">inside stage 1, before submit</text>
-    <text x="330" y="708" class="rowtext">the driver attacks its own split: does the row need the</text>
-    <text x="330" y="724" class="rowtext">expensive tier, does the boundary cost eat the saving</text>
-    <text x="860" y="708" class="rowtext">driver acts on the corrected split;</text>
-    <text x="860" y="724" class="rowtext">advisory — nothing blocks a skip</text>
-  </g>
-  <g>
-    <rect x="40" y="736" width="1170" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0"/>
-    <text x="52" y="754" class="rowkey">a plan nobody else read</text>
-    <text x="52" y="770" class="rowtext">mandatory, once per run</text>
-    <text x="330" y="754" class="rowtext">deep_reasoner reads the plan the driver just wrote and</text>
-    <text x="330" y="770" class="rowtext">reports what it would change; informed, not blind</text>
-    <text x="860" y="754" class="rowtext">declined blockers: arbiter at cap;</text>
-    <text x="860" y="770" class="rowtext">outcome goes in the Spec Review block</text>
-  </g>
-  <g>
-    <rect x="40" y="782" width="1170" height="42" rx="6" fill="#ffffff" stroke="#e2e8f0"/>
-    <text x="52" y="800" class="rowkey">a disputable answer</text>
-    <text x="52" y="816" class="rowtext">or the user says arbitrate</text>
-    <text x="330" y="800" class="rowtext">the same problem verbatim to deep_reasoner and arbiter</text>
-    <text x="330" y="816" class="rowtext">on their own backends; a contaminated run is rerun</text>
-    <text x="860" y="800" class="rowtext">agreement: adopted as dual-verified;</text>
-    <text x="860" y="816" class="rowtext">disagreement: driver rules, logged</text>
-  </g>
-  <g>
-    <rect x="40" y="828" width="1170" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0"/>
-    <text x="52" y="846" class="rowkey">diff vs acceptance</text>
-    <text x="52" y="862" class="rowtext">the load-bearing check</text>
-    <text x="330" y="846" class="rowtext">full review of the complete diff against goal.md's</text>
-    <text x="330" y="862" class="rowtext">criteria and each task brief — never the diff alone</text>
-    <text x="860" y="846" class="rowtext">driver; findings become one bounded</text>
-    <text x="860" y="862" class="rowtext">fix round back into the same session</text>
-  </g>
-  <g>
-    <rect x="40" y="874" width="1170" height="42" rx="6" fill="#ffffff" stroke="#e2e8f0"/>
-    <text x="52" y="892" class="rowkey">still failing</text>
-    <text x="52" y="908" class="rowtext">at the cap</text>
-    <text x="330" y="892" class="rowtext">the arbiter rules on the dispute, with both sides</text>
-    <text x="330" y="908" class="rowtext">in its packet; a rejection is final for the run</text>
-    <text x="860" y="892" class="rowtext">driver; status rejected in goal.md,</text>
-    <text x="860" y="908" class="rowtext">the ruling repeated in the receipt</text>
-  </g>
-  <g>
-    <rect x="40" y="920" width="1170" height="42" rx="6" fill="#fff1f3" stroke="#fecdd3"/>
-    <text x="52" y="938" class="rowkey">a hard stop</text>
-    <text x="52" y="954" class="rowtext">merge, deploy, publish…</text>
-    <text x="330" y="938" class="rowtext">never implied by "finish it", by an earlier authorization</text>
-    <text x="330" y="954" class="rowtext">for another action, or by a question about proceeding</text>
-    <text x="860" y="938" class="rowtext">user only, one imperative per action;</text>
-    <text x="860" y="954" class="rowtext">verbatim intent in Delivery.authorization</text>
-  </g>
-
-  <text x="40" y="992" class="foot">Every branch above ends in a written record — a status, a note, a receipt field, a verdict — which is what the memory protocol reads before the next split.</text>
+  <!-- escalation ladder -->
+  <text x="40" y="572" class="head">WHO DECIDES, IN ORDER</text>
+  <rect x="40" y="586" width="200" height="44" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="140" y="613" class="line" text-anchor="middle">a script, if it can</text>
+  <line x1="240" y1="608" x2="262" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
+  <rect x="266" y="586" width="200" height="44" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="366" y="613" class="line" text-anchor="middle">a second model</text>
+  <line x1="466" y1="608" x2="488" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
+  <rect x="492" y="586" width="200" height="44" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="592" y="613" class="line" text-anchor="middle">the driver</text>
+  <line x1="692" y1="608" x2="714" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
+  <rect x="718" y="586" width="200" height="44" rx="10" fill="#fdf2f8" stroke="#be185d"/>
+  <text x="818" y="613" class="line m" fill="#be185d" text-anchor="middle">arbiter</text>
+  <line x1="918" y1="608" x2="940" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
+  <rect x="944" y="586" width="256" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="1072" y="613" class="line" text-anchor="middle">you — every hard stop, always</text>
 </svg>

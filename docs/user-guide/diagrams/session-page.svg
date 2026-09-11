@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 560">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+    .m { font-family: "SF Mono", Menlo, Consolas, ui-monospace, monospace; }
+    .title { font-size: 22px; font-weight: 700; }
+    .sub { font-size: 14px; fill: #64748b; }
+    .name { font-size: 15px; font-weight: 700; }
+    .line { font-size: 13px; fill: #475569; }
+    .small { font-size: 12px; fill: #64748b; }
+    .tab { font-size: 12px; font-weight: 600; fill: #475569; }
+    .head { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e6ebf2" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="560" fill="#f8fafc"/>
+  <rect width="1240" height="560" fill="url(#grid)"/>
+
+  <text x="40" y="44" class="title">The session page: a whole run, in one place</text>
+  <text x="40" y="68" class="sub">The timeline is drawn for a reader. Everything beside it is read back from the files the run wrote.</text>
+
+  <!-- receipt + server -->
+  <rect x="40" y="196" width="150" height="80" rx="9" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="115" y="228" class="line m" text-anchor="middle">a receipt</text>
+  <text x="115" y="252" class="small" text-anchor="middle">the run you want</text>
+  <text x="115" y="268" class="small" text-anchor="middle">to look at</text>
+
+  <line x1="190" y1="236" x2="212" y2="236" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <rect x="216" y="196" width="150" height="80" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.5"/>
+  <text x="291" y="228" class="line" text-anchor="middle">a local server</text>
+  <text x="291" y="252" class="small m" text-anchor="middle">127.0.0.1</text>
+  <text x="291" y="268" class="small" text-anchor="middle">one key, this run only</text>
+
+  <line x1="366" y1="236" x2="388" y2="236" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- page frame -->
+  <rect x="392" y="110" width="808" height="320" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.6"/>
+  <rect x="392" y="110" width="808" height="44" rx="12" fill="#f1f5f9"/>
+  <rect x="392" y="142" width="808" height="12" fill="#f1f5f9"/>
+  <line x1="392" y1="154" x2="1200" y2="154" stroke="#cbd5e1"/>
+
+  <rect x="408" y="120" width="92" height="26" rx="13" fill="#7c3aed"/>
+  <text x="454" y="137" class="tab" fill="#ffffff" text-anchor="middle">Overview</text>
+  <text x="556" y="137" class="tab" text-anchor="middle">Transcript</text>
+  <text x="674" y="137" class="tab" text-anchor="middle">Cost receipt</text>
+  <text x="800" y="137" class="tab" text-anchor="middle">Session facts</text>
+  <text x="950" y="137" class="tab" text-anchor="middle">Denials &amp; anomalies</text>
+
+  <!-- timeline -->
+  <text x="412" y="182" class="head" fill="#64748b">THE RUN, LANE BY LANE</text>
+
+  <text x="412" y="209" class="small">driver</text>
+  <rect x="500" y="196" width="380" height="18" rx="5" fill="#ddd6fe"/>
+
+  <text x="412" y="249" class="small m">job-t1</text>
+  <rect x="530" y="236" width="120" height="18" rx="5" fill="#fcd34d"/>
+
+  <text x="412" y="289" class="small m">job-t2</text>
+  <rect x="596" y="276" width="180" height="18" rx="5" fill="#fcd34d"/>
+  <rect x="588" y="268" width="196" height="34" rx="6" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="4,3"/>
+
+  <text x="412" y="329" class="small m">job-t3</text>
+  <rect x="700" y="316" width="160" height="18" rx="5" fill="#fda4af"/>
+
+  <line x1="500" y1="360" x2="880" y2="360" stroke="#94a3b8"/>
+  <line x1="500" y1="356" x2="500" y2="364" stroke="#94a3b8"/>
+  <line x1="690" y1="356" x2="690" y2="364" stroke="#94a3b8"/>
+  <line x1="880" y1="356" x2="880" y2="364" stroke="#94a3b8"/>
+  <text x="500" y="380" class="small" text-anchor="middle">00:30</text>
+  <text x="690" y="380" class="small" text-anchor="middle">01:30</text>
+  <text x="880" y="380" class="small" text-anchor="middle">02:30</text>
+
+  <path d="M 660 268 C 660 220, 556 210, 556 152" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow-violet)"/>
+  <text x="600" y="410" class="small" fill="#6d28d9" text-anchor="middle">click a lane and its transcript opens</text>
+
+  <!-- side notes -->
+  <rect x="910" y="176" width="272" height="70" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.4"/>
+  <text x="928" y="202" class="line" fill="#b45309">drawn, not measured</text>
+  <text x="928" y="226" class="small">the timeline's words are nobody's evidence</text>
+
+  <rect x="910" y="258" width="272" height="70" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+  <text x="928" y="284" class="line" fill="#047857">the other four tabs</text>
+  <text x="928" y="308" class="small">come straight from the files on disk</text>
+
+  <rect x="910" y="340" width="272" height="70" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
+  <text x="928" y="366" class="line">the lanes are checked</text>
+  <text x="928" y="390" class="small">a lane the files contradict loses its click</text>
+
+  <!-- ladder -->
+  <text x="40" y="470" class="head" fill="#64748b">IF THE TIMELINE IS NOT THERE YET</text>
+  <rect x="40" y="484" width="376" height="56" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="60" y="508" class="line">a timeline with lanes</text>
+  <text x="60" y="530" class="small">the full page, every lane clickable</text>
+
+  <rect x="432" y="484" width="376" height="56" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="452" y="508" class="line">a timeline without them</text>
+  <text x="452" y="530" class="small">the picture plus the job table, and an offer to fix it</text>
+
+  <rect x="824" y="484" width="376" height="56" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="844" y="508" class="line">no timeline at all</text>
+  <text x="844" y="530" class="small">it draws one first, then opens the page</text>
+</svg>
