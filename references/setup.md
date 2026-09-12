@@ -9,7 +9,7 @@ Pick exactly one:
 - **With a browser**: run `python3 "$HANDOFF_DIR/scripts/handoff-setup-ui.py" --repo <repo>`. Report the printed localhost URL. The UI binds only to `127.0.0.1`, uses a per-run token, shows the full matrix on one page, and cannot apply a payload that no longer matches its latest preview.
 - **No browser (plain CLI)**: run `python3 "$HANDOFF_DIR/scripts/handoff-setup.py" --interactive` in the terminal and step back. Conversational questions are a last-resort fallback, not the default setup experience.
 
-Both setup surfaces expose a mandatory per-identity permission choice: `default` or `allow-all`. Presets use `default`; the terminal custom wizard asks a fourth question, with empty input selecting `default`. The browser always shows the permission select, editing it switches to custom mode, and preview/apply/reload preserve it. CLI callers use `--role-permission-mode IDENTITY=VALUE`. Smoke verifies model/effort only, not posture. See `docs/config-schema.md` for backend mappings and limitations.
+Both setup surfaces expose a mandatory per-identity permission choice: `default` or `allow-all`. Presets use `default`; the terminal custom wizard asks a fourth question, with empty input selecting `default`. The browser always shows the permission select, editing it switches to custom mode, and preview/apply/reload preserve it. CLI callers use `--role-permission-mode IDENTITY=VALUE`. Smoke verifies model/effort only, not posture.
 
 ## Single-page UI
 

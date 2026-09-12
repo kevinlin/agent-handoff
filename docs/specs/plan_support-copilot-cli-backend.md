@@ -293,8 +293,8 @@ Verify: `bash -n scripts/delegate-codex.sh`, `python3 -m unittest tests.test_del
 
 - `scripts/handoff-config.py`: `BACKENDS = ("claude", "codex", "copilot")`. `validate_config`
   already gates `backend` on that tuple, so a copilot config fails closed on a pre-3.7 engine —
-  the same skew direction `docs/config-schema.md` already documents for identity names.
-- `docs/config-schema.md`: three-value backend enum, the copilot effort enum in the fields table,
+  the same skew direction `docs/specs/design_agent-identities-and-config.md` already documents for identity names.
+- `docs/specs/design_agent-identities-and-config.md`: three-value backend enum, the copilot effort enum in the fields table,
   the `auto` refusal, and a line stating all three are first-class execution channels.
   `schema_version` stays `2`; a new enum value is not a document-shape change.
 

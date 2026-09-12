@@ -112,7 +112,7 @@ states it; state exposes the seed.
 - `references/goal-template.md` — `## Spec Review` block with its one-line semantics
   (`status: not run | requested | done — <identity/jobId>, <what changed in the plan>`) and the once-only rule.
 - `references/setup.md` — the toggle in the single-page UI rules.
-- `docs/config-schema.md` — field row, `deep_reasoner`-only constraint, example, `set` CLI mention, and the
+- `docs/specs/design_agent-identities-and-config.md` — field row, `deep_reasoner`-only constraint, example, `set` CLI mention, and the
   same forward-compat note the optional identities carry.
 - `SKILL.md` (Configuration section + `version: 3.4.0`), `README.md` (badge, identity table row detail,
   what-it-delivers bullet), `CHANGELOG.md` (`## v3.4.0`).

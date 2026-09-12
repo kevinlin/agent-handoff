@@ -163,7 +163,7 @@ mechanism exactly as it did around the old one.
 - `SKILL.md` — description, Overview, Routing Rules, Configuration, Output Contract (new receipt
   fields). Version `3.4.0` → `3.5.0`.
 - `README.md` — badge, identity table, File Map if needed. `CHANGELOG.md` — `## v3.5.0`.
-- `docs/config-schema.md` — note that `backend = "claude"` is a fully supported execution
+- `docs/specs/design_agent-identities-and-config.md` — note that `backend = "claude"` is a fully supported execution
   channel, not a subagent-only marker.
 
 Verify: `bash scripts/check-skill-repo.sh .`.

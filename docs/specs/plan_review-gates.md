@@ -39,7 +39,7 @@
 | --- | --- | --- |
 | `scripts/handoff-config.py` | 1 | `[review]` parse/validate/resolve/write, `set-review`, retire `auto_review_spec` |
 | `tests/test_handoff_config.py` | 1 | replace `SpecReviewFieldTests`; add review-section and retired-field tests |
-| `docs/config-schema.md` | 1 | document `[review]`, ownership, retired key |
+| `docs/specs/design_agent-identities-and-config.md` | 1 | document `[review]`, ownership, retired key |
 | `scripts/handoff-setup.py` | 2 | `--spec-max-rounds`/`--implementation-max-rounds`, write `[review]`, status line, interactive prompts; drop spec-review toggle |
 | `scripts/handoff-setup-ui.py` | 2 | Review gates fields replace the spec-review checkbox |
 | `tests/test_handoff_setup.py`, `tests/test_handoff_setup_ui.py` | 2 | replace spec-review toggle tests |
@@ -57,7 +57,7 @@
 **Files:**
 - Modify: `scripts/handoff-config.py`
 - Modify: `tests/test_handoff_config.py` (replace `class SpecReviewFieldTests` entirely)
-- Modify: `docs/config-schema.md`
+- Modify: `docs/specs/design_agent-identities-and-config.md`
 
 **Interfaces:**
 - Produces: `REVIEW_FIELDS = ("spec_max_rounds", "implementation_max_rounds")`, `DEFAULT_REVIEW: Dict[str, int]`, `update_review(text: str, review: Mapping[str, int], host: str = HOST, *, path: Optional[Path] = None) -> str`, `write_review_config(path: Path, review: Mapping[str, int]) -> str`. `resolve_config(...)` returns a top-level `"review"` mapping with both keys always present, and raises `ConfigError` when `session_override` carries `review`. No writer (`update_host`, `update_review`, `emit_host_sections`) ever emits `auto_review_spec`. `parse_config`/`validate_config` return `"review"` only when the file has the section.
@@ -449,7 +449,7 @@ If an existing `ResolveTests` assertion compares the whole resolved mapping, add
 
 - [ ] **Step 4: Run and confirm they pass.** `python3 -m unittest tests.test_handoff_config -v` → all pass. (`tests.test_handoff_setup` may fail until Task 2; that is expected inside row R1.)
 
-- [ ] **Step 5: Update `docs/config-schema.md`.**
+- [ ] **Step 5: Update `docs/specs/design_agent-identities-and-config.md`.**
   - Line 3: the writer owns the `hosts.claude_code` namespace **and the `[review]` section**; comments, `[routing]`, and unknown sections stay raw bytes.
   - Replace the `auto_review_spec` paragraph (line 13) with: "`deep_reasoner` no longer carries a spec-review toggle. Until 3.8.0 it had `auto_review_spec`; spec review now runs on every plan, and the parser drops the retired key on read, so an old config still loads and the next write removes it."
   - Add after it: "The `[review]` section holds the round caps for the two review gates (`docs/specs/design_agent-handoff.md`, *The two review gates, and where they escalate*). Both keys are optional integers of at least 1; absent values resolve to the built-in defaults, 1 and 3. They merge per field across project, global, and defaults. There is no session override, because `delegate-codex.sh resume` enforces the caps from its own `resolve` call. A pre-3.8 engine ignores the section rather than refusing it."
@@ -1280,4 +1280,4 @@ Limits: `resume` is the only script that counts rounds, so a fresh `submit` star
   Note the receipt roundtrip restamps `.handoff/session-start`; run it after this run's own receipt is saved, or pass `--started-at` to this run's receipt.
 - [ ] Manual check: `python3 scripts/handoff-setup-ui.py --repo <scratch repo>` opens; the Review gates fields show 1 and 3; preview shows a `[review]` section in the diff.
 - [ ] De-slop pass (the `declawed` skill) on the prose that ships: `CHANGELOG.md` entry, `docs/releases/v3.8.0.md`, the README and user-guide edits, and the new text in `references/` and `SKILL.md`.
-- [ ] Final check that nothing outside history still describes the old behaviour: `rg -n "auto_review_spec|--spec-review|Maximum two fix rounds|take the task back and finish|toggle is on|at most two, and after that" --glob '!docs/specs/**' --glob '!CHANGELOG.md' --glob '!docs/releases/**' --glob '!docs/research/**' --glob '!examples/**' .` → only the retired-field code, the tests that assert its removal, the one `must_not` prompt line, and the "retired in 3.8.0" notes in `docs/config-schema.md` and the user guide.
+- [ ] Final check that nothing outside history still describes the old behaviour: `rg -n "auto_review_spec|--spec-review|Maximum two fix rounds|take the task back and finish|toggle is on|at most two, and after that" --glob '!docs/specs/**' --glob '!CHANGELOG.md' --glob '!docs/releases/**' --glob '!docs/research/**' --glob '!examples/**' .` → only the retired-field code, the tests that assert its removal, the one `must_not` prompt line, and the "retired in 3.8.0" notes in `docs/specs/design_agent-identities-and-config.md` and the user guide.

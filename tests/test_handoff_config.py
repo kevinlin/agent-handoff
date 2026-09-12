@@ -141,7 +141,7 @@ class UnsupportedSyntaxTests(unittest.TestCase):
             handoff_config.validate_config(text)
         message = str(raised.exception)
         self.assertRegex(message, r"line \d+, column \d+")
-        self.assertIn("docs/config-schema.md", message)
+        self.assertIn("This parser supports bare keys", message)
 
     def test_inline_table_fails_closed(self):
         self.assert_parse_error("model = { name = \"x\" }")

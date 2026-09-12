@@ -72,7 +72,6 @@ V1_UPGRADE_MESSAGE = (
     'Detected a schema v1 config. Rerun /agent-handoff config to upgrade '
     "(setup replaces it with a schema v2 document and backs up the old file)."
 )
-SUBSET_GUIDE = "See docs/config-schema.md#supported-toml-subset."
 SECTION_RE = re.compile(r"^[ \t]*\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\][ \t]*(?:#.*)?(?:\r?\n)?$")
 ARRAY_SECTION_RE = re.compile(r"^[ \t]*\[\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\]\][ \t]*(?:#.*)?(?:\r?\n)?$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -98,7 +97,11 @@ class ConfigParseError(ConfigError):
     def __init__(self, line: int, column: int, message: str):
         self.line = line
         self.column = column
-        super().__init__(f"line {line}, column {column}: {message} {SUBSET_GUIDE}")
+        super().__init__(
+            f"line {line}, column {column}: {message} This parser supports bare "
+            "keys, double-quoted strings, integers, booleans, standard table "
+            "headers, and # comments."
+        )
 
 
 class ConfigValidationError(ConfigError):

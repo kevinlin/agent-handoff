@@ -256,7 +256,7 @@ Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-gaun
 
 ## Safety
 
-- Each identity sets `permission_mode` to `default` or `allow-all`. See [the schema](docs/config-schema.md#permission-posture-v371) for the full mappings and research deviations.
+- Each identity sets `permission_mode` to `default` or `allow-all`. See [the schema](docs/specs/design_agent-identities-and-config.md#permission-posture-v371) for the full mappings and research deviations.
   - Under `default`, Claude runs in `dontAsk` mode with the tools `Read Glob Grep Edit Write Bash`. Codex inherits your own config with no sandbox flags. Copilot runs with `--allow-all-tools` and keeps its path and URL checks. Of the three, only Claude's flags changed when posture was added; Codex and Copilot keep the flags they had before.
   - Under `allow-all`, each provider uses its own unrestricted mode. The three CLIs do not share one security posture.
   - Read-only overrides both the configured posture and the Claude environment override, though the environment value is still validated first. It drops Claude's worker allowlist and Copilot's allow-all flags.

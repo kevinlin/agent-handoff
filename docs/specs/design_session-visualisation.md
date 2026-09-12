@@ -17,7 +17,7 @@ Covered: the `/agent-handoff visualise` command, the loopback server behind it, 
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
 | The evidence store, transcript, receipt, cost receipt | `docs/specs/design_agent-handoff-evidence.md` |
 | The job primitive | `scripts/delegate-codex.sh` header comment |
-| Identity configuration and the setup wizard | `docs/config-schema.md`, `references/setup.md` |
+| Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md`, `references/setup.md` |
 | Generating the timeline SVG | a `baoyu-diagram` instruction in `SKILL.md`; no script does it |
 
 ### The rule this flow obeys, and the one it deliberately relaxes

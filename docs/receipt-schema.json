@@ -98,7 +98,7 @@
         "default",
         "n/a"
       ],
-      "description": "Highest-priority layer that supplied the resolved config, per docs/config-schema.md; n/a when no configured role was touched."
+      "description": "Highest-priority layer that supplied the resolved config, per docs/specs/design_agent-identities-and-config.md; n/a when no configured role was touched."
     },
     "roles_used": {
       "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. Here 'host' is the CLI that executed the role, not the runtime that loaded SKILL.md. An unverified role is still listed, never omitted. The optional e2e roles appear only on runs that used them; widening this enum is additive.",

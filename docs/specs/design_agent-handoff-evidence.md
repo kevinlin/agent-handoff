@@ -16,7 +16,7 @@ Covered: the `.handoff/` evidence store, transcript rendering, session receipt g
 | --- | --- |
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
-| Identity configuration and the setup wizard | `docs/config-schema.md` |
+| Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md` |
 | E2E verdicts | `docs/verdict-schema.json`, `references/e2e-gauntlet.md` |
 | The illustrative workload model and its ledger | `examples/showcase-cost-ledger.json` |
 

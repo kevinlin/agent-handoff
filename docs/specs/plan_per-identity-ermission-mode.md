@@ -199,7 +199,7 @@ longer blanket-approved. The set is *not* applied to `--read-only` jobs.
 
 - `SKILL.md` frontmatter `version: 3.7.1` and the Configuration paragraph (`SKILL.md:26`);
   `README.md:8` badge; `README.md:227` posture line.
-- `docs/config-schema.md`: field row, example, the field-order sentence (line 92), CLI
+- `docs/specs/design_agent-identities-and-config.md`: field row, example, the field-order sentence (line 92), CLI
   examples, and the note that posture does not invalidate `verified`.
 - `references/claude-driven.md:76-78` and `references/setup.md` (both UI contracts).
 - `docs/specs/design_agent-handoff.md`: §Phase 2 "The permission posture, stated plainly",

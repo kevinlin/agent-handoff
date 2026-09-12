@@ -46,9 +46,9 @@ Added `CORE_IDENTITIES`, `OPTIONAL_IDENTITIES`, and the widened `IDENTITIES` tup
 
 ### Task 2: `--with-e2e` in the setup engine
 
-Extended `scripts/handoff-setup.py` with `--with-e2e` / `--no-with-e2e` (default off) on `plan`, `preview`, and `apply` actions. Presets gained both optional identity rows. Thirteen mapping loops were audited: loops over a mapping now iterate that mapping's keys in `IDENTITIES` order via a new `ordered()` helper; the "not configured" gate was scoped to core identities only so an absent optional identity is a deliberate state, not a broken setup. The `ROUTING_POLICY` constant was replaced with a `routing_policy(identities)` function that builds routing lines from what is configured rather than from a constant. Updated `docs/config-schema.md` to document the five-identity set while keeping `schema_version = 2`.
+Extended `scripts/handoff-setup.py` with `--with-e2e` / `--no-with-e2e` (default off) on `plan`, `preview`, and `apply` actions. Presets gained both optional identity rows. Thirteen mapping loops were audited: loops over a mapping now iterate that mapping's keys in `IDENTITIES` order via a new `ordered()` helper; the "not configured" gate was scoped to core identities only so an absent optional identity is a deliberate state, not a broken setup. The `ROUTING_POLICY` constant was replaced with a `routing_policy(identities)` function that builds routing lines from what is configured rather than from a constant. Updated `docs/specs/design_agent-identities-and-config.md` to document the five-identity set while keeping `schema_version = 2`.
 
-**Files:** `scripts/handoff-setup.py`, `tests/test_handoff_setup.py`, `docs/config-schema.md`
+**Files:** `scripts/handoff-setup.py`, `tests/test_handoff_setup.py`, `docs/specs/design_agent-identities-and-config.md`
 
 ---
 

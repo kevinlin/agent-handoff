@@ -257,7 +257,7 @@
 
 <p>Each identity picks <code>default</code> or <code>allow-all</code>. Default means Claude’s <code>dontAsk</code> with a worker tool set, Codex inheriting your own config with no sandbox flags, and Copilot keeping its path and URL checks. Allow-all uses each provider’s own unrestricted mode, so the three CLIs do not share one posture. Read-only wins over both and is inherited by fix rounds.</p>
 
-<p>This has two limits. It is the permission-rule layer only: no OS-level sandbox is added for a Claude worker running under <code>default</code>. And a denied tool call does not change a job’s exit code, so a worker can finish “successfully” having skipped checks it was refused — which is why the review gate reads the denial count first and re-runs blocked commands itself. Details in <a href="../config-schema.md">the config schema</a>.</p>
+<p>This has two limits. It is the permission-rule layer only: no OS-level sandbox is added for a Claude worker running under <code>default</code>. And a denied tool call does not change a job’s exit code, so a worker can finish “successfully” having skipped checks it was refused — which is why the review gate reads the denial count first and re-runs blocked commands itself. Details in <a href="../specs/design_agent-identities-and-config.md">the identity and configuration design</a>.</p>
 
 <h3>Setting it up</h3>
 
@@ -586,7 +586,7 @@ receipt_schema_version: 6</code></pre>
 <p>What a later session inherits is this directory and nothing else: the final statuses in the goal file, the job directories, the saved receipts, and any verdicts. <code>/agent-handoff resume</code> reads those instead of re-deriving the state of the world from the repository — which is the same property that lets a monitor tick survive a crash, applied one level up.</p>
 
 <footer>
-  Read alongside: <span class="mono">SKILL.md</span>, <span class="mono">references/{claude-driven, handoff-template, e2e-gauntlet, goal-template, memory-protocol, darwin-ratchet}.md</span>, <span class="mono">docs/config-schema.md</span>, and the designs of record under <span class="mono">docs/specs/</span>. Diagrams are SVG under <span class="mono">docs/user-guide/diagrams/</span>.
+  Read alongside: <span class="mono">SKILL.md</span>, <span class="mono">references/{claude-driven, handoff-template, e2e-gauntlet, goal-template, memory-protocol, darwin-ratchet}.md</span>, and the designs of record under <span class="mono">docs/specs/</span>, identities and configuration in <span class="mono">design_agent-identities-and-config.md</span>. Diagrams are SVG under <span class="mono">docs/user-guide/diagrams/</span>.
 </footer>
 
 </div>
