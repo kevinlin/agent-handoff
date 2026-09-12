@@ -346,7 +346,17 @@ implementation_max_rounds = 3</code></pre>
   <figcaption>The spec review packet is the only one that narrows the shared template rather than widening it: findings only, no edits anywhere.</figcaption>
 </figure>
 
-<p>Some rows must not share a working tree: the e2e pair, and anything else you want kept apart. Those run in a Git worktree cut from an immutable commit SHA. Four rules make that usable, and each is a bug somebody already hit: the repo argument always names the main repo, never the worktree; the base is resolved to a SHA before the job directory exists, so a moving branch cannot leave a verdict naming a commit nobody tested; the worker commits on its own branch and does nothing else; and the driver reviews, integrates and cleans up. Cleanup refuses a worktree with uncommitted changes rather than discarding work.</p>
+<p>Some rows must not share a working tree: the e2e pair, and anything else you want kept apart. Those run in a Git worktree cut from an immutable commit SHA.</p>
+<p>Four rules apply to a worktree job:</p>
+
+<ol>
+  <li>The repo argument always names the main repo, never the worktree.</li>
+  <li>The base resolves to a SHA before the job directory exists, so a moving branch cannot leave a verdict that names a commit nobody tested.</li>
+  <li>The worker commits on its own branch and does nothing else.</li>
+  <li>The driver reviews the diff, then integrates it and runs cleanup.</li>
+</ol>
+
+<p>Cleanup refuses a worktree with uncommitted changes rather than discarding work.</p>
 
 <p>One consequence catches people out: a worktree receives tracked content only, and <code>.handoff/</code> is ignored by Git. So no worktree job reads the goal file. The spec, the frozen goal excerpt and the artifact paths all go inline into the packet.</p>
 
