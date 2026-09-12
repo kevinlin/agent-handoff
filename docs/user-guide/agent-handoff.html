@@ -221,7 +221,7 @@
 <p>An identity is a capability tier with a concrete home: a backend, a model, an effort level, and a permission posture. When the driver splits work, it asks one question per row: which capability does this need. The identity’s configuration answers the rest.</p>
 
 <figure>
-  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus identity dash for what the driver keeps. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print or copilot -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
+  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus a card for the driver itself, which is not an identity and keeps the split, integration, critical paths and final acceptance. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print or copilot -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
   <figcaption>One identity resolves into one CLI on one meter. Nothing in a prompt can change that.</figcaption>
 </figure>
 
