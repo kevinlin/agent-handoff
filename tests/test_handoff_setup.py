@@ -943,25 +943,37 @@ class CopilotSetupTests(SetupTests):
         self.env["HANDOFF_COPILOT_BIN"] = str(self.bin / "copilot")
         self.assertEqual(str(self.bin / "copilot"), handoff_setup.copilot_bin(self.env))
 
-    def test_apply_never_writes_a_config_whose_pair_the_cli_refused(self):
+    def test_apply_never_asks_the_copilot_cli_about_a_pair(self):
+        # The wizard offers only models the entitlement catalogue lists, at the
+        # efforts that model accepts, so apply has nothing left to ask. The
+        # terminal path inherits that: claude and codex never had such a check
+        # either, and smoke is where all three are proved.
+        choices = self.copilot_choices()
+        choices["arbiter"] = ("copilot", "mai-code-1.1-flash", "medium")
+        status, _, error = self.run_cli(*self.custom_args(choices))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual([], self.copilot_invocations())
+
+    def test_smoke_reports_the_cli_refusal_in_the_cli_own_wording(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
         refusal = (
             'Error: Reasoning effort "max" is not supported for model '
             '"mai-code-1.1-flash".'
         )
         self.env["HANDOFF_TEST_COPILOT_STDERR"] = refusal
         status, _, error = self.run_cli(
-            *self.custom_args(self.copilot_choices(effort="max"))
+            "--smoke", "--repo", str(self.repo), "--timestamp", "2026-07-20T01:02:03Z"
         )
-        self.assertEqual(2, status)
+        self.assertEqual(1, status)
         # the CLI's own wording reaches the user, not a Handoff rewording:
         # it names the exact pair to change.
         self.assertIn(refusal, error)
-        self.assertIn("nothing was written", error)
-        self.assertEqual([], list(self.repo.rglob("*")))
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
 
-    def test_apply_surfaces_an_api_layer_session_error_with_empty_stderr(self):
+    def test_smoke_surfaces_an_api_layer_session_error_with_empty_stderr(self):
         # The API-layer rejection shape: stderr empty, the detail only in the
         # JSON stream.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
         message = (
             "Execution failed: 400 Unsupported value: 'none' is not supported "
             "with the 'mai-code-1-flash-2026-06-02' model."
@@ -973,23 +985,16 @@ class CopilotSetupTests(SetupTests):
             }
         )
         status, _, error = self.run_cli(
-            *self.custom_args(self.copilot_choices(effort="none"))
+            "--smoke", "--repo", str(self.repo), "--timestamp", "2026-07-20T01:02:03Z"
         )
-        self.assertEqual(2, status)
+        self.assertEqual(1, status)
         self.assertIn(message, error)
         self.assertIn("statusCode 400", error)
-        self.assertEqual([], list(self.repo.rglob("*")))
-
-    def test_apply_checks_each_distinct_pair_once(self):
-        choices = self.copilot_choices()
-        choices["arbiter"] = ("copilot", "mai-code-1.1-flash", "medium")
-        status, _, error = self.run_cli(*self.custom_args(choices))
-        self.assertEqual((0, ""), (status, error))
-        self.assertEqual(1, self.copilot_invocations().count("-p"))
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
 
     def test_copilot_smoke_validates_the_pair_and_records_verified(self):
         self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
-        self.copilot_args_log.unlink()
+        self.copilot_args_log.unlink(missing_ok=True)
         status, output, error = self.run_cli(
             "--smoke",
             "--repo",

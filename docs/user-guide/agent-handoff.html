@@ -183,7 +183,7 @@
 <header>
   <h1>Agent Handoff — user guide</h1>
   <p class="lede">Handoff splits coding work between a driving Claude Code session and a worker CLI. The driver plans, splits, and signs off; the worker executes each task as a background job on its own meter. The driver’s quota and context window go further, and the driver still reviews the whole diff against criteria written before the work started.</p>
-  <p class="meta">user guide · kevinlin/agent-handoff @ v3.8.0 · updated 2026-09-11</p>
+  <p class="meta">user guide · kevinlin/agent-handoff @ v3.8.1 · updated 2026-09-12</p>
 </header>
 
 <h2 id="overview">How a run works</h2>
@@ -266,7 +266,7 @@
   <figcaption>Everything before apply is reversible, and <code>verified</code> means a CLI actually answered rather than that a file was written.</figcaption>
 </figure>
 
-<p><code>/agent-handoff config</code> opens a page bound to <code>127.0.0.1</code>. Model lists come from each CLI itself — Codex from its own <code>model/list</code>, Claude from <code>claude --help</code>. Copilot publishes no catalog, so you type the model name and the CLI validates the model-and-effort pair when you apply. Nothing is guessed, and nothing is quietly downgraded. A pair the CLI rejects is reported in its own words.</p>
+<p><code>/agent-handoff config</code> opens a page bound to <code>127.0.0.1</code>. Model lists come from each CLI itself — Codex from its own <code>model/list</code>, Claude from <code>claude --help</code>, Copilot from the models your account is entitled to, each listed with the reasoning efforts that model accepts. Nothing is guessed, and nothing is quietly downgraded. If a model list cannot be read, that identity offers nothing and the page names the login to fix — you are never asked to type a name the wizard could not check.</p>
 
 <p>The page also carries the two review caps, because they belong to the same configuration and not to a prompt:</p>
 

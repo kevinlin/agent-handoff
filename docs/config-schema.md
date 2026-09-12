@@ -84,8 +84,8 @@ always_on_host_rules = false
 | `hosts.claude_code` | table | per configured identity | The owned namespace. The `hosts.*` nesting is retained so configs written by earlier versions keep loading. |
 | `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. |
 | `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, or `copilot`. All three are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
-| `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot`, `auto` is refused at submit — name a concrete model. |
-| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`. Copilot's enum is the CLI's superset — which efforts a given Copilot model actually accepts is decided per model by the API, and a rejected pair surfaces as Copilot's own error rather than being silently downgraded. |
+| `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot`, `auto` is refused at submit — name a concrete model. The wizard offers the account's entitled models rather than a text field. |
+| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`. Copilot's enum is the CLI's superset — which efforts a given Copilot model actually accepts is narrower, and the wizard reads that per-model list from the entitlement catalogue (see *Copilot model catalogue*). A pair written outside the wizard still surfaces as Copilot's own error rather than being silently downgraded. |
 | `hosts.claude_code.identities.<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
 | `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
@@ -239,3 +239,54 @@ verifies a model/effort pair, not a posture; its plan-mode probes are unchanged.
 - **`permission_denied` is advisory, not enforced.** Job state derives DONE
   from the exit code, and status warns but still succeeds. The prompt-shaped
   guard stays prompt-shaped; zero denials cannot prove the checks ran.
+
+## Copilot model catalogue (v3.8.1)
+
+A `copilot` identity's model is chosen from a list, not typed. `/agent-handoff config`
+reads the models the authenticated account is entitled to and offers those, the way it
+already offers Codex models from `model/list` and Claude aliases from `claude --help`.
+
+**Source.** `gh auth token` for the bearer, then a read of the Copilot entitlement
+endpoint at `api.githubcopilot.com`. The Copilot CLI publishes no catalogue of its own:
+it has no model-list subcommand, and a wrong `--model` is refused without naming the
+alternatives. The entitlement API is the only list available without adding a Node
+dependency for the Copilot SDK.
+
+**Filter.** An entry is offered when `model_picker_enabled` is exactly `true` and it
+carries either no `policy` or `policy.state = "enabled"`. The endpoint also returns
+embedding and legacy chat models that no coding session can use. The reader fails closed
+on anything it cannot parse: a field present in an unexpected shape drops that entry,
+because an unreadable constraint is not an absent one. A single bad entry costs that entry
+and nothing else — this runs during controller construction, so an exception escaping here
+would take the Claude and Codex lists down with it.
+
+**Effort.** Each entry's `capabilities.supports.reasoning_effort` becomes that model's
+effort list, intersected with the CLI enum, so the effort control offers only what the
+chosen model takes. This is the same per-model narrowing Codex entries already carry, and
+the served list is checked again before a preview is built. An entry reporting no
+reasoning efforts at all keeps the full CLI superset rather than becoming unconfigurable.
+An entry that reports efforts none of which Handoff can pass is dropped instead: reporting
+a constraint nothing satisfies is not the same as reporting none.
+
+**When the catalogue cannot be read** (no `gh`, no network, or a data-residency tenant
+serving its catalogue from a per-tenant host), the wizard offers no Copilot model and
+names the fix, which says to start the wizard again rather than to refresh: the page holds
+the snapshot it was opened with. It does not fall back to a typed name. A Copilot identity
+already in the config keeps its model and stays selectable, so reopening the page offline
+cannot quietly rewrite a working config — but it offers only the effort already
+configured, because nothing available knows what else that model accepts. Preserving a
+working pair is not permission to configure an unchecked one.
+
+**What this replaced.** Apply used to run each configured Copilot pair past the real CLI
+and refuse to write a config the CLI rejected. The catalogue answers the same question
+without starting a session, so that gate is gone. On copilot the served catalogue is now
+the list of valid model names, and a request naming anything else is refused before a
+preview is built, so the wizard's own API cannot write a pair nothing checked. `auto` is
+exempt from that refusal only so the engine's reasoned message is what the user reads; it
+is rejected either way. The pair check itself remains on the smoke path, which is what
+sets `verified`, and `/agent-handoff tryout` still runs a real task per identity.
+
+**Limits.** The endpoint is not a documented GitHub API contract, and Handoff does not
+discover a tenant-hosted one. The token it reads with never reaches the served page state
+or a log line. A failed read is not fatal to the rest of the wizard, and the read spawns no
+`copilot` process, so opening the page still costs no premium request.

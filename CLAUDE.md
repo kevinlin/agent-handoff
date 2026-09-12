@@ -55,7 +55,7 @@ The run terminates in a **Handoff Session Receipt** (schema v6, `docs/receipt-sc
 
 - `scripts/handoff-config.py` — pure read/write/resolve engine. It owns `hosts.claude_code.identities.*` and `[review]` and must preserve `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from dual-host-era configs) byte-for-byte. The `hosts.*` nesting is kept so existing configs keep loading.
 - `scripts/handoff-setup.py` — the plan/preview/apply/smoke/rollback/uninstall engine. All writes are atomic with backups.
-- `scripts/handoff-setup-ui.py` — localhost-only single-page wizard; delegates every preview and write to `handoff-setup.py`. Model and effort lists come from probing the local CLIs (`model/list`, `claude --help`), never from hardcoded guesses. Copilot is the exception with a reason: it publishes no catalog, so its model is typed and the pair is validated against the CLI on apply and smoke.
+- `scripts/handoff-setup-ui.py` — localhost-only single-page wizard; delegates every preview and write to `handoff-setup.py`. Model and effort lists come from probing the local CLIs (`model/list`, `claude --help`), never from hardcoded guesses. Copilot has no catalog at its CLI surface, so its models are read from the account's entitlement API with the bearer `gh auth token` returns; each model carries the efforts it accepts. No catalogue means no Copilot model offered, never a typed fallback. `validate_copilot_pair` now runs on smoke only.
 
 **Runtime primitives.**
 

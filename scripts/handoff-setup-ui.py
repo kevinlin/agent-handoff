@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -39,6 +41,7 @@ SCOPES = ("project", "global")
 EXCLUDE_CHOICES = ("git-exclude", "self", "track")
 ROUTING_ACTIONS = ("none", "write", "remove")
 CLAUDE_MODEL_ALIASES = ("fable", "opus", "sonnet", "haiku")
+COPILOT_MODELS_URL = "https://api.githubcopilot.com/models"
 IDENTITY_META = {
     "deep_reasoner": {
         "label": "Deep reasoning",
@@ -300,18 +303,185 @@ def _claude_model_options(
     return options, source
 
 
+def _github_token(env: Mapping[str, str]) -> Optional[str]:
+    """Read the bearer the Copilot entitlement API is queried with.
+
+    `gh` is asked rather than the token store under ``~/.copilot``: that store
+    is the CLI's own business, and `gh auth token` is the supported way to get
+    a bearer for the authenticated account.
+    """
+
+    path = shutil.which("gh", path=env.get("PATH"))
+    if not path:
+        return None
+    try:
+        result = subprocess.run(
+            [path, "auth", "token"],
+            env=dict(env),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    token = (result.stdout or "").strip()
+    return token if result.returncode == 0 and token else None
+
+
+def _copilot_model_offered(item: Mapping[str, Any]) -> bool:
+    """Keep the models a coding session can actually select.
+
+    The endpoint also returns embeddings and legacy chat models, and models an
+    org policy has not enabled. A policy key that is absent is not a refusal.
+    """
+
+    if item.get("model_picker_enabled") is not True:
+        return False
+    policy = item.get("policy")
+    if policy is None:
+        return True
+    # A policy in a shape this code does not understand is not an approval.
+    return isinstance(policy, dict) and policy.get("state") == "enabled"
+
+
+_UNREADABLE = object()
+
+
+def _copilot_reported_efforts(item: Mapping[str, Any]) -> Any:
+    """The efforts an entry reports: a list, ``None`` for absent, or unreadable."""
+
+    capabilities = item.get("capabilities")
+    if capabilities is None:
+        return None
+    if not isinstance(capabilities, dict):
+        return _UNREADABLE
+    supports = capabilities.get("supports")
+    if supports is None:
+        return None
+    if not isinstance(supports, dict):
+        return _UNREADABLE
+    reported = supports.get("reasoning_effort")
+    if reported is None:
+        return None
+    return reported if isinstance(reported, list) else _UNREADABLE
+
+
+def _copilot_model_option(item: Any) -> Optional[Dict[str, Any]]:
+    """Turn one catalogue entry into a model option, or decide it is not one."""
+
+    if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+        return None
+    value = item["id"].strip()
+    if not value or not _copilot_model_offered(item):
+        return None
+    # Absent says nothing about what the CLI takes, so the superset stands and
+    # the model stays configurable. Present in a shape this code cannot read is
+    # a different thing, and not a licence to offer every effort: drop the
+    # entry rather than guess at it.
+    reported = _copilot_reported_efforts(item)
+    if reported is _UNREADABLE:
+        return None
+    if reported is None:
+        efforts = list(engine.COPILOT_EFFORTS)
+    else:
+        efforts = [effort for effort in reported if effort in engine.COPILOT_EFFORTS]
+        # Reported efforts that Handoff cannot pass are not a reason to offer
+        # every effort instead: this model is not configurable here.
+        if not efforts:
+            return None
+    label = item.get("name")
+    vendor = item.get("vendor")
+    return {
+        "value": value,
+        "label": label if isinstance(label, str) and label else value,
+        "description": vendor if isinstance(vendor, str) else "",
+        "source": "copilot models",
+        "efforts": efforts,
+        "is_default": False,
+    }
+
+
+def _copilot_model_options(env: Mapping[str, str]) -> Tuple[List[Dict[str, Any]], str]:
+    """Offer the models this account's Copilot entitlement carries.
+
+    The Copilot CLI publishes no catalogue of its own - it has no model-list
+    subcommand, and a wrong ``--model`` is refused without naming the
+    alternatives - so the entitlement API is read directly. Nothing here spawns
+    ``copilot``, which is what keeps opening the page free of a premium
+    request. Every failure returns an empty list and a reason the page shows;
+    the wizard then offers no Copilot model rather than guessing one.
+    """
+
+    token = _github_token(env)
+    if not token:
+        return [], "Run `gh auth login`, then start the wizard again, to list your Copilot models"
+    request = Request(
+        COPILOT_MODELS_URL,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        # 401 and 403 are the data-residency case too: a tenant serves its
+        # catalogue from its own host and rejects a bearer minted for this one.
+        return [], (
+            f"Copilot refused the model list ({error.code}). Check "
+            "`gh auth status`, then start the wizard again"
+        )
+    except OSError:
+        return [], "Could not reach the Copilot model list. Check your network, then start the wizard again"
+    except ValueError:
+        return [], "The Copilot model list came back unreadable"
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return [], "The Copilot model list came back in an unknown shape"
+    options: List[Dict[str, Any]] = []
+    for item in data:
+        try:
+            option = _copilot_model_option(item)
+        except (AttributeError, TypeError, ValueError):
+            # One entry in a shape this code does not expect costs that entry,
+            # never the catalogue and never the page: build_state runs during
+            # controller construction, so an escape here takes Claude and Codex
+            # down with it.
+            continue
+        if option is not None:
+            options.append(option)
+    if not options:
+        return [], "Your Copilot entitlement lists no usable models"
+    return options, "Read from your Copilot entitlement"
+
+
 def _ensure_model_option(
-    options: List[Dict[str, Any]], value: str, source: str, backend: str
+    options: List[Dict[str, Any]],
+    value: str,
+    source: str,
+    backend: str,
+    effort: Optional[str] = None,
 ) -> None:
+    """Keep a configured model selectable even when no catalogue lists it.
+
+    Its efforts are the open question. On copilot they vary per model and the
+    catalogue is the only thing that knows them, so a model kept for this
+    reason offers the effort already configured and nothing wider - preserving
+    a working config must not become permission to configure an unchecked pair.
+    Claude and codex take the backend enum, which is per-model truth there.
+    """
+
     if not value or any(option["value"] == value for option in options):
         return
+    efforts = list(engine.BACKEND_EFFORTS[backend])
+    if backend == "copilot":
+        efforts = [effort] if effort in engine.BACKEND_EFFORTS[backend] else []
     options.append(
         {
             "value": value,
             "label": value,
             "description": "Already used in the current config",
             "source": source,
-            "efforts": list(engine.BACKEND_EFFORTS[backend]),
+            "efforts": efforts,
             "is_default": False,
         }
     )
@@ -365,7 +535,12 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
     claude_options, claude_discovery = _claude_model_options(
         claude_cli["path"], env, claude_detected
     )
-    option_sets = {"claude": claude_options, "codex": codex_options}
+    copilot_options, copilot_discovery = _copilot_model_options(env)
+    option_sets = {
+        "claude": claude_options,
+        "codex": codex_options,
+        "copilot": copilot_options,
+    }
     for matrix in (*presets.values(), current):
         for values in matrix.values():
             backend = values.get("backend")
@@ -376,6 +551,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
                     model,
                     values.get("model_source", "existing config"),
                     backend,
+                    values.get("effort"),
                 )
     initial_mode = "custom" if current else "balanced"
     # Identities absent from config (usually the optional e2e pair) start from Balanced.
@@ -396,6 +572,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "model_discovery": {
             "claude": claude_discovery,
             "codex": codex_discovery,
+            "copilot": copilot_discovery,
         },
         "presets": presets,
         "initial_mode": initial_mode,
@@ -473,6 +650,16 @@ def normalize_payload(
             )
             if option and option.get("efforts"):
                 supported_efforts = tuple(option["efforts"])
+            # On copilot the catalogue is the list of valid models, so a name
+            # that is not in it is refused here rather than at the first job.
+            # `auto` is exempt only so the engine's own reasoned refusal is
+            # what the user reads; it is rejected either way.
+            if option is None and backend == "copilot" and model != "auto":
+                raise UIError(
+                    f"model {model} for {identity} is not in your Copilot model list; "
+                    "pick one the list offers, or fix the login it names and start "
+                    "the wizard again"
+                )
         if effort not in supported_efforts:
             raise UIError(
                 f"effort {effort} for {identity} is not supported by {backend}/{model}; "
@@ -1136,8 +1323,6 @@ HTML = r'''<!doctype html>
     };
     const BACKEND_LABELS = {claude:'Claude Code', codex:'Codex', copilot:'GitHub Copilot'};
     const BACKEND_LABELS_ORDER = ['claude','codex','copilot'];
-    // Copilot publishes no model catalog, so its model is typed rather than picked.
-    const TYPED_MODEL_BACKENDS = ['copilot'];
     const EFFORT_LABELS = {
       none:'None',
       minimal:'Minimal',
@@ -1182,9 +1367,9 @@ HTML = r'''<!doctype html>
         'codex model/list':'Read from Codex CLI',
         'claude --help':'Official Claude CLI aliases',
         'local claude config':'Local Claude config',
+        'copilot models':'Read from your Copilot entitlement',
         'custom (required)':'Not detected yet',
         'built-in':'Built-in value',
-        'typed':'Typed; validated against the CLI',
       })[source] || source;
     }
     function modelCatalog(backend, current, source) {
@@ -1213,9 +1398,9 @@ HTML = r'''<!doctype html>
       return efforts;
     }
     function syncReadiness() {
-      const ready = Object.values(matrix).every(values => values.model);
+      const ready = Object.values(matrix).every(values => values.model && values.effort);
       $('previewBtn').disabled = !ready;
-      if (!ready) $('status').textContent = 'Every role needs a model. Type one for Copilot, or check your CLI login and refresh for Claude and Codex.';
+      if (!ready) $('status').textContent = 'Every role needs a model. Follow the instruction under each empty list, then start the wizard again — this page holds the list it was opened with.';
     }
     function syncModeControls() {
       document.querySelectorAll('.mode').forEach(el => {
@@ -1270,6 +1455,13 @@ HTML = r'''<!doctype html>
       renderCards('e2eCards', $('withE2e').checked ? state.optional_identities : []);
       bindIdentityInputs();
     }
+    function effortOptionsHtml(efforts, current) {
+      return efforts.map(e => `<option value="${e}" ${current === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('');
+    }
+    function renderEffortField(card, identity, efforts) {
+      const select = card.querySelector('select[data-field="effort"]');
+      if (select) select.innerHTML = effortOptionsHtml(efforts, matrix[identity].effort);
+    }
     function renderCards(container, names) {
       $(container).innerHTML = names.map(identity => {
         const meta = state.identity_meta[identity];
@@ -1278,23 +1470,23 @@ HTML = r'''<!doctype html>
         const verified = modelOption(values.backend, values.model);
         const source = verified ? verified.source : (values.model_source || 'existing config');
         const models = modelCatalog(values.backend, values.model, source);
-        const typed = TYPED_MODEL_BACKENDS.includes(values.backend);
         const modelOptions = models.length
           ? models.map(option => `<option value="${esc(option.value)}" ${values.model === option.value ? 'selected' : ''}>${esc(modelOptionLabel(option))}</option>`).join('')
           : '<option value="">No models available</option>';
+        const sourceLine = models.length
+          ? `Source: ${esc(sourceLabel(source))}`
+          : esc(state.model_discovery[values.backend] || 'No models available');
         return `<article class="identity" data-identity="${identity}">
           <div class="identity-head"><h3>${esc(meta.label)}</h3><small>${esc(meta.hint)}</small><code class="identity-code">${identity}</code></div>
           <div class="field"><label for="${identity}-backend">Runs on</label><select id="${identity}-backend" data-field="backend">${BACKEND_LABELS_ORDER.map(b => `<option value="${b}" ${values.backend === b ? 'selected' : ''}>${BACKEND_LABELS[b]}</option>`).join('')}</select></div>
-          <div class="field model-field"><label for="${identity}-model">Model</label>${typed
-            ? `<input id="${identity}-model" data-field="model" type="text" spellcheck="false" autocomplete="off" placeholder="Model name, exactly as Copilot names it" value="${esc(values.model || '')}" aria-describedby="${identity}-source">`
-            : `<select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select>`}<div class="source" id="${identity}-source">Source: ${esc(sourceLabel(typed ? 'typed' : source))}</div></div>
-          <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort">${efforts.map(e => `<option value="${e}" ${values.effort === e ? 'selected' : ''}>${esc(EFFORT_LABELS[e] || e)}</option>`).join('')}</select></div>
+          <div class="field model-field"><label for="${identity}-model">Model</label><select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select><div class="source" id="${identity}-source">${sourceLine}</div></div>
+          <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort" ${efforts.length ? '' : 'disabled'}>${effortOptionsHtml(efforts, values.effort)}</select></div>
           <div class="field"><label for="${identity}-permission">Permission</label><label class="perm-switch"><input type="checkbox" role="switch" id="${identity}-permission" data-field="permission_mode" ${(values.permission_mode || 'default') === 'allow-all' ? 'checked' : ''}><span class="perm-track">${state.permission_modes.map(p => `<span data-value="${p}">${esc(state.permission_labels[p])}</span>`).join('')}</span></label></div>
         </article>`;
       }).join('');
     }
     function bindIdentityInputs() {
-      document.querySelectorAll('.identity select, .identity input[type=text], .identity input[role=switch]').forEach(control => control.addEventListener('input', event => {
+      document.querySelectorAll('.identity select, .identity input[role=switch]').forEach(control => control.addEventListener('input', event => {
         const card = event.target.closest('.identity');
         const identity = card.dataset.identity;
         const field = event.target.dataset.field;
@@ -1302,24 +1494,17 @@ HTML = r'''<!doctype html>
           ? (event.target.checked ? 'allow-all' : 'default')
           : event.target.value;
         if (field === 'backend') {
-          if (TYPED_MODEL_BACKENDS.includes(event.target.value)) {
-            matrix[identity].model = '';
-            matrix[identity].model_source = 'typed';
-          } else {
-            const options = modelCatalog(event.target.value, '', '');
-            const selected = options.find(option => option.is_default) || options[0];
-            matrix[identity].model = selected ? selected.value : '';
-            matrix[identity].model_source = selected ? selected.source : 'custom (required)';
-          }
+          const options = modelCatalog(event.target.value, '', '');
+          const selected = options.find(option => option.is_default) || options[0];
+          matrix[identity].model = selected ? selected.value : '';
+          matrix[identity].model_source = selected ? selected.source : 'custom (required)';
           syncEffort(matrix[identity]);
         } else if (field === 'model') {
-          if (TYPED_MODEL_BACKENDS.includes(matrix[identity].backend)) {
-            matrix[identity].model_source = 'typed';
-          } else {
-            const selected = modelOption(matrix[identity].backend, event.target.value);
-            matrix[identity].model_source = selected ? selected.source : 'existing config';
-            syncEffort(matrix[identity]);
-          }
+          const selected = modelOption(matrix[identity].backend, event.target.value);
+          matrix[identity].model_source = selected ? selected.source : 'existing config';
+          // syncEffort may move the effort onto one this model accepts, so the
+          // control is rebuilt rather than left showing the previous list.
+          renderEffortField(card, identity, syncEffort(matrix[identity]));
         }
         mode = 'custom';
         syncModeControls();

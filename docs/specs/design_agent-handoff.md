@@ -165,8 +165,8 @@ An explicit `--model` or `--effort` still wins per field for a task that genuine
 | No Handoff config at all | hard error pointing at `/agent-handoff config` — never a default model |
 | Identity missing backend, model, or effort | same hard error, named per identity |
 | `--backend` contradicting a named role | refused, with the `handoff-config.py set` command that would make it legitimate |
-| Effort not in that backend's enum | refused. The enums are per CLI, never one shared set: `ultra` is codex-only, `none` is copilot-only, and claude takes `low…max` |
-| `model = "auto"` on copilot | refused. An identity is a deliberate choice, and `auto` hands it back to the vendor per request, so the job's record would name what Copilot picked rather than what the repo configured |
+| Effort not in that backend's enum | refused. The enums are per CLI, never one shared set: `ultra` is codex-only, `none` is copilot-only, and claude takes `low…max`. Copilot's enum is the CLI's superset; which efforts a given Copilot model takes is narrower still, and that narrowing lives in the wizard rather than here |
+| `model = "auto"` on copilot | refused. An identity is a deliberate choice, and `auto` hands it back to the vendor per request, so the job's record would name what Copilot picked rather than what the repo configured. From v3.8.1 the wizard cannot offer it either: its Copilot model list is the account's entitlement catalogue, and `auto` is not a member of it |
 | Invalid `permission_mode` | refused by config validation; only `default` and `allow-all` are accepted |
 
 No wording in a prompt can move a job onto a different vendor or meter: routing resolves from config into `run.sh` flags and `meta`, and the prompt never carries those fields at all.
@@ -425,6 +425,7 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 | Identity → backend/model/effort routing | script (`submit`, hard error) | none available — no config means no job |
 | `--backend` contradicting a role | script (refused) | none available |
 | Effort enum per backend | script (refused) | none available |
+| Copilot model and effort pair | script + catalogue (the wizard refuses a model its served catalogue does not list, and an effort that model does not accept) | a config written by hand or by the terminal `--role-model` path reaches its first job unchecked; the smoke test and `/agent-handoff tryout` are where it surfaces |
 | Worktree base pinning | script (`rev-parse` before the job dir exists) | none available |
 | Dirty worktree cleanup | script (refuses, reports) | none available |
 | Concurrent `goal.md` writes | script (compare-and-set) | none available |
@@ -450,6 +451,8 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 - **No OS-level sandbox for claude `default`.** This release changes the permission-rule layer only; enforced sandboxing, workspace-only IO and denied network remain outside scope. Network denial interacts with installing and testing, and the Darwin ratchet permits one dimension per change.
 - **Codex denials are not counted.** The current scanner recognizes Claude and Copilot events, not Codex sandbox refusals. Result extraction discards command outcomes; denial detection is out of scope.
 - **`permission_denied` is advisory, not enforced.** DONE follows the exit code and status warns but still succeeds. The driver must verify checks independently.
+- **The Copilot model catalogue is an undocumented endpoint.** The wizard reads the account's entitled models over HTTP with the token `gh auth token` returns. GitHub publishes no stable contract for that endpoint, and Enterprise Cloud data-residency tenants serve their catalogue from a per-tenant host where the request returns nothing usable. The wizard then offers no Copilot model and names the fix rather than guessing one, and a Copilot identity already in the config keeps its model. `docs/config-schema.md` holds the design.
+- **Nothing checks a Copilot pair before the config is written.** Until v3.8.1, apply ran each configured pair past the real CLI and refused to write a config the CLI rejected. The catalogue answers that question for anything chosen in the wizard, and claude and codex never had such a check, so the three backends are now equal here. The wizard's own API refuses a model its served catalogue does not list, so the remaining hole is narrow: a config written by hand, or by the terminal `--role-model` path, reaches its first job unchecked, and the smoke test and `/agent-handoff tryout` are the proof that the pair runs.
 - **The hash lock is partial.** Specifier discipline about separating scaffolding from specs is what keeps the bounded review small; if that discipline slips, the review grows and gets skipped.
 - **Forward compatibility fails closed.** `validate_config` raises on an unknown identity, so a five-identity config errors on a pre-3.2 engine. Acceptable: the skill and its config version travel together, and failing closed is the correct direction.
 - **A pre-3.8 engine ignores `[review]`.** The parser reads only schema metadata, `[routing]`, and the identity sections, and carries anything else through untouched, so an older engine runs its own gates: an optional spec review and a two-round cap. That is the one version skew here that fails open. It is accepted because the flow prose, `resume`, and the config reader ship together in one skill directory.

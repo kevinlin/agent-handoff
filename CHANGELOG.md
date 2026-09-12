@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.8.1 (2026-09-12)
+
+### Copilot models are picked, not typed
+
+- feat: `/agent-handoff config` reads the models the authenticated account is entitled to and offers them in the same dropdown Codex and Claude models already use. Each model carries the reasoning efforts it accepts, so the effort control offers only what the chosen model takes. The Copilot CLI publishes no catalogue of its own — no model-list subcommand, and a wrong `--model` is refused without naming the alternatives — so the entitlement API is read directly, with the bearer `gh auth token` returns. Nothing spawns `copilot`, so opening the page still costs no premium request.
+- **breaking**: apply no longer runs each configured Copilot pair past the CLI before writing. The catalogue settles model and effort before the config exists, and claude and codex never had such a check, so the three backends are now alike here. `validate_copilot_pair` still runs on the smoke path, which is what sets `verified`.
+- feat: on copilot the served catalogue is the list of valid model names. A request naming anything else is refused before a preview is built, so neither the page nor its API can write a pair nothing checked; the catalogue reader fails closed on any field it cannot parse, and one malformed entry costs that entry rather than the whole wizard.
+- No catalogue means no Copilot model offered and a named fix, never a typed fallback. A preserved Copilot model offers only the effort already configured, since nothing available knows what else it accepts. A Copilot identity already in the config keeps its model and stays selectable, so reopening the page offline cannot quietly rewrite a working config. The endpoint is undocumented and Enterprise Cloud data-residency tenants serve theirs elsewhere; `docs/config-schema.md` records both limits.
+
 ## v3.8.0 (2026-09-11)
 
 ### Two review gates, one shape

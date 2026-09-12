@@ -845,7 +845,10 @@ def validate_copilot_pair(
     stderr, exit 1, a zeroed usage file, no premium request. A pair this
     account *can* use starts a real session and costs one premium request -
     the same cost profile ``smoke_claude_identity`` already has, which is why
-    this runs on the apply and smoke paths and never on page load.
+    this runs on the smoke path and never on page load. Apply no longer runs
+    it: the wizard offers only models the account's entitlement catalogue
+    lists, at the efforts that model accepts, so the pair is settled before it
+    is written.
 
     Rejection arrives at two different layers and only one of them writes
     stderr, so an API-layer refusal is read back out of the JSON stream. The
@@ -919,44 +922,6 @@ def _copilot_stream_error(stdout: str) -> str:
     return ""
 
 
-def _require_copilot_pairs(
-    desired: Mapping[str, Mapping[str, Any]],
-    env: Mapping[str, str],
-    repo: Path,
-) -> None:
-    """Refuse the whole apply when a copilot pair the CLI rejects is configured.
-
-    A config whose pair was refused is never written: the wizard would
-    otherwise hand the user a clean install that fails on its first job.
-    """
-
-    pairs = {
-        identity: values
-        for identity, values in desired.items()
-        if values["backend"] == "copilot"
-    }
-    if not pairs:
-        return
-    binary = copilot_bin(env)
-    if not binary:
-        raise SetupError(
-            "copilot CLI not found; install GitHub Copilot CLI or set HANDOFF_COPILOT_BIN"
-        )
-    checked: Dict[Tuple[str, str], Tuple[bool, str]] = {}
-    for identity, values in pairs.items():
-        key = (str(values["model"]), str(values["effort"]))
-        if key not in checked:
-            checked[key] = validate_copilot_pair(
-                binary, key[0], key[1], env, cwd=repo
-            )
-        passed, detail = checked[key]
-        if not passed:
-            raise SetupError(
-                f"copilot refused {identity} (model={key[0]} effort={key[1]}); "
-                f"nothing was written. The CLI reported:\n{detail}"
-            )
-
-
 def apply_plan(
     args: argparse.Namespace,
     env: Mapping[str, str],
@@ -964,9 +929,6 @@ def apply_plan(
 ) -> int:
     plan = preflight or build_plan(args, env)
     _require_available(plan)
-    _require_copilot_pairs(
-        choose_identities(args, env)[0], env, args.repo
-    )
     lock_path = config_path(args.scope, args.repo, env)
     with handoff_config.ConfigLock(lock_path):
         plan = build_plan(args, env)

@@ -11,6 +11,7 @@ import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from unittest import mock
 from pathlib import Path
 
 
@@ -472,8 +473,52 @@ printf 'HANDOFF_SMOKE_OK\\n'
 """
 
 
+# The shape the Copilot entitlement endpoint returns, trimmed to the fields the
+# wizard reads. The last two entries are the ones that must not be offered.
+COPILOT_CATALOGUE = {
+    "data": [
+        {
+            "id": "gpt-5.6-sol",
+            "name": "GPT-5.6 Sol",
+            "vendor": "OpenAI",
+            "model_picker_enabled": True,
+            "policy": {"state": "enabled"},
+            "capabilities": {
+                "supports": {
+                    "reasoning_effort": ["none", "low", "medium", "high", "xhigh", "max"]
+                }
+            },
+        },
+        {
+            "id": "mai-code-1.1-flash",
+            "name": "MAI Code 1.1 Flash",
+            "vendor": "Microsoft",
+            "model_picker_enabled": True,
+            "capabilities": {"supports": {"reasoning_effort": ["low", "medium", "high"]}},
+        },
+        {
+            "id": "claude-haiku-4.5",
+            "name": "Claude Haiku 4.5",
+            "vendor": "Anthropic",
+            "model_picker_enabled": True,
+            "policy": {"state": "enabled"},
+            "capabilities": {"supports": {}},
+        },
+        {"id": "text-embedding-3-small", "model_picker_enabled": False},
+        {
+            "id": "policy-blocked",
+            "model_picker_enabled": True,
+            "policy": {"state": "unconfigured"},
+            "capabilities": {"supports": {"reasoning_effort": ["low"]}},
+        },
+    ]
+}
+
+GH_FAKE = "#!/bin/sh\nprintf 'stub-bearer\\n'\nexit 0\n"
+
+
 class CopilotSetupUITests(SetupUITests):
-    """Task 5: typed model entry, validated against the CLI, with no probe."""
+    """Task 5: the Copilot model is picked from the entitlement catalogue."""
 
     def setUp(self):
         super().setUp()
@@ -482,6 +527,45 @@ class CopilotSetupUITests(SetupUITests):
         copilot.write_text(COPILOT_FAKE, encoding="utf-8")
         copilot.chmod(0o755)
         self.env["HANDOFF_TEST_COPILOT_ARGS"] = str(self.copilot_log)
+
+    @contextlib.contextmanager
+    def catalogue(self, payload=COPILOT_CATALOGUE):
+        """Serve one entitlement response, with a `gh` that hands over a bearer."""
+
+        body = json.dumps(payload).encode("utf-8")
+        with self.gh(), mock.patch.object(
+            handoff_setup_ui, "urlopen", lambda *a, **k: io.BytesIO(body)
+        ):
+            yield
+
+    @contextlib.contextmanager
+    def gh(self, body=None):
+        """Put a `gh` on PATH for the duration, and take it away after.
+
+        Leaving it behind is how a test meaning to run offline ends up making a
+        real request with the stub bearer.
+        """
+
+        path = self.bin / "gh"
+        path.write_text(body or GH_FAKE, encoding="utf-8")
+        path.chmod(0o755)
+        try:
+            yield path
+        finally:
+            path.unlink(missing_ok=True)
+
+    @contextlib.contextmanager
+    def unreachable(self):
+        """No route to the catalogue, and a urlopen that fails if one is tried."""
+
+        def refuse(*args, **kwargs):
+            raise AssertionError("the catalogue must not be read here")
+
+        with mock.patch.object(handoff_setup_ui, "urlopen", refuse):
+            yield
+
+    def copilot_options(self):
+        return handoff_setup_ui.build_state(self.repo, self.env)["model_options"]["copilot"]
 
     def copilot_payload(self, model="mai-code-1.1-flash", effort="medium"):
         return {
@@ -500,37 +584,184 @@ class CopilotSetupUITests(SetupUITests):
         }
 
     def test_opening_the_wizard_makes_no_copilot_subprocess_call(self):
-        # There is no catalog to read, so a Codex-and-Claude user pays nothing
-        # for Copilot support: no discovery probe, no cache, no refresh.
-        state = handoff_setup_ui.build_state(self.repo, self.env)
+        # The catalogue is read over HTTP, not by running the CLI, which is what
+        # keeps opening the page free of a premium request.
+        with self.catalogue():
+            state = handoff_setup_ui.build_state(self.repo, self.env)
         self.assertFalse(
             self.copilot_log.exists(),
             self.copilot_log.read_text(encoding="utf-8") if self.copilot_log.exists() else "",
         )
         self.assertNotIn("copilot", state["clis"])
-        self.assertNotIn("copilot", state["model_options"])
-        self.assertNotIn("copilot", state["model_discovery"])
-        # and nothing catalog-shaped crept into the state
+        self.assertIn("copilot", state["model_options"])
+        self.assertIn("copilot", state["model_discovery"])
         self.assertEqual(
             {"claude", "codex", "copilot"}, set(state["efforts_by_backend"])
         )
+
+    def test_the_wizard_offers_only_the_models_the_account_can_use(self):
+        with self.catalogue():
+            options = self.copilot_options()
+        # the embedding model and the one no policy enabled are both absent
+        self.assertEqual(
+            ["gpt-5.6-sol", "mai-code-1.1-flash", "claude-haiku-4.5"],
+            [option["value"] for option in options],
+        )
+        by_value = {option["value"]: option for option in options}
+        self.assertEqual("copilot models", by_value["gpt-5.6-sol"]["source"])
+        self.assertEqual("GPT-5.6 Sol", by_value["gpt-5.6-sol"]["label"])
+        # each model carries the efforts it accepts, which is what the effort
+        # control reads and what normalize_payload checks against
+        self.assertEqual(
+            ["low", "medium", "high"], by_value["mai-code-1.1-flash"]["efforts"]
+        )
+        # a model reporting no reasoning efforts keeps the CLI superset rather
+        # than becoming unconfigurable
+        self.assertEqual(
+            list(handoff_setup_ui.engine.COPILOT_EFFORTS),
+            by_value["claude-haiku-4.5"]["efforts"],
+        )
+
+    def test_an_effort_the_chosen_model_rejects_is_refused_before_anything_is_written(self):
+        # This is what replaced the apply-time probe: the catalogue already
+        # says mai-code-1.1-flash stops at high, so max never reaches the CLI.
+        with self.catalogue():
+            controller = handoff_setup_ui.SetupController(self.repo, self.env)
+            with self.assertRaises(handoff_setup_ui.UIError) as refusal:
+                controller.preview(
+                    self.copilot_payload(model="mai-code-1.1-flash", effort="max")
+                )
+        message = str(refusal.exception)
+        self.assertIn("not supported by copilot/mai-code-1.1-flash", message)
+        self.assertIn("low, medium, high", message)
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+        # refused from the catalogue: no request was spent finding out
+        self.assertFalse(self.copilot_log.exists())
+
+    def test_no_catalogue_offers_no_model_and_names_the_fix(self):
+        # No `gh` on PATH, so there is no bearer, and nothing is requested.
+        with self.unreachable():
+            state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertEqual([], state["model_options"]["copilot"])
+        discovery = state["model_discovery"]["copilot"]
+        self.assertIn("gh auth login", discovery)
+        # the page holds the snapshot it opened with, so "refresh" would be
+        # the wrong instruction
+        self.assertIn("start the wizard again", discovery)
+        self.assertFalse(self.copilot_log.exists())
+
+    def test_each_catalogue_failure_names_what_to_do_about_it(self):
+        def refuse(*args, **kwargs):
+            raise handoff_setup_ui.HTTPError(
+                handoff_setup_ui.COPILOT_MODELS_URL, 401, "Unauthorized", {}, None
+            )
+
+        with self.gh(), mock.patch.object(handoff_setup_ui, "urlopen", refuse):
+            state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertEqual([], state["model_options"]["copilot"])
+        self.assertIn("401", state["model_discovery"]["copilot"])
+        self.assertIn("gh auth status", state["model_discovery"]["copilot"])
+
+        def unreachable(*args, **kwargs):
+            raise OSError("no route to host")
+
+        with self.gh(), mock.patch.object(handoff_setup_ui, "urlopen", unreachable):
+            state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertIn("network", state["model_discovery"]["copilot"])
+
+        with self.gh(), mock.patch.object(
+            handoff_setup_ui, "urlopen", lambda *a, **k: io.BytesIO(b"not json")
+        ):
+            state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertIn("unreadable", state["model_discovery"]["copilot"])
+
+    def test_a_gh_that_fails_or_says_nothing_yields_no_bearer(self):
+        for body in (
+            "#!/bin/sh\nexit 1\n",
+            "#!/bin/sh\nprintf ''\nexit 0\n",
+            "#!/bin/sh\nprintf '   \\n'\nexit 0\n",
+        ):
+            with self.subTest(body=body), self.gh(body):
+                self.assertIsNone(handoff_setup_ui._github_token(self.env))
+
+    def test_one_malformed_entry_costs_that_entry_and_not_the_page(self):
+        # build_state runs during controller construction, so an exception here
+        # would take Claude and Codex down with Copilot.
+        payload = {
+            "data": [
+                {"id": "sound-model", "model_picker_enabled": True,
+                 "capabilities": {"supports": {"reasoning_effort": ["high"]}}},
+                {"id": "listy-capabilities", "model_picker_enabled": True,
+                 "capabilities": [1]},
+                {"id": "stringy-supports", "model_picker_enabled": True,
+                 "capabilities": {"supports": "invalid"}},
+                {"id": "stringy-picker", "model_picker_enabled": "false"},
+                {"id": "stringy-policy", "model_picker_enabled": True,
+                 "policy": "disabled",
+                 "capabilities": {"supports": {"reasoning_effort": ["high"]}}},
+                {"id": "no-usable-effort", "model_picker_enabled": True,
+                 "capabilities": {"supports": {"reasoning_effort": ["ultra"]}}},
+                "not-even-a-dict",
+            ]
+        }
+        with self.catalogue(payload):
+            state = handoff_setup_ui.build_state(self.repo, self.env)
+        offered = [option["value"] for option in state["model_options"]["copilot"]]
+        # a truthy string is not True, a policy in an unknown shape is not an
+        # approval, and reported efforts Handoff cannot pass are not a reason
+        # to offer every effort instead
+        self.assertEqual(["sound-model"], offered)
+        self.assertEqual(["claude", "codex", "copilot"], sorted(state["model_options"]))
+
+    def test_the_bearer_never_reaches_the_served_state(self):
+        with self.catalogue():
+            state = handoff_setup_ui.SetupController(self.repo, self.env).state()
+        self.assertNotIn("stub-bearer", json.dumps(state))
+
+    def test_an_unreadable_catalogue_keeps_a_configured_copilot_model(self):
+        # Reopening the page offline must not quietly drop a working config.
+        with self.catalogue():
+            controller = handoff_setup_ui.SetupController(self.repo, self.env)
+            payload = self.copilot_payload()
+            controller.preview(payload)
+            controller.apply(payload)
+        with self.unreachable():
+            options = self.copilot_options()
+        kept = {option["value"]: option for option in options}
+        self.assertIn("mai-code-1.1-flash", kept)
+        # kept, but not widened: preserving a working config is not permission
+        # to configure a pair nothing checked
+        self.assertEqual(["medium"], kept["mai-code-1.1-flash"]["efforts"])
+
+    def test_a_model_outside_the_catalogue_is_refused_before_anything_is_written(self):
+        with self.catalogue():
+            controller = handoff_setup_ui.SetupController(self.repo, self.env)
+            with self.assertRaises(handoff_setup_ui.UIError) as refusal:
+                controller.preview(self.copilot_payload(model="invented-model"))
+        self.assertIn("not in your Copilot model list", str(refusal.exception))
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+        self.assertFalse(self.copilot_log.exists())
 
     def test_controller_construction_makes_no_copilot_subprocess_call(self):
         handoff_setup_ui.SetupController(self.repo, self.env)
         self.assertFalse(self.copilot_log.exists())
 
-    def test_the_page_types_the_copilot_model_and_labels_its_source(self):
+    def test_the_page_picks_the_copilot_model_from_a_list(self):
         source = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("const TYPED_MODEL_BACKENDS = ['copilot'];", source)
-        self.assertIn("'typed':'Typed; validated against the CLI',", source)
+        self.assertNotIn("TYPED_MODEL_BACKENDS", source)
+        self.assertNotIn("'typed'", source)
+        # no text field survives: every backend picks from its catalogue
+        self.assertNotIn('type="text" spellcheck="false"', source)
+        self.assertIn("'copilot models':'Read from your Copilot entitlement',", source)
         self.assertIn("copilot:'GitHub Copilot'", source)
-        # the disabling <select> is not reused for a backend with no options
-        self.assertIn('type="text" spellcheck="false"', source)
         self.assertNotIn("state.clis.copilot", source)
+        # an empty list explains itself with the reason the server recorded
+        self.assertIn("state.model_discovery[values.backend]", source)
 
     def test_preview_refuses_auto_with_the_engine_message_and_writes_nothing(self):
-        controller = handoff_setup_ui.SetupController(self.repo, self.env)
-        result = controller.preview(self.copilot_payload(model="auto"))
+        with self.catalogue():
+            controller = handoff_setup_ui.SetupController(self.repo, self.env)
+            result = controller.preview(self.copilot_payload(model="auto"))
         self.assertFalse(result["ok"], result)
         self.assertIn("'auto', which is refused on copilot", result["error"])
         self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
