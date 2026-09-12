@@ -21,5 +21,5 @@
 | [plan_transcript-viewer.md](plan_transcript-viewer.md) | Transcript viewer | design_agent-handoff-evidence | v3.6.0 | implemented |
 | [plan_cost-receipt.md](plan_cost-receipt.md) | Cost receipt rendering | design_agent-handoff-evidence | v3.6.1 | implemented |
 | [plan_support-copilot-cli-backend.md](plan_support-copilot-cli-backend.md) | Copilot as third backend | design_agent-handoff | v3.7.0 | implemented |
-| [plan_per-identity-ermission-mode.md](plan_per-identity-ermission-mode.md) | Per-identity permission_mode | design_agent-identities-and-config | v3.7.1 | implemented |
+| [plan_per-identity-permission-mode.md](plan_per-identity-permission-mode.md) | Per-identity permission_mode | design_agent-identities-and-config | v3.7.1 | implemented |
 | [plan_review-gates.md](plan_review-gates.md) | Review gates with round caps | design_agent-handoff | v3.8.0 | implemented |
