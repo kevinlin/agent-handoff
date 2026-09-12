@@ -33,7 +33,7 @@ Receipt roundtrip:
 python3 scripts/make-receipt.py --start --repo .          # stamps .handoff/session-start
 python3 scripts/make-receipt.py --repo . --phase review --claude-session x \
   --checks "ci" --codex-jobs 0 --cc-jobs 0 --copilot-jobs 0 \
-  --scope project --config-source project --roles-used '[]' \
+  --scope project --config-source project --roles-used '[]' --no-save \
   | python3 scripts/validate-receipt.py -
 ```
 

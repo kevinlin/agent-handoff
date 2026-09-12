@@ -3,8 +3,8 @@
 
 Receipts written by hand drift in format and invite optimistic guesses.
 This tool builds the receipt from arguments, validates the result with
-scripts/validate-receipt.py logic before printing, and can persist it under
-the target repo's .handoff/receipts/.
+scripts/validate-receipt.py logic before printing, and persists it under
+the target repo's .handoff/receipts/ unless --no-save says otherwise.
 
 Usage:
     python3 make-receipt.py --start --repo PATH        # Phase 0: stamp the start
@@ -13,7 +13,7 @@ Usage:
         --copilot-jobs 1 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
         [--anomalies none] [--started-at ISO8601] [--ended-at ISO8601] \
-        [--save] [--repo PATH]
+        [--no-save] [--repo PATH]
 
 Tip: get --codex-jobs, --cc-jobs and --copilot-jobs from the job directories under
 <repo>/.handoff/jobs/ instead of recalling how many were submitted; each job's
@@ -107,6 +107,23 @@ def job_durations(repo: str, started: datetime, ended: datetime) -> dict[str, st
     }
 
 
+def multiline_fields(fields: dict[str, str]) -> list[str]:
+    """Values carrying a newline, which serialize into an unreadable receipt.
+
+    The receipt is one field per line, so a value containing a newline splits
+    into a line extract_block() cannot parse and every field after it is lost.
+    Field validation passes -- the value itself is fine -- so this is checked
+    here, before anything is printed or written.
+    """
+
+    return [
+        f"{key} contains a newline; the receipt is one line per field, so this "
+        "value would truncate the block. Join it onto a single line."
+        for key, value in fields.items()
+        if "\n" in value or "\r" in value
+    ]
+
+
 def count_mismatches(fields: dict[str, str]) -> list[str]:
     """Declared job counts that disagree with the measured durations."""
 
@@ -144,7 +161,7 @@ def main() -> int:
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
     parser.add_argument("--started-at", help="ISO 8601 session start, overriding the .handoff/session-start marker.")
     parser.add_argument("--ended-at", help="ISO 8601 receipt time, overriding the current clock; use it to regenerate a past run's receipt.")
-    parser.add_argument("--save", action="store_true", help="Also write to <repo>/.handoff/receipts/.")
+    parser.add_argument("--no-save", action="store_true", help="Print the receipt without writing it under <repo>/.handoff/receipts/.")
     parser.add_argument("--repo", default=".", help="Target repo holding .handoff/ (default: current directory).")
     args = parser.parse_args()
 
@@ -202,7 +219,7 @@ def main() -> int:
     }
 
     validator = load_validator()
-    failures = validator.validate(dict(fields)) + count_mismatches(fields)
+    failures = validator.validate(dict(fields)) + count_mismatches(fields) + multiline_fields(fields)
     if failures:
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
@@ -213,7 +230,7 @@ def main() -> int:
     receipt = "\n".join(lines)
     print(receipt)
 
-    if args.save:
+    if not args.no_save:
         save_dir = Path(args.repo).resolve() / ".handoff" / "receipts"
         save_dir.mkdir(parents=True, exist_ok=True)
         stamp = ended.strftime("%Y%m%dT%H%M%SZ")

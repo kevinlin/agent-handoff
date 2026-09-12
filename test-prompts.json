@@ -6,6 +6,7 @@
     "expected_behavior": [
       "End with a Handoff Session Receipt for any non-trivial run.",
       "Generate the receipt with scripts/make-receipt.py rather than hand-typing the fields.",
+    "Leave the receipt saved under .handoff/receipts/ at wrap up, not printed and discarded.",
       "Set codex_jobs from the job directories under .handoff/jobs/, counting fix rounds.",
       "Take duration and codex_job_durations from make-receipt.py reading .handoff/session-start and the job directories.",
       "List every role actually invoked in roles_used, each with the verified value from config, not a guess.",

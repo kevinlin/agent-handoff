@@ -78,7 +78,7 @@
 
   <line x1="630" y1="434" x2="630" y2="462" stroke="#059669" stroke-width="1.6" marker-end="url(#arrow-green)"/>
   <rect x="460" y="466" width="340" height="52" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
-  <text x="630" y="490" class="line" text-anchor="middle">checked again after it is written</text>
+  <text x="630" y="490" class="line" text-anchor="middle">validated, then saved to .handoff/receipts/</text>
   <text x="630" y="510" class="small" text-anchor="middle">the same check the project's CI runs</text>
 
   <!-- readers -->

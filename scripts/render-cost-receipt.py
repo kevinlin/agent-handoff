@@ -594,7 +594,7 @@ def resolve_receipt(repo: Path, selector: str | None) -> Path:
     if not saved:
         raise ReceiptError(
             "no saved receipt found under .handoff/receipts/. "
-            "Generate one with `make-receipt.py --save`.")
+            "Wrap up a run, or generate one with `make-receipt.py`.")
     return saved[-1]
 
 

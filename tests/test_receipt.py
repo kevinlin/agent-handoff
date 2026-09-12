@@ -197,13 +197,60 @@ class MakeReceiptTests(unittest.TestCase):
         return validate_receipt.extract_block(made.stdout)
 
     def test_generated_receipt_validates(self):
-        made = self.run_make(*RECEIPT_ARGS, "--started-at", stamp(datetime.now(timezone.utc)))
+        made = self.run_make(
+            *RECEIPT_ARGS, "--started-at", stamp(datetime.now(timezone.utc)), "--no-save",
+        )
         self.assertEqual(0, made.returncode, made.stderr)
         checked = subprocess.run(
             [sys.executable, str(SCRIPT), "-"],
             input=made.stdout, capture_output=True, text=True, check=False,
         )
         self.assertEqual(0, checked.returncode, checked.stdout)
+
+    def test_wrap_up_saves_the_receipt_without_being_asked(self):
+        repo = self.temp_repo()
+        ended = datetime.now(timezone.utc)
+        made = self.run_make(
+            "--repo", str(repo), *RECEIPT_ARGS,
+            "--started-at", stamp(ended - timedelta(minutes=5)),
+            "--ended-at", stamp(ended),
+        )
+        self.assertEqual(0, made.returncode, made.stderr)
+
+        saved = sorted((repo / ".handoff" / "receipts").glob("receipt-*.md"))
+        self.assertEqual(1, len(saved), saved)
+        self.assertEqual(f"receipt-{ended.strftime('%Y%m%dT%H%M%SZ')}.md", saved[0].name)
+
+        checked = subprocess.run(
+            [sys.executable, str(SCRIPT), str(saved[0])],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, checked.returncode, checked.stdout)
+
+    def test_a_multiline_field_is_refused_before_anything_is_written(self):
+        repo = self.temp_repo()
+        made = self.run_make(
+            "--repo", str(repo),
+            "--phase", "review", "--claude-session", "abc123",
+            "--checks", "pytest\nnpm test",
+            "--codex-jobs", "0", "--cc-jobs", "0", "--copilot-jobs", "0",
+            "--scope", "project", "--config-source", "project", "--roles-used", "[]",
+            "--started-at", stamp(datetime.now(timezone.utc)),
+        )
+        self.assertEqual(1, made.returncode)
+        self.assertIn("checks contains a newline", made.stderr)
+        self.assertNotIn("[Handoff session receipt]", made.stdout)
+        self.assertFalse((repo / ".handoff" / "receipts").exists())
+
+    def test_no_save_leaves_nothing_on_disk(self):
+        repo = self.temp_repo()
+        made = self.run_make(
+            "--repo", str(repo), *RECEIPT_ARGS,
+            "--started-at", stamp(datetime.now(timezone.utc)), "--no-save",
+        )
+        self.assertEqual(0, made.returncode, made.stderr)
+        self.assertIn("[Handoff session receipt]", made.stdout)
+        self.assertFalse((repo / ".handoff" / "receipts").exists())
 
     def test_invalid_arguments_refuse_to_emit_a_receipt(self):
         made = self.run_make(

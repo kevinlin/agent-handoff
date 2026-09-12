@@ -817,7 +817,7 @@ class CliTests(unittest.TestCase):
     def test_no_receipt_and_no_selector_exits_two(self):
         code, err = self.run_cli()
         self.assertEqual(code, 2)
-        self.assertIn("`make-receipt.py --save`", err)
+        self.assertIn("`make-receipt.py`", err)
 
     def test_invalid_receipt_exits_two_and_writes_nothing(self):
         self.text = receipt_text(receipt_schema_version="4")

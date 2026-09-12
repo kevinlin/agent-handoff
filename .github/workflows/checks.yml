@@ -32,7 +32,7 @@ jobs:
           python3 scripts/make-receipt.py --start --repo .
           python3 scripts/make-receipt.py --repo . --phase review --claude-session ci-test \
             --checks "ci roundtrip" --codex-jobs 0 \
-            --scope project --config-source project --roles-used '[]' \
+            --scope project --config-source project --roles-used '[]' --no-save \
             | python3 scripts/validate-receipt.py -
 
       - name: Ledger reproducibility

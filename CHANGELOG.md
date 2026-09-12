@@ -9,6 +9,11 @@
 - feat: on copilot the served catalogue is the list of valid model names. A request naming anything else is refused before a preview is built, so neither the page nor its API can write a pair nothing checked; the catalogue reader fails closed on any field it cannot parse, and one malformed entry costs that entry rather than the whole wizard.
 - No catalogue means no Copilot model offered and a named fix, never a typed fallback. A preserved Copilot model offers only the effort already configured, since nothing available knows what else it accepts. A Copilot identity already in the config keeps its model and stays selectable, so reopening the page offline cannot quietly rewrite a working config. The endpoint is undocumented and Enterprise Cloud data-residency tenants serve theirs elsewhere; `docs/config-schema.md` records both limits.
 
+### Wrap up leaves the receipt on disk
+
+- feat: wrap up leaves the session receipt on disk. `make-receipt.py` now writes `.handoff/receipts/receipt-<stamp>.md` by default, where it used to need `--save`; `--no-save` is the opt-out for piping the block into `validate-receipt.py` or regenerating a past receipt with `--ended-at`. The flag was named in neither `SKILL.md` nor `references/claude-driven.md`, so whether a run left its receipt behind depended on the driver finding an option the runtime prose never mentioned — while `/agent-handoff cost-receipt` and `visualise` read that file and `tryout` writes one. Phase 5 and the receipt contract now say where the receipt lands.
+- fix: `docs/specs/design_agent-handoff-evidence.md` claimed the generator re-read its written receipt with `validate-receipt.py`. It never did — validation is one pass before the write. The claim is dropped rather than implemented, in the spec, the user guide, and the evidence diagram.
+
 ## v3.8.0 (2026-09-11)
 
 ### Two review gates, one shape

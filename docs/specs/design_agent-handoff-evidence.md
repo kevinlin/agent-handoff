@@ -38,7 +38,7 @@ Every field in every artifact traces back to a file read during the run. Three c
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
 | `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
 | `.handoff/rejected/<task-id>.patch` | driver, when the arbiter rejects a main-repo row | the user, a run reopening that row | none; `git apply` input |
-| `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py --save` | `validate-receipt.py`, `render-cost-receipt.py` | `docs/receipt-schema.json` |
+| `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py`, at wrap up | `validate-receipt.py`, `render-cost-receipt.py` | `docs/receipt-schema.json` |
 | `.handoff/transcripts/<jobId>.html` | `render-transcript.py` | a human | none; it is a page |
 | `.handoff/cost-receipts/cost-receipt-<stamp>.{md,html}` | `render-cost-receipt.py` | a human, and the README showcase | none; it is a page |
 
@@ -88,6 +88,8 @@ Every receipt field has a source the driver reads at wrap-up:
 - `anomalies` and `checks`: what the run actually did, including a denial count that a zero exit code hides, and one `arbitration:` entry per line of the goal file's `## Arbitration` block, joined with the other anomalies on a single line
 
 A role with `verified: false` is listed with the flag as it stands. Dropping it, or promoting it to look cleaner, is the failure mode the field exists to catch.
+
+The probe ends in a file rather than a message. The receipt is on disk under `.handoff/receipts/` before the session ends, which is what lets the three readers in the next flows find the run at all.
 
 ### Three telemetry shapes under one layout
 
@@ -194,9 +196,17 @@ The Handoff Session Receipt (`docs/receipt-schema.json`, schema v6) records phas
 
 `codex_jobs`, `cc_jobs` and `copilot_jobs`, each with `*_job_durations` keyed by jobId, fix rounds included. `make-receipt.py` partitions the job directories by each `meta`'s `backend=` line: a directory with no such line predates backend dispatch and is codex by construction, and so is one naming a backend this version does not know. A copilot job is never folded into another count. In `roles_used`, `host` is the CLI that executed the role, unrelated to the runtime that loaded `SKILL.md`.
 
-### Generated, then re-validated
+### Validated before it is written
 
-`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails. `--save` writes `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. The written file is then re-checked with `validate-receipt.py`, which is the same check CI runs, applied to the run's own output. `receipt_schema_version` must be exactly `6`; a v5 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
+`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `6`; a v5 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
+
+### The save is the default, because the readers were already promised it
+
+Writing the receipt used to be a `--save` flag, and neither of the two files the driver loads at runtime named it. Phase 5 of `references/claude-driven.md` said "emit", which puts the receipt on stdout and nowhere else. Two commands read that directory for their default input, `/agent-handoff cost-receipt` and `/agent-handoff visualise`, and `/agent-handoff tryout` closes by writing one there. The README already described the receipt as written at wrap up. Saved receipts do exist in this repo, because a driver that read `make-receipt.py --help` or this document found the flag. That is the problem stated precisely: whether a run left its receipt on disk depended on the driver noticing something the runtime prose never mentioned. Downstream, the only thing that catches the miss is `render-cost-receipt.py`'s "no saved receipt found" error, and it fires long after the run it needed is over.
+
+From v3.8.1 the write is the default and `--no-save` is the opt-out, kept for the two cases that want the block alone: the CI roundtrip that pipes into `validate-receipt.py`, and a past run's receipt regenerated with `--ended-at` that should not deposit a second file. A same-stamp write still overwrites, which is why regeneration is the case that has an opt-out at all.
+
+The guard moves from prose into the script, the direction the rest of this document argues for. What stays prompt-shaped is one step earlier: nothing makes the driver reach Phase 5 and run the generator. The flag is no longer a way to lose the evidence; skipping wrap up still is.
 
 ### Arbitration rides in `anomalies`
 
@@ -222,7 +232,7 @@ The transcript puts all parsing in JavaScript so a dropped log needs no second p
 
 The receipt carries `duration` but no absolute timestamp, and a Claude Code session can hold work from before and after one run. So:
 
-- A receipt saved by `make-receipt.py --save` is named for its own generation time, which is the run's end. The interval is `[stamp − duration, stamp]`, and driver-transcript entries are filtered by their ISO `timestamp`.
+- A receipt saved by `make-receipt.py` is named for its own generation time, which is the run's end. The interval is `[stamp − duration, stamp]`, and driver-transcript entries are filtered by their ISO `timestamp`.
 - Any other input has no derivable end. The driver row is reported `unscoped` and labelled in both outputs as a whole-session total that may include work outside this run.
 
 That is what makes the driver row trustworthy at all: two runs sharing one session produce two different rows, and re-rendering an old receipt after the session grew reproduces the row it produced the first time. The transcript itself is found by one glob over `~/.claude/projects/*/<session>.jsonl`, with the session id passed through `glob.escape` as a literal. Deriving Claude Code's directory slug from the repo path would encode an undocumented rule this repo cannot test.
@@ -297,6 +307,7 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | A job is counted under the backend that ran it | `meta` `backend=`, checked again by the cost reader | a copilot job folded into another count |
 | A jobId cannot escape the jobs directory | path-segment check before any open | a receipt reading arbitrary files |
 | Counts and duration lists agree | cost reader cross-check | a receipt describing more than it indexes |
+| The run's receipt reaches disk | `make-receipt.py` writes unless `--no-save` | a run whose cost receipt and session page have no input |
 | A review round past its cap | `resume` refuses before the job directory exists | an argument with no end, and `-r<n>` directories for rounds past the configured bound |
 | One log line cannot blank a transcript | per-line parse with a visible `unparsed line N` row | evidence dropped without a mark |
 | Log content never becomes markup | `textContent` everywhere but agent prose, three renderer overrides, scheme allowlist | an active handler from captured output |
@@ -305,7 +316,7 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | A page is not committed by accident | `git check-ignore` warning | a transcript of shell output in Git history |
 | No price table exists | absence, plus a test asserting no savings language | a repriced token presented as a saving |
 
-Asserted by prose rather than by a script: that the driver actually probes evidence in Phase 5 instead of recalling it, that anomalies and denial counts are recorded, that every escalation ruling reaches both `## Arbitration` and the receipt, and that the report does not narrate a saving. `test-prompts.json` records the intended contract but validates prompt-file structure only — `run-test-prompts.py` does not exercise model behaviour. The reporting rules are enforced where they can be: in `tests/test_cost_receipt.py`, against generated output.
+Asserted by prose rather than by a script: that the driver reaches Phase 5 and runs the generator at all, that it probes evidence there instead of recalling it, that anomalies and denial counts are recorded, that every escalation ruling reaches both `## Arbitration` and the receipt, and that the report does not narrate a saving. `test-prompts.json` records the intended contract but validates prompt-file structure only — `run-test-prompts.py` does not exercise model behaviour. The reporting rules are enforced where they can be: in `tests/test_cost_receipt.py`, against generated output.
 
 ## Risks and known limits
 
@@ -346,7 +357,7 @@ python3 scripts/make-receipt.py --start --repo .
 # ... run at least one codex-backed and one claude-backed job ...
 python3 scripts/make-receipt.py --repo . --phase review --claude-session <sid> \
   --checks ci --codex-jobs 1 --cc-jobs 1 --copilot-jobs 0 \
-  --scope project --config-source project --roles-used '[]' --save
+  --scope project --config-source project --roles-used '[]'
 python3 scripts/render-cost-receipt.py --repo . --no-open
 python3 scripts/render-transcript.py --repo . --no-open
 ```
