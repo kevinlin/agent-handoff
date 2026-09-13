@@ -455,7 +455,7 @@ implementation_max_rounds = 3</code></pre>
 
 <p>A round is one review pass in both gates: the first read is pass one, and every fix round adds one. The default of three on the implementation side therefore allows two fix rounds. The caps live in the config’s <code>[review]</code> section, they merge per field like everything else, and there is no per-call override — the resume path reads the config itself, so a cap the driver believed in but the enforcing process never saw would be worse than no cap at all. Wanting more rounds means raising the number where the change is visible.</p>
 
-<h3>Arbitration, and the two things it is not</h3>
+<h3>Arbitration when a gate runs out of rounds</h3>
 
 <p>When a gate reaches its cap without agreement, the dispute goes to <code>arbiter</code> as a read-only job with the whole argument in the packet: the plan or the brief, the acceptance criteria, the evidence, and every round’s findings with the other side’s response. It asks for one thing: a verdict line and a reason per disputed point. The ruling binds.</p>
 
@@ -499,7 +499,7 @@ implementation_max_rounds = 3</code></pre>
 </table>
 
 <div class="callout alert">
-  <p><strong>The check that matters most is the one no script enforces.</strong> Config resolution, base pinning, verdict validation, the round cap and receipt validation all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about safe delegation rests on that check actually being done. When a run reports success, ask for the evidence that it was.</p>
+  <p><strong>The diff review depends on the driver actually doing it.</strong> Config resolution, base pinning, verdict validation, the round cap and receipt validation all fail closed. Judging a diff against a written brief is a rule in a prompt, because no script can decide whether a diff satisfies a brief. Everything the flow claims about safe delegation rests on that check actually being done. When a run reports success, ask for the evidence that it was.</p>
 </div>
 
 <h3>What the next run learns</h3>
