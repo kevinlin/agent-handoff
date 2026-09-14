@@ -42,4 +42,4 @@ node_modules/
 Thumbs.db
 
 # Skill Gantry workspace
-.skillgantry-workspace/
+*-workspace/
