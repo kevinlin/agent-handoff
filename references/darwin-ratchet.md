@@ -35,7 +35,7 @@ Revert or rework when any are true:
 - A review or fix round produces no actionable gain after repeated prompts.
 - The expected improvement is less than 1 point on a 100-point skill score.
 
-Use a reviewable revert or patch. Do not use `git reset --hard` as the default rollback method.
+Use a reviewable revert or patch. Do not use a hard Git reset as the default rollback method.
 
 ## Independent Review Rule
 

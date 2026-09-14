@@ -442,14 +442,13 @@ cmd_submit() {
   fi
 
   if [ -n "$ROLE" ]; then
-    local CONFIG_JSON CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
-    if ! CONFIG_JSON="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve)"; then
-      die "failed to resolve Handoff identity config; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
+    local IDENTITY="hosts.claude_code.identities.$ROLE" FIELDS CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
+    if ! FIELDS="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve \
+        source "$IDENTITY.backend" "$IDENTITY.model" "$IDENTITY.effort" "$IDENTITY.permission_mode")"; then
+      die "failed to resolve Handoff identity '$ROLE'; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
     fi
-    CONFIG_SOURCE="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("source", ""))')" || die "invalid JSON from handoff-config.py resolve"
-    ROLE_BACKEND="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("backend", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
-    ROLE_MODEL="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("model", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
-    ROLE_EFFORT="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("hosts", {}).get("claude_code", {}).get("identities", {}).get(sys.argv[1], {}).get("effort", ""))' "$ROLE")" || die "invalid JSON from handoff-config.py resolve"
+    { IFS= read -r CONFIG_SOURCE; IFS= read -r ROLE_BACKEND; IFS= read -r ROLE_MODEL
+      IFS= read -r ROLE_EFFORT; IFS= read -r PERMISSION_POSTURE; } <<<"$FIELDS"
     if [ -z "$ROLE_BACKEND" ] || [ -z "$ROLE_MODEL" ] || [ -z "$ROLE_EFFORT" ]; then
       die "Handoff identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
     fi
@@ -461,7 +460,6 @@ cmd_submit() {
     fi
     BACKEND="$ROLE_BACKEND"
     BACKEND_SOURCE="config:$CONFIG_SOURCE"
-    PERMISSION_POSTURE="$(printf '%s' "$CONFIG_JSON" | python3 -c 'import json, sys; print(json.load(sys.stdin)["hosts"]["claude_code"]["identities"][sys.argv[1]]["permission_mode"])' "$ROLE")"
     PERMISSION_POSTURE_SOURCE="config:$CONFIG_SOURCE"
     if [ "$MODEL_EXPLICIT" = "false" ]; then
       MODEL="$ROLE_MODEL"
@@ -507,7 +505,11 @@ cmd_submit() {
   # copilot job then has the same resume parity the other two backends get for
   # free.
   if [ "$BACKEND" = "copilot" ]; then
-    NEW_SESSION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')" \
+    NEW_SESSION_ID="$(python3 - <<'PY_UUID'
+import uuid
+print(uuid.uuid4())
+PY_UUID
+)" \
       || die "failed to generate a session id for the copilot job"
     printf '%s' "$NEW_SESSION_ID" >"$JOB/session_id"
   fi
@@ -581,8 +583,7 @@ cmd_resume() {
   if [ "$(meta_value label "$ROOT_JOB")" = "spec-review" ]; then
     GATE="spec"
   fi
-  if ! CAP="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve \
-      | python3 -c 'import json, sys; print(json.load(sys.stdin)["review"][sys.argv[1] + "_max_rounds"])' "$GATE")"; then
+  if ! CAP="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve "review.${GATE}_max_rounds")"; then
     die "failed to resolve the review caps from Handoff config; run 'python3 scripts/handoff-config.py validate'"
   fi
   if [ "$ROUND" -gt "$CAP" ]; then

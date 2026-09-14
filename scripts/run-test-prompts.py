@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROMPTS = ROOT / "test-prompts.json"
 
-RISKY = re.compile(r"git reset --hard|rm -rf|force push|--force")  # risk-ok: detection pattern, not a command
+RISKY = re.compile(r"git\s+reset\s+--hard|[Hh]ard [Gg]it [Rr]eset|rm -rf|force push|--force")  # risk-ok: detection pattern, not a command
 REQUIRED_KEYS = {"id", "prompt", "expected_behavior", "must_not"}
 
 

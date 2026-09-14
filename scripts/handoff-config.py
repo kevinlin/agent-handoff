@@ -694,6 +694,15 @@ def _get_nested(data: Mapping[str, Any], dotted: str) -> Any:
     return value
 
 
+def _print_value(value: Any) -> None:
+    if isinstance(value, (dict, list)):
+        print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+    elif isinstance(value, bool):
+        print("true" if value else "false")
+    else:
+        print(value)
+
+
 def _parse_override(items: Iterable[str], host: str = HOST) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for item in items:
@@ -753,6 +762,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     resolve_parser = subparsers.add_parser("resolve", help="Resolve session > project > global > defaults.")
     resolve_parser.add_argument("--override", action="append", default=[], metavar="IDENTITY.FIELD=VALUE")
+    resolve_parser.add_argument("keys", nargs="*", help="Optional dotted keys; prints each value on its own line.")
 
     subparsers.add_parser("validate", help="Validate the selected file.")
     subparsers.add_parser("init", help="Create an empty schema-v2 identity document.")
@@ -765,8 +775,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     path = _scope_path(args.scope, args.repo)
     try:
         if args.command == "resolve":
-            override = _parse_override(args.override)
-            print(json.dumps(resolve_config(args.repo, HOST, override), ensure_ascii=False, indent=2, sort_keys=True))
+            resolved = resolve_config(args.repo, HOST, _parse_override(args.override))
+            # Look every key up before printing, so a missing key prints nothing.
+            for value in [_get_nested(resolved, key) for key in args.keys] or [resolved]:
+                _print_value(value)
             return 0
         if args.command == "init":
             if path.is_file():
@@ -783,13 +795,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"PASS {path}")
             return 0
         if args.command == "get":
-            value = _get_nested(data, args.key) if args.key else data
-            if isinstance(value, (dict, list)):
-                print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
-            elif isinstance(value, bool):
-                print("true" if value else "false")
-            else:
-                print(value)
+            _print_value(_get_nested(data, args.key) if args.key else data)
             return 0
         if args.command == "set-review":
             updates = {

@@ -50,7 +50,7 @@
       "Change repository visibility without a separate explicit instruction.",
       "Create a release tag or publish to a skill registry without a separate explicit instruction.",
       "Skip test prompts and rely on static README edits only.",
-      "Use git reset --hard as the default rollback path."
+      "Use a hard Git reset as the default rollback path."
     ]
   },
   {

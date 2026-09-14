@@ -376,6 +376,19 @@ class CliTests(unittest.TestCase):
             status = handoff_config.main(list(arguments))
         return status, stdout.getvalue(), stderr.getvalue()
 
+    def test_resolve_prints_one_line_per_dotted_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = ("--repo", directory)
+            self.assertEqual(0, self.run_cli(*base, "init")[0])
+            self.assertEqual(0, self.run_cli(
+                *base, "set-review", "--spec-max-rounds", "4", "--implementation-max-rounds", "5")[0])
+            status, output, _ = self.run_cli(
+                *base, "resolve", "review.spec_max_rounds", "review.implementation_max_rounds")
+            self.assertEqual((0, "4\n5\n"), (status, output))
+            status, output, error = self.run_cli(*base, "resolve", "review.spec_max_rounds", "review.missing")
+            self.assertEqual((2, ""), (status, output))
+            self.assertIn("key not found: review.missing", error)
+
     def test_init_set_get_validate_and_idempotent_init(self):
         with tempfile.TemporaryDirectory() as directory:
             base = ("--repo", directory)

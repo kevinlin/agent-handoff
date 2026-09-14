@@ -150,7 +150,7 @@ Use the Darwin-style ratchet in `references/darwin-ratchet.md` when improving th
 - Change one workflow dimension at a time: planning, the split decision, delegation, monitoring, review, permissions, or reporting.
 - Run test prompts or a real miniloop before calling an improvement better.
 - Do not let the same agent be the only maker and only judge for high-risk changes.
-- Keep the change only when repo evidence improves. If it regresses, use a reviewable revert, not `git reset --hard`.
+- Keep the change only when repo evidence improves. If it regresses, use a reviewable revert. Do not use a hard Git reset.
 - Stop when another prompt loop produces low signal or <1 point expected improvement.
 
 ## Monitoring
