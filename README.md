@@ -22,7 +22,7 @@
 One-line install with `npx`:
 
 ```bash
-npx skills add kevinlin/agent-handoff -g
+npx skills@1.5.21 add kevinlin/agent-handoff -g
 ```
 
 Or ask your agent to install from GitHub:

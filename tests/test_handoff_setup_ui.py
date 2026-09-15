@@ -10,7 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from pathlib import Path
 
@@ -22,6 +22,49 @@ handoff_setup_ui = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = handoff_setup_ui
 SPEC.loader.exec_module(handoff_setup_ui)
+
+
+class CopilotRedirectTests(unittest.TestCase):
+    def test_catalogue_does_not_forward_bearer_on_redirect(self):
+        received = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                received.append(self.path)
+                if self.path.startswith("/redirect/"):
+                    self.send_response(int(self.path.rsplit("/", 1)[1]))
+                    self.send_header("Location", f"http://localhost:{self.server.server_port}/capture")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(json.dumps(COPILOT_CATALOGUE).encode())
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with mock.patch.object(handoff_setup_ui, "_github_token", return_value="synthetic-test-bearer"):
+                for code in (301, 302, 303, 307, 308):
+                    with self.subTest(code=code), mock.patch.object(
+                        handoff_setup_ui, "COPILOT_MODELS_URL",
+                        f"http://127.0.0.1:{server.server_port}/redirect/{code}",
+                    ):
+                        options, message = handoff_setup_ui._copilot_model_options({})
+                        self.assertEqual([], options)
+                        self.assertIn(str(code), message)
+                self.assertNotIn("/capture", received)
+                with mock.patch.object(handoff_setup_ui, "COPILOT_MODELS_URL",
+                                       f"http://127.0.0.1:{server.server_port}/models"):
+                    options, _ = handoff_setup_ui._copilot_model_options({})
+                    self.assertTrue(options)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
 
 class SetupUITests(unittest.TestCase):
@@ -534,7 +577,7 @@ class CopilotSetupUITests(SetupUITests):
 
         body = json.dumps(payload).encode("utf-8")
         with self.gh(), mock.patch.object(
-            handoff_setup_ui, "urlopen", lambda *a, **k: io.BytesIO(body)
+            handoff_setup_ui, "_copilot_urlopen", lambda *a, **k: io.BytesIO(body)
         ):
             yield
 
@@ -561,7 +604,7 @@ class CopilotSetupUITests(SetupUITests):
         def refuse(*args, **kwargs):
             raise AssertionError("the catalogue must not be read here")
 
-        with mock.patch.object(handoff_setup_ui, "urlopen", refuse):
+        with mock.patch.object(handoff_setup_ui, "_copilot_urlopen", refuse):
             yield
 
     def copilot_options(self):
@@ -656,7 +699,7 @@ class CopilotSetupUITests(SetupUITests):
                 handoff_setup_ui.COPILOT_MODELS_URL, 401, "Unauthorized", {}, None
             )
 
-        with self.gh(), mock.patch.object(handoff_setup_ui, "urlopen", refuse):
+        with self.gh(), mock.patch.object(handoff_setup_ui, "_copilot_urlopen", refuse):
             state = handoff_setup_ui.build_state(self.repo, self.env)
         self.assertEqual([], state["model_options"]["copilot"])
         self.assertIn("401", state["model_discovery"]["copilot"])
@@ -665,12 +708,12 @@ class CopilotSetupUITests(SetupUITests):
         def unreachable(*args, **kwargs):
             raise OSError("no route to host")
 
-        with self.gh(), mock.patch.object(handoff_setup_ui, "urlopen", unreachable):
+        with self.gh(), mock.patch.object(handoff_setup_ui, "_copilot_urlopen", unreachable):
             state = handoff_setup_ui.build_state(self.repo, self.env)
         self.assertIn("network", state["model_discovery"]["copilot"])
 
         with self.gh(), mock.patch.object(
-            handoff_setup_ui, "urlopen", lambda *a, **k: io.BytesIO(b"not json")
+            handoff_setup_ui, "_copilot_urlopen", lambda *a, **k: io.BytesIO(b"not json")
         ):
             state = handoff_setup_ui.build_state(self.repo, self.env)
         self.assertIn("unreadable", state["model_discovery"]["copilot"])

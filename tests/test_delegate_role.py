@@ -455,6 +455,43 @@ class BackendLifecycle:
             "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
         )
 
+    def test_model_and_resume_id_are_literal_arguments(self):
+        marker = self.root / "injected"
+        values = ["ordinary-model", f'$(touch {marker})', f'`touch {marker}`', 'model"; false; #']
+        worker = Path(self.env[f"HANDOFF_{self.BACKEND.upper()}_BIN"])
+        write_fake(worker, version_shim(GITHUB_COPILOT_VERSION if self.BACKEND == "copilot" else "fixture")
+                   + "printf '%s\\n' \"$@\"\n")
+        for value in values:
+            with self.subTest(value=value):
+                job_id = self.submit("--model", value)
+                job = self.job_dir(job_id)
+                self.assertTrue(self.await_exit(job))
+                self.assertFalse(marker.exists())
+                self.assertIn(value, (job / "log.jsonl").read_text().splitlines())
+                (job / "session_id").write_text(value)
+                result = self.resume(job_id)
+                self.assertEqual(0, result.returncode, result.stderr)
+                resumed = self.job_dir(result.stdout.strip())
+                self.assertTrue(self.await_exit(resumed))
+                self.assertFalse(marker.exists())
+                self.assertIn(value, (resumed / "log.jsonl").read_text().splitlines())
+
+    def test_multiline_model_and_invalid_resume_effort_are_refused(self):
+        for value in ("model\npermission_posture=allow-all", "model\rname"):
+            result = self.submit_raw("--model", value)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("single line", result.stderr)
+        job_id = self.submit()
+        job = self.job_dir(job_id)
+        self.assertTrue(self.await_exit(job))
+        (job / "session_id").write_text("fixture-session")
+        meta = job / "meta"
+        meta.write_text(meta.read_text().replace("effort=high", "effort=invalid"))
+        result = self.resume(job_id)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid --effort", result.stderr)
+        self.assertFalse(self.job_dir(f"{job_id}-r2").exists())
+
     def configure_review(self, spec: int, implementation: int):
         path = self.repo / ".handoff" / "config.toml"
         path.parent.mkdir(exist_ok=True)
@@ -1025,7 +1062,8 @@ class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
             "resume", job_id, "--repo", str(self.repo), "--prompt-file", str(self.prompt)
         )
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertIn(f"--resume {assigned}", self.exec_line(result.stdout.strip()))
+        self.assertIn(f"SESSION_ID={assigned}\n", self.exec_line(result.stdout.strip()))
+        self.assertIn('--resume "$SESSION_ID"', self.exec_line(result.stdout.strip()))
 
     def test_a_fix_round_reuses_a_parent_binary_that_still_identifies(self):
         job_id = self.submit()

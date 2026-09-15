@@ -479,6 +479,7 @@ cmd_submit() {
   if [ "$BACKEND" = "copilot" ] && [ "$MODEL" = "auto" ]; then
     die "model 'auto' is refused on a copilot job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend copilot --model <model>'"
   fi
+  [[ "$MODEL" != *$'\n'* && "$MODEL" != *$'\r'* ]] || die "model must be a single line"
   validate_effort "$BACKEND" "$EFFORT"
   resolve_worker_bin "$BACKEND"
   resolve_permission_mode
@@ -622,6 +623,7 @@ cmd_resume() {
 
   local EFFORT
   EFFORT="$(meta_value effort "$PARENT_JOB")"
+  validate_effort "$BACKEND" "${EFFORT:-high}"
   CODEX_BIN="$(meta_value codex_bin "$PARENT_JOB")"
   # The recorded path is reused only if it still identifies as the same tool.
   # On copilot that is not a formality: `copilot` is also AWS Copilot CLI's
@@ -668,6 +670,8 @@ write_run_script() {
     printf 'JOB=%q\n' "$job"
     printf 'WORKDIR=%q\n' "$WORKDIR"
     printf 'CODEX_BIN=%q\n' "$CODEX_BIN"
+    # Values from config and worker logs must remain data in the generated shell.
+    printf 'MODEL=%q\nSESSION_ID=%q\n' "$model" "$session_id"
     echo 'PROMPT="$(cat "$JOB/prompt.md")"'
     # </dev/null: a long prompt can make a worker CLI also wait on stdin for
     # more input ("Reading additional input from stdin..."); the background
@@ -690,7 +694,7 @@ write_run_script() {
       # Non-git --repo targets need --skip-git-repo-check or codex exec
       # refuses to run ("Not inside a trusted directory").
       is_git_repo "$WORKDIR" || args="$args --skip-git-repo-check"
-      [ -n "$model" ] && args="$args -m \"$model\""
+      [ -n "$model" ] && args="$args -m \"\$MODEL\""
       [ "$read_only" = "true" ] && args="$args -s read-only"
       [ "$PERMISSION_MODE" = "allow-all" ] && args="$args --dangerously-bypass-approvals-and-sandbox"
       printf '"$CODEX_BIN" exec "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
@@ -718,9 +722,9 @@ write_claude_exec_line() {
   local args="--print --output-format stream-json --verbose --permission-prompts none --permission-mode $PERMISSION_MODE --effort $effort"
   [ "$PERMISSION_MODE" = "dontAsk" ] && args="$args --allowed-tools Read Glob Grep Edit Write Bash"
   if [ -n "$session_id" ]; then
-    args="$args --resume $session_id"
+    args="$args --resume \"\$SESSION_ID\""
   elif [ -n "$model" ]; then
-    args="$args --model \"$model\""
+    args="$args --model \"\$MODEL\""
   fi
   printf '"$CODEX_BIN" %s -- "$PROMPT" >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
 }
@@ -753,10 +757,10 @@ write_copilot_exec_line() {
     # `copilot --resume` takes cwd from the shell and the session already
     # carries its model, same shape as the codex resume path.
     echo 'cd "$WORKDIR"'
-    args="$args --resume $session_id"
+    args="$args --resume \"\$SESSION_ID\""
   else
     args="-C \"\$WORKDIR\" $args --session-id $NEW_SESSION_ID"
-    [ -n "$model" ] && args="$args --model \"$model\""
+    [ -n "$model" ] && args="$args --model \"\$MODEL\""
   fi
   echo 'mkdir -p "$JOB/copilot-logs"'
   printf '"$CODEX_BIN" -p "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"

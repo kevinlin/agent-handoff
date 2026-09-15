@@ -164,6 +164,8 @@ started by the runner.]
 
 ## Verdict artifact
 
+Use the target repository's lockfile-installed test runner; do not download a runner during verification.
+
 The verifier writes `.handoff/e2e/<jobId>/verdict.json`:
 
 ```json
@@ -173,7 +175,7 @@ The verifier writes `.handoff/e2e/<jobId>/verdict.json`:
   "tested_commit": "<sha>",
   "scenarios_sha256": "<sha256 over the reviewed .feature files, path-ordered>",
   "target": "http://localhost:5173 (local dev server, started by the runner)",
-  "command": "npx cypress run --spec cypress/e2e/checkout.cy.ts",
+  "command": "./node_modules/.bin/cypress run --spec cypress/e2e/checkout.cy.ts",
   "exit_code": 0,
   "scenarios": {"total": 7, "passed": 7, "ids": ["CHK-01", "..."]},
   "harness_edits": [],

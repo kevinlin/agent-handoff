@@ -24,7 +24,7 @@ def verdict(**overrides):
         "tested_commit": "b" * 40,
         "scenarios_sha256": "c" * 64,
         "target": "http://localhost:5173 (local dev server)",
-        "command": "npx cypress run",
+        "command": "./node_modules/.bin/cypress run",
         "exit_code": 0,
         "scenarios": {"total": 2, "passed": 2, "ids": ["CHK-01", "CHK-02"]},
         "harness_edits": [],

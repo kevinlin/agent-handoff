@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-version: 3.8.1
+version: 3.8.2
 description: |
   Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex, a second Claude Code, or GitHub Copilot), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "/agent-handoff cost-receipt" or "cost receipt" (renders a session receipt and its job state as a measured cost report), "/agent-handoff visualise" or "visualize", "visualise the session" or "show me the session timeline" (opens a loopback session review page), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and a worker CLI to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
@@ -20,6 +20,18 @@ The flow: Claude refines the request into a plan, decides which tasks the driver
 Handoff is not a delegation excuse. The user remains the owner, delegated work stays accountable to repository evidence, and nothing is accepted on a summary the driver has not verified against the diff.
 
 The worker CLIs are what make the delegation primitives work. When one the config needs is missing, say so up front instead of pretending its jobs are available.
+
+## Access boundaries
+
+This skill runs local worker CLIs and Git, reads repository files and job logs,
+and writes delegated changes and `.handoff/` evidence. Setup previews configuration
+writes before applying them. Helpers read the process environment to locate tools
+and isolate child authentication. Copilot model discovery sends the existing GitHub
+bearer only to the fixed Copilot catalogue endpoint and refuses redirects. Worker
+CLIs use their configured providers. Local viewers bind to loopback and require a
+per-run token. These capabilities describe the workflow; they grant no additional
+host permissions. Read-only jobs retain their backend restrictions, and an
+unrestricted permission mode requires explicit configuration.
 
 ## Configuration
 

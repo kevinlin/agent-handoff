@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -402,6 +402,16 @@ def _copilot_model_option(item: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+class _NoCopilotRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # urllib forwards Authorization on redirects, even to another host.
+        # The catalogue has one fixed endpoint; fail closed if it moves.
+        return None
+
+
+_copilot_urlopen = build_opener(_NoCopilotRedirect()).open
+
+
 def _copilot_model_options(env: Mapping[str, str]) -> Tuple[List[Dict[str, Any]], str]:
     """Offer the models this account's Copilot entitlement carries.
 
@@ -421,9 +431,10 @@ def _copilot_model_options(env: Mapping[str, str]) -> Tuple[List[Dict[str, Any]]
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     try:
-        with urlopen(request, timeout=5) as response:
+        with _copilot_urlopen(request, timeout=5) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
+        error.close()
         # 401 and 403 are the data-residency case too: a tenant serves its
         # catalogue from its own host and rejects a bearer minted for this one.
         return [], (
