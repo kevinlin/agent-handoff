@@ -1,0 +1,490 @@
+# Reviewed source-bound findings; regenerate only after reviewing changed findings.
+# No blanket rules. Host permissions and coverage notices remain unchanged.
+version: 2
+scanner_version: 2.11.2
+rules: []
+fingerprints:
+- hash: sha256:8ce20fb8b12fe15281f45d0003ac83af245173c7b358888c602d5eafdf7d8675
+  rule_id: AST7
+  file: scripts/handoff-config.py
+  reason: 'scripts/handoff-config.py:802: Attribute names come from the fixed REVIEW_FIELDS
+    schema, not arbitrary external attribute names.'
+- hash: sha256:b2b14b2a83a5959c5e6785face464120e1de5d84939626d1916e01b6333a350a
+  rule_id: AST4
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:77: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:5a3b67e298af2844b5b4a3ccb0afbf9eaa1e153636c569bcf6de956e39d9376e
+  rule_id: AST4
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:156: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:de249181e6962d8ade0472ec5fb3e34e633c65e4fb2dcff2a3906615a93522ea
+  rule_id: AST4
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:318: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:cacde38b21e0578d4e3b1bad724418f93402393ac27188c441d67568f9cb34ac
+  rule_id: AST4
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:769: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:aad6147b5f51a074e0d27dae642630094f130275543f7d4bf62381492404d5b5
+  rule_id: AST4
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:244: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:66bfb0d95de74d1fedaee1b78e76aac2a1d1dcfbd87296c5990af72471c6f8fd
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:597: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:76f6a68fd0963f8f628bb2b154f41407617458114c02aca24cb5e99c0972676f
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:605: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:ce61b8c69be1f88f41f26570d85f162f82982a63ea97c92dd99d45e4394542b4
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:615: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:3af2e198d28ac3ba50f76d10836d197a0c56feaaf4cf5bb188730d8ee9f098b8
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:151: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:08547c90cabb784bb9ac5a9423009c34fef4121a2f2c01a214188c95a53289c2
+  rule_id: AST7
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:363: Attribute names come from the fixed REVIEW_FIELDS
+    schema, not arbitrary external attribute names.'
+- hash: sha256:fab35a9b4dc807ae075f6f749a5161f5aec8746eb83027f15cce8355626fec40
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:879: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:93ae3fe3ddba9a9399009af5ad9ccd287b63e278130664ea2e067cead7104ed9
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:1034: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:ee297f1ca5d47c9f2b6c6d1992db37daf8f749dd336e3bd18cebe969ef73e60e
+  rule_id: AST4
+  file: scripts/handoff-setup.py
+  reason: 'scripts/handoff-setup.py:1081: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:7c7333a576326a1b5b682c311686d661b74c30d2ae1a62f195f157349bf873a1
+  rule_id: AST4
+  file: scripts/render-transcript.py
+  reason: 'scripts/render-transcript.py:122: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:58fd0c00de46507678010645432ebb7cea6d353bfbcf1753d90e9eb751bc05b6
+  rule_id: AST4
+  file: tests/test_delegate_role.py
+  reason: 'tests/test_delegate_role.py:52: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:72a13bfe35e145f239d8ade776d485d60644d4e6eb1e3cfceb33c63edf8ad631
+  rule_id: AST4
+  file: tests/test_delegate_role.py
+  reason: 'tests/test_delegate_role.py:74: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:d6fca2034d8ba7b09b98ee63f572058833542fe3f6606d5edcf3bba7cb94ffa8
+  rule_id: AST4
+  file: tests/test_delegate_role.py
+  reason: 'tests/test_delegate_role.py:426: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:095d31df17a6308a08383d03e10e0098e2829a9e2d10ab19a002a3e1e0f8bc9b
+  rule_id: AST4
+  file: tests/test_handoff_setup.py
+  reason: 'tests/test_handoff_setup.py:297: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:bd22bcf17bfe9beba324dddaec4a9240b287abc3575fe90604e7895ad0c97154
+  rule_id: AST4
+  file: tests/test_receipt.py
+  reason: 'tests/test_receipt.py:187: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:80c19e90123b029627ae43f97692344fb4512dfcdca6538db2ba8d799d0ff3f1
+  rule_id: AST4
+  file: tests/test_receipt.py
+  reason: 'tests/test_receipt.py:204: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:a1e14eb4d87daf368aaa470917d5bc24ed7d6031c1fc0ac69cc73783bce71e22
+  rule_id: AST4
+  file: tests/test_receipt.py
+  reason: 'tests/test_receipt.py:224: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:0963b1e1e4d08c56400afb06e4410e3a5ad94b5b9307ef3a7d59ec262ddd6b9e
+  rule_id: AST4
+  file: tests/test_session_ui.py
+  reason: 'tests/test_session_ui.py:366: Reviewed argv-list subprocess for local CLI
+    discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:189a20ec2ed87d7101d6bfa1c8fb6e847d3428262734d55bbedfa877a1b3fed7
+  rule_id: AST4
+  file: tests/test_validate_verdict.py
+  reason: 'tests/test_validate_verdict.py:135: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:7558fab822e1c107b29d84fc2e5b0483327ae9076c367c3cd5fc6f2970959408
+  rule_id: AST4
+  file: tests/test_validate_verdict.py
+  reason: 'tests/test_validate_verdict.py:142: Reviewed argv-list subprocess for local
+    CLI discovery, setup/smoke, Git inspection, or test harness. No shell interpolation;
+    preserve the existing execution boundary.'
+- hash: sha256:22fe9b888d5150dc12b29c8fc0b5a65d584427179421635e080031c10667ee29
+  rule_id: LP3
+  file: SKILL.md
+  reason: 'SKILL.md:1: Accepted capability notice: SKILL.md Access boundaries explicitly
+    documents shell, file, environment and network use. Host permission checks remain
+    authoritative; adding auto-approved tools would change security behavior.'
+- hash: sha256:195e9340bf1b749940644ed8c04b2279230b36f7fcebb0a1515f0616da0cac82
+  rule_id: AS1
+  file: docs/specs/plan_per-identity-permission-mode.md
+  reason: 'docs/specs/plan_per-identity-permission-mode.md:7: Historical design discussion
+    of backend configuration inheritance; not an instruction to read credentials or
+    modify host policy.'
+- hash: sha256:e49e87b44183d330b613f946c65836c33972dbbb95945cd7e70e4c2c41be9f13
+  rule_id: AS1
+  file: docs/specs/plan_per-identity-permission-mode.md
+  reason: 'docs/specs/plan_per-identity-permission-mode.md:34: Historical design discussion
+    of backend configuration inheritance; not an instruction to read credentials or
+    modify host policy.'
+- hash: sha256:4f08450066ad676ef616fd5c4beec4facfa20874f0ec521357036a066dcd5d26
+  rule_id: AS1
+  file: docs/specs/plan_per-identity-permission-mode.md
+  reason: 'docs/specs/plan_per-identity-permission-mode.md:125: Historical design
+    discussion of backend configuration inheritance; not an instruction to read credentials
+    or modify host policy.'
+- hash: sha256:d4399469a50a12c7a1cdd70ef04f88d617e318216398b75a4d6b6d396281b540
+  rule_id: AS3
+  file: docs/specs/plan_rename-partner-skill-to-agent-handoff.md
+  reason: 'docs/specs/plan_rename-partner-skill-to-agent-handoff.md:22: Installer
+    help or historical installation-path rename table; no enumeration at this match.'
+- hash: sha256:cf8edc5e539d653c6e718efff8596585af1858d20152296aa36e8a6c19b489f4
+  rule_id: AS3
+  file: install.sh
+  reason: 'install.sh:14: Installer help or historical installation-path rename table;
+    no enumeration at this match.'
+- hash: sha256:9e9e643f907153460e17cdb9a4334a2d312baf603cff4aefdf4f136cb9c67228
+  rule_id: E1
+  file: docs/research/fetch-copilot-models.md
+  reason: 'docs/research/fetch-copilot-models.md:78: Fixed Copilot catalogue endpoint
+    and documented research request; runtime Authorization is scoped to that endpoint
+    and redirects are refused.'
+- hash: sha256:8208a3f3c0bf16fc96e7e9665c6cb7457d530243584b385bf4cfab9d7ccf7ac1
+  rule_id: E1
+  file: docs/research/fetch-copilot-models.md
+  reason: 'docs/research/fetch-copilot-models.md:104: Fixed Copilot catalogue endpoint
+    and documented research request; runtime Authorization is scoped to that endpoint
+    and redirects are refused.'
+- hash: sha256:b92ea919c4cdf60f38ec63efbd957915abd0db8f295d247138384243ffa48ff9
+  rule_id: E1
+  file: docs/research/fetch-copilot-models.md
+  reason: 'docs/research/fetch-copilot-models.md:109: Fixed Copilot catalogue endpoint
+    and documented research request; runtime Authorization is scoped to that endpoint
+    and redirects are refused.'
+- hash: sha256:66af9ab33fb28016982f516bd81e38a4f8db268e774ab751f1194ade425a59cf
+  rule_id: E1
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:44: Fixed Copilot catalogue endpoint and documented
+    research request; runtime Authorization is scoped to that endpoint and redirects
+    are refused.'
+- hash: sha256:71cb145a180aca3cc656ea0d66e024d3db38119241e7475c964301a859a93f2a
+  rule_id: E2
+  file: tests/test_delegate_role.py
+  reason: 'tests/test_delegate_role.py:38: Test harness copies the environment to
+    launch local fake CLIs; this match does not transmit environment contents.'
+- hash: sha256:353a283afc475b1813223583d48cec13961d56d82352e4a9df34d1bc37cba2d3
+  rule_id: E2
+  file: tests/test_handoff_setup.py
+  reason: 'tests/test_handoff_setup.py:53: Test harness copies the environment to
+    launch local fake CLIs; this match does not transmit environment contents.'
+- hash: sha256:4fe2565225f8f634593047ae85e6fa547784ce7ec96188c2be2ceb0e0c25bb04
+  rule_id: E2
+  file: tests/test_handoff_setup_ui.py
+  reason: 'tests/test_handoff_setup_ui.py:126: Test harness copies the environment
+    to launch local fake CLIs; this match does not transmit environment contents.'
+- hash: sha256:63fd8c3afe0174d8ed2e619741368802f7f3cde11c018141a0f289205209ba0f
+  rule_id: EA2
+  file: SKILL.md
+  reason: 'SKILL.md:107: Reviewed explicit permission-mode warning, deny-on-unapproved
+    behavior, historical CLI reference, negative fixture, or scoped local rendering
+    within the user-requested workflow.'
+- hash: sha256:fc48892a66d7d09edad3f16be95ec8be70350921b1c4e7fdd21bd4d6a131a7a1
+  rule_id: EA1
+  file: docs/research/github-copilot-cli-specification.md
+  reason: 'docs/research/github-copilot-cli-specification.md:121: Historical CLI flag
+    reference or explicit no-tools probe; not a runtime permission grant.'
+- hash: sha256:5bef6602c67ea70da4350f6197c3b88fd8982de4a58276dbd4de88ea9e33d2cb
+  rule_id: EA1
+  file: docs/research/github-copilot-cli-specification.md
+  reason: 'docs/research/github-copilot-cli-specification.md:310: Historical CLI flag
+    reference or explicit no-tools probe; not a runtime permission grant.'
+- hash: sha256:3341c162d1a127583c138eb42287ecd400b81c1ebea713487db287bc4d6e8ffe
+  rule_id: EA1
+  file: docs/research/github-copilot-cli-specification.md
+  reason: 'docs/research/github-copilot-cli-specification.md:333: Historical CLI flag
+    reference or explicit no-tools probe; not a runtime permission grant.'
+- hash: sha256:50e795310434251c8871c0081da9584cd557466de2a8120a6f5c09d8cbb74c85
+  rule_id: EA2
+  file: docs/research/github-copilot-cli-specification.md
+  reason: 'docs/research/github-copilot-cli-specification.md:121: Reviewed explicit
+    permission-mode warning, deny-on-unapproved behavior, historical CLI reference,
+    negative fixture, or scoped local rendering within the user-requested workflow.'
+- hash: sha256:b066f93e2ddc1d4b0050ab8b0095da1251ce4070019891bbc53d002991219498
+  rule_id: EA2
+  file: docs/research/github-copilot-cli-specification.md
+  reason: 'docs/research/github-copilot-cli-specification.md:535: Reviewed explicit
+    permission-mode warning, deny-on-unapproved behavior, historical CLI reference,
+    negative fixture, or scoped local rendering within the user-requested workflow.'
+- hash: sha256:356a9b7e89549835d1b90a3794e7e6fcdf79fe83767ba1f618bc46987f0ca0b7
+  rule_id: EA2
+  file: docs/research/github-copilot-cli-specification.md
+  reason: 'docs/research/github-copilot-cli-specification.md:647: Reviewed explicit
+    permission-mode warning, deny-on-unapproved behavior, historical CLI reference,
+    negative fixture, or scoped local rendering within the user-requested workflow.'
+- hash: sha256:ccaa9accf53934789e13beff2b5ecc56396d4e398b3818dfd7d650c5f39de074
+  rule_id: EA2
+  file: docs/specs/design_agent-identities-and-config.md
+  reason: 'docs/specs/design_agent-identities-and-config.md:274: Reviewed explicit
+    permission-mode warning, deny-on-unapproved behavior, historical CLI reference,
+    negative fixture, or scoped local rendering within the user-requested workflow.'
+- hash: sha256:e4c9fb192d96f0d9a0d303278a49c7c4eef5d02f95fb7a04cdc6b1e4ec56905f
+  rule_id: EA2
+  file: docs/specs/design_session-visualisation.md
+  reason: 'docs/specs/design_session-visualisation.md:165: Reviewed explicit permission-mode
+    warning, deny-on-unapproved behavior, historical CLI reference, negative fixture,
+    or scoped local rendering within the user-requested workflow.'
+- hash: sha256:9efa800477730eabe0c12366328c7c66abab3bc6191426fd10317222473d3a8c
+  rule_id: EA2
+  file: docs/specs/plan_per-identity-permission-mode.md
+  reason: 'docs/specs/plan_per-identity-permission-mode.md:17: Reviewed explicit permission-mode
+    warning, deny-on-unapproved behavior, historical CLI reference, negative fixture,
+    or scoped local rendering within the user-requested workflow.'
+- hash: sha256:c9996b681cef3cd2c5085d158e9565ecd1aec4623e8688b60801444094d2fa8d
+  rule_id: EA2
+  file: docs/specs/plan_support-cc-to-cc-handoff.md
+  reason: 'docs/specs/plan_support-cc-to-cc-handoff.md:60: Reviewed explicit permission-mode
+    warning, deny-on-unapproved behavior, historical CLI reference, negative fixture,
+    or scoped local rendering within the user-requested workflow.'
+- hash: sha256:029cb83fe7bd1209a283270c793d2026a2528ce8f6f1cf4b1e821a6506fb3e85
+  rule_id: EA2
+  file: docs/specs/plan_support-copilot-cli-backend.md
+  reason: 'docs/specs/plan_support-copilot-cli-backend.md:115: Reviewed explicit permission-mode
+    warning, deny-on-unapproved behavior, historical CLI reference, negative fixture,
+    or scoped local rendering within the user-requested workflow.'
+- hash: sha256:2d247f0943e2444fab73e9fc26d967e53167b2332ddc2cb763e1eb59ecb99461
+  rule_id: EA2
+  file: scripts/delegate-codex.sh
+  reason: 'scripts/delegate-codex.sh:323: Reviewed explicit permission-mode warning,
+    deny-on-unapproved behavior, historical CLI reference, negative fixture, or scoped
+    local rendering within the user-requested workflow.'
+- hash: sha256:922172e55d9cb9f82a776f48955f034b636075e0d3b19f93d9dd6fc05b83d54f
+  rule_id: EA2
+  file: test-prompts.json
+  reason: 'test-prompts.json:213: Reviewed explicit permission-mode warning, deny-on-unapproved
+    behavior, historical CLI reference, negative fixture, or scoped local rendering
+    within the user-requested workflow.'
+- hash: sha256:776a01bf7cdc57aaef2e85cd37c0097a6aabd385263235414bcc32222587902a
+  rule_id: EA2
+  file: test-prompts.json
+  reason: 'test-prompts.json:444: Reviewed explicit permission-mode warning, deny-on-unapproved
+    behavior, historical CLI reference, negative fixture, or scoped local rendering
+    within the user-requested workflow.'
+- hash: sha256:0515b9d610c31dbbe093e8de941e042f5248c9bb5cb74c0c10813eb7b3290f94
+  rule_id: EA2
+  file: test-prompts.json
+  reason: 'test-prompts.json:507: Reviewed explicit permission-mode warning, deny-on-unapproved
+    behavior, historical CLI reference, negative fixture, or scoped local rendering
+    within the user-requested workflow.'
+- hash: sha256:af09a325200b6a942b7198494964858f4fed3def8bc1ea183a45ab83d7f0a9d3
+  rule_id: EA2
+  file: tests/test_delegate_role.py
+  reason: 'tests/test_delegate_role.py:363: Reviewed explicit permission-mode warning,
+    deny-on-unapproved behavior, historical CLI reference, negative fixture, or scoped
+    local rendering within the user-requested workflow.'
+- hash: sha256:532216b20308c440bf7b1f150e3928bf6a829750b2ac76925a6bc0f1e769c75b
+  rule_id: OH3
+  file: docs/specs/design_session-visualisation.md
+  reason: 'docs/specs/design_session-visualisation.md:293: Accepted documented local
+    resource limit: user-selected SVG/transcripts have no size cap. Loopback Host/token
+    checks precede serving; this is not remote unauthenticated access.'
+- hash: sha256:d1ca38da89e529254aa6eb77bbd3fd605b5ab3ee4a9a7d411f67fff46510487f
+  rule_id: PE3
+  file: SKILL.md
+  reason: 'SKILL.md:95: Reviewed local authentication refusal/documentation, secret-file
+    rejection, or path-traversal negative fixture; no secret retrieval at this match.'
+- hash: sha256:dcc17135a0cff80de512dc4127d7ef9cf7986edb614d961e45d44d8bf853521b
+  rule_id: PE3
+  file: scripts/check-skill-repo.sh
+  reason: 'scripts/check-skill-repo.sh:184: Reviewed local authentication refusal/documentation,
+    secret-file rejection, or path-traversal negative fixture; no secret retrieval
+    at this match.'
+- hash: sha256:b13fc20556fc78fcd3d75c7f8a8d0e7460c4a827bd0956916eadc862e1402428
+  rule_id: PE3
+  file: scripts/handoff-session-ui.py
+  reason: 'scripts/handoff-session-ui.py:409: Reviewed local authentication refusal/documentation,
+    secret-file rejection, or path-traversal negative fixture; no secret retrieval
+    at this match.'
+- hash: sha256:956b26b0b85be108562100bcd595ce9edf8b773a3c18b2edb3c4e501ed400b67
+  rule_id: PE3
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:1727: Reviewed local authentication refusal/documentation,
+    secret-file rejection, or path-traversal negative fixture; no secret retrieval
+    at this match.'
+- hash: sha256:47d9c0b680f9c8bd43bc177b2b185a27348781c174693965f3784bd556143ed9
+  rule_id: PE3
+  file: scripts/handoff-setup-ui.py
+  reason: 'scripts/handoff-setup-ui.py:1743: Reviewed local authentication refusal/documentation,
+    secret-file rejection, or path-traversal negative fixture; no secret retrieval
+    at this match.'
+- hash: sha256:6ba49c51612739da36bb4c497ef18435599d3f2c0353803a7cfe0a3e3f3c1770
+  rule_id: PE3
+  file: tests/test_cost_receipt.py
+  reason: 'tests/test_cost_receipt.py:82: Reviewed local authentication refusal/documentation,
+    secret-file rejection, or path-traversal negative fixture; no secret retrieval
+    at this match.'
+- hash: sha256:6ba05bd6e4f94a234ab21c20c7e9162e9a00f63130ac3639a7bdc0230816cfec
+  rule_id: PE3
+  file: tests/test_handoff_setup_ui.py
+  reason: 'tests/test_handoff_setup_ui.py:367: Reviewed local authentication refusal/documentation,
+    secret-file rejection, or path-traversal negative fixture; no secret retrieval
+    at this match.'
+- hash: sha256:e1c8b2f429f191ae23733ce4bbfaee5678c516ecf9374c3813f287890dc18085
+  rule_id: P2
+  file: assets/transcript-viewer.html
+  reason: 'assets/transcript-viewer.html:231: Reviewed bundled Markdown parser syntax
+    or ordinary SVG/specification maintenance comment; not an instruction to bypass
+    agent controls.'
+- hash: sha256:9a29ac5ea03812bd04551cb753b21b2800e4722307a288a9326108f46b84aa18
+  rule_id: P9
+  file: docs/research/cross-agent-cli-permissin-mode.md
+  reason: 'docs/research/cross-agent-cli-permissin-mode.md:53: Whitespace aligns a
+    visible Markdown comparison table; no concealed instruction.'
+- hash: sha256:44276786f95df9fb2ee42249a3ad70033eb0aff3911eaf183ade273885d5595a
+  rule_id: P9
+  file: docs/research/cross-agent-cli-permissin-mode.md
+  reason: 'docs/research/cross-agent-cli-permissin-mode.md:53: Whitespace aligns a
+    visible Markdown comparison table; no concealed instruction.'
+- hash: sha256:eded28b13ee3b9e060320dffcac5b002abcb8abbc98ce58e9a715a61291c3bfb
+  rule_id: P9
+  file: docs/research/cross-agent-cli-permissin-mode.md
+  reason: 'docs/research/cross-agent-cli-permissin-mode.md:57: Whitespace aligns a
+    visible Markdown comparison table; no concealed instruction.'
+- hash: sha256:118ba300b11e667a7e19d961dad05f28576df0a16461c930bd900ecb585406fe
+  rule_id: P2
+  file: docs/specs/meta/convention.md
+  reason: 'docs/specs/meta/convention.md:5: Reviewed bundled Markdown parser syntax
+    or ordinary SVG/specification maintenance comment; not an instruction to bypass
+    agent controls.'
+- hash: sha256:56476357b2ae2d67893f93bff01250f2bc6d923cc9a39179f3099431ac8bd405
+  rule_id: P2
+  file: docs/user-guide/diagrams/e2e-gate.svg
+  reason: 'docs/user-guide/diagrams/e2e-gate.svg:28: Reviewed bundled Markdown parser
+    syntax or ordinary SVG/specification maintenance comment; not an instruction to
+    bypass agent controls.'
+- hash: sha256:54f83de98308b8ed08dd77f207e1853425b747eb62c54c37a0d24c5214964556
+  rule_id: P2
+  file: docs/user-guide/diagrams/handoff-packet-anatomy.svg
+  reason: 'docs/user-guide/diagrams/handoff-packet-anatomy.svg:28: Reviewed bundled
+    Markdown parser syntax or ordinary SVG/specification maintenance comment; not
+    an instruction to bypass agent controls.'
+- hash: sha256:fb78ebf0fb29f31d0640f247722a02a9bdfe963d0b597b3c9740f29d5fee86af
+  rule_id: RA2
+  file: CLAUDE.md
+  reason: 'CLAUDE.md:63: Documented durable local worker lifecycle and hash-checked
+    job state, or a test forbidding worker creation; intentional authorized capability.'
+- hash: sha256:0b54ede4644a1f3e0a77eec6f1816f11c14379ed524dfddf56cf10c30080b88a
+  rule_id: RA2
+  file: SKILL.md
+  reason: 'SKILL.md:38: Documented durable local worker lifecycle and hash-checked
+    job state, or a test forbidding worker creation; intentional authorized capability.'
+- hash: sha256:9760ffd6ed03873be62564b8db76ada789fce3eb166e98f455f8d007d9f09190
+  rule_id: RA2
+  file: scripts/delegate-codex.sh
+  reason: 'scripts/delegate-codex.sh:771: Documented durable local worker lifecycle
+    and hash-checked job state, or a test forbidding worker creation; intentional
+    authorized capability.'
+- hash: sha256:23f913d4e82ec85c9790d1a207569f29d5bb4ce276804427230f4f1ebc34d935
+  rule_id: RA2
+  file: scripts/delegate-codex.sh
+  reason: 'scripts/delegate-codex.sh:773: Documented durable local worker lifecycle
+    and hash-checked job state, or a test forbidding worker creation; intentional
+    authorized capability.'
+- hash: sha256:ea18f4ac4e3528ac2d72d0b5648173f9a968ef6bf92701d3df4cfbe26dd671f0
+  rule_id: RA2
+  file: test-prompts.json
+  reason: 'test-prompts.json:555: Documented durable local worker lifecycle and hash-checked
+    job state, or a test forbidding worker creation; intentional authorized capability.'
+- hash: sha256:dcd85968fb1be792d051e724938f6ea98ca78dbfce98ce4619e61f211d1dcca3
+  rule_id: SC1
+  file: tests/test_handoff_setup.py
+  reason: 'tests/test_handoff_setup.py:821: Shell control words inside a fake Copilot
+    test script misidentified as dependency declarations; no dependency installation.'
+- hash: sha256:6e79badb318203780da6b4ee6b149fa6d7349d223d082ea2b1f13d8f319d6729
+  rule_id: SC1
+  file: tests/test_handoff_setup.py
+  reason: 'tests/test_handoff_setup.py:824: Shell control words inside a fake Copilot
+    test script misidentified as dependency declarations; no dependency installation.'
+- hash: sha256:ca49baf07c83ceb7801d4bcff167acfc26ba5c69ea727c25607cd9bf3faee625
+  rule_id: SC1
+  file: tests/test_handoff_setup.py
+  reason: 'tests/test_handoff_setup.py:828: Shell control words inside a fake Copilot
+    test script misidentified as dependency declarations; no dependency installation.'
+- hash: sha256:0a24066de5e79eb607bf63862fbd6089fce243aebd81cf89ad197b596fe90450
+  rule_id: SC1
+  file: tests/test_handoff_setup.py
+  reason: 'tests/test_handoff_setup.py:832: Shell control words inside a fake Copilot
+    test script misidentified as dependency declarations; no dependency installation.'
+- hash: sha256:d46fa06b0e45c2da0f0ab852688975f13666a7b0dd161b544fd9fb3afa211fee
+  rule_id: P6
+  file: docs/specs/plan_deep-reasoner-spec-review.md
+  reason: 'docs/specs/plan_deep-reasoner-spec-review.md:110: Reviewed output-format
+    instructions for the user-authorized delegation packet; no extraction of hidden
+    system instructions.'
+- hash: sha256:ef0702ce61775d7fd3bf0d4efc70e63c7fef2763027c3d1540af168a91ff83a6
+  rule_id: P6
+  file: references/claude-driven.md
+  reason: 'references/claude-driven.md:79: Reviewed output-format instructions for
+    the user-authorized delegation packet; no extraction of hidden system instructions.'
+- hash: sha256:2baae45b2ed439df552028117ba57020c50516145aa0102d6cd3e76857f06c6d
+  rule_id: TM1
+  file: README.md
+  reason: 'README.md:268: Reviewed destructive-command prohibition or documentation
+    of the repository safety scanner; no command execution.'
+- hash: sha256:1b93cd64f342e5df6d3218da2d704dcfd6978c58deeb591600898d2038ea2971
+  rule_id: TM1
+  file: docs/specs/plan_cost-receipt.md
+  reason: 'docs/specs/plan_cost-receipt.md:17: Reviewed destructive-command prohibition
+    or documentation of the repository safety scanner; no command execution.'
+- hash: sha256:08812432f13214ce9538850db93bc85a8cbcbafc47837daa09f14c8cf9804f12
+  rule_id: TM1
+  file: docs/specs/plan_e2e-gauntlet-roles.md
+  reason: 'docs/specs/plan_e2e-gauntlet-roles.md:30: Reviewed destructive-command
+    prohibition or documentation of the repository safety scanner; no command execution.'
+- hash: sha256:bbf17e8a1ba3131f919a73fb5889759cecc9511be90ebc2adbe334259acf2953
+  rule_id: TM1
+  file: docs/specs/plan_review-gates.md
+  reason: 'docs/specs/plan_review-gates.md:21: Reviewed destructive-command prohibition
+    or documentation of the repository safety scanner; no command execution.'
