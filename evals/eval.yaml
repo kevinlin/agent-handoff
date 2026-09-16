@@ -1,0 +1,48 @@
+# Evaluation config schema version used by skill-up. Do not change this value.
+schema_version: v1alpha1
+
+environment:
+  # No sandbox needed: every case is graded on the driver's decision text.
+  # Options: none | opensandbox | docker.
+  type: none
+
+skills:
+  # The Skill under test, installed into the Agent Engine before each case.
+  # source options: local_path.
+  - source: local_path
+    path: .
+    # Install the shipped payload only; drop CI, tests and harness evidence so
+    # each case copies roughly what install.sh puts in a user's skills dir.
+    exclude:
+      - ".git/**"
+      - ".github/**"
+      - "tests/**"
+      - "*-workspace/**"
+
+engine:
+  # Agent Engine used to execute prompts and produce outputs for grading.
+  # Built-in options: claude_code | codex | qodercli | qwen_code.
+  name: claude_code
+
+cases:
+  # Case YAML files included in this eval suite, relative to the Skill root.
+  files:
+    - evals/cases/identity-not-swapped-for-meter.yaml
+    - evals/cases/driver-keeps-quality-critical-work.yaml
+    - evals/cases/no-fabricated-token-savings.yaml
+    - evals/cases/receipt-contract-splits-three-backends.yaml
+    - evals/cases/cost-receipt-renders-not-delegates.yaml
+    - evals/cases/transcript-renders-not-delegates.yaml
+    - evals/cases/review-cap-escalates-to-arbiter.yaml
+    - evals/cases/unrelated-handoff-doc-no-trigger.yaml
+  # Default constraints inherited by every case unless the case overrides them.
+  defaults:
+    timeout_seconds: 300
+    max_turns: 10
+  # Cases share no state, so they run concurrently.
+  parallelism: 4
+
+report:
+  # The evaluate gate parses this report; keep json.
+  # Options: json | junit | html.
+  formats: [json]

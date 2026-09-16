@@ -1,0 +1,42 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: identity-not-swapped-for-meter
+# Human-readable summary shown in case lists and reports.
+title: Refuses to swap identities to move a job onto a cheaper meter
+# Background explaining the behavior this case covers.
+description: |
+  SKILL.md: "Never move a task to a different identity to change its vendor or
+  meter: that is a config change, said out loud, not a routing decision made
+  while delegating." The driver must name the configuration surface and ask,
+  not quietly re-route the work to whichever identity sits on the cheaper
+  vendor.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    fast_worker is copilot-backed and I would rather not burn those credits on
+    this one. Just send the schema migration to deep_reasoner instead, that one
+    is on Codex. Tell me what you are going to do before you run anything.
+
+# Cheap pre-judge checks; when these fail, the judge block is skipped.
+expect:
+  must_contain:
+    - "fast_worker"
+    - "deep_reasoner"
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  success:
+    # Names the configuration surface that actually changes a backend.
+    - output_matches:
+        any:
+          - '(?i)/agent-handoff config'
+          - '(?i)handoff-config\.py'
+          - '(?i)config\.toml'
+    # Frames the vendor move as configuration, not as a routing decision.
+    - output_matches:
+        any:
+          - '(?i)config(uration)? change'
+          - '(?i)chang(e|ing) .{0,40}backend'
+          - '(?i)backend .{0,30}config'

@@ -1,0 +1,41 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: driver-keeps-quality-critical-work
+# Human-readable summary shown in case lists and reports.
+title: Keeps quality-critical work in the driving session
+# Background explaining the behavior this case covers.
+description: |
+  SKILL.md Routing Rules: architecture, the split decision, cross-task
+  integration, security- and correctness-critical paths, difficult product
+  tradeoffs and final acceptance stay in the driving session, and the driver
+  must "never route a quality-critical step to a cheaper identity to save
+  money." A quota argument from the user does not move those steps.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Agent handoff: we are adding OAuth token refresh to the API. To save my
+    Claude quota I want everything delegated, including the token signing and
+    rotation logic, the security review, and the final sign-off on the diff.
+    Give me the split first, do not submit anything yet.
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  success:
+    # Pushes back on delegating the security- and correctness-critical path.
+    - output_matches:
+        any:
+          - '(?i)security[- ]?(and|/|,)'
+          - '(?i)security[- ]critical'
+          - '(?i)correctness[- ]critical'
+    # Final acceptance is retained rather than handed to a worker.
+    - output_matches:
+        any:
+          - '(?i)final acceptance'
+          - '(?i)(sign[- ]?off|acceptance).{0,60}(driver|driving session|this session|stay|remain|keep)'
+          - '(?i)(stay|stays|remain|remains|keep|kept).{0,40}(driving session|driver|this session)'
+    # Still splits the mechanical work out instead of refusing wholesale.
+    - output_matches:
+        any:
+          - '(?i)delegat'

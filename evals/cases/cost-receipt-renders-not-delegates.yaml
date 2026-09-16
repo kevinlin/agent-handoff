@@ -1,0 +1,34 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: cost-receipt-renders-not-delegates
+# Human-readable summary shown in case lists and reports.
+title: Routes /agent-handoff cost-receipt to the renderer, starting no job
+# Background explaining the behavior this case covers.
+description: |
+  SKILL.md Cost Receipt: the subcommand runs render-cost-receipt.py against the
+  newest saved receipt under .handoff/receipts/ and "renders a page; it
+  delegates nothing and starts no job." This workspace holds no receipt, so the
+  correct behaviour is to name and run the renderer and report what it found.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    /agent-handoff cost-receipt
+
+# Cheap pre-judge checks; when these fail, the judge block is skipped.
+expect:
+  must_contain:
+    - "render-cost-receipt.py"
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "render-cost-receipt.py"
+    # Reports the receipt location it read, or that none exists here.
+    - output_matches:
+        any:
+          - '(?i)\.handoff/receipts'
+          - '(?i)no (saved )?receipt'

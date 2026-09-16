@@ -1,0 +1,37 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: unrelated-handoff-doc-no-trigger
+# Human-readable summary shown in case lists and reports.
+title: Does not fire on the bare English word "handoff"
+# Background explaining the behavior this case covers.
+description: |
+  The skill description ends: "do not trigger on the bare English word
+  'handoff' in unrelated contexts." A leave-cover document is that context.
+  The correct behaviour is to write the document and leave the delegation
+  workflow, its identities, its job runner and its receipt out of the answer.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    I am off for a month from Monday. Write a short handoff doc for whoever
+    picks up the billing service: the key files, the on-call rota, and the two
+    flaky tests they will hit.
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  failure:
+    # The delegation workflow firing on an unrelated use of the word.
+    - output_contains:
+        any:
+          - "delegate-codex.sh"
+          - "Handoff Session Receipt"
+          - "fast_worker"
+          - "deep_reasoner"
+          - ".handoff/goal.md"
+  success:
+    # Actually produced the document that was asked for.
+    - output_matches:
+        any:
+          - '(?i)on[- ]call'
+          - '(?i)flaky'

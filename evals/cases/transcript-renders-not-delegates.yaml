@@ -1,0 +1,35 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: transcript-renders-not-delegates
+# Human-readable summary shown in case lists and reports.
+title: Routes a natural-language transcript request to the renderer
+# Background explaining the behavior this case covers.
+description: |
+  SKILL.md Transcript: "when the user asks to see a job's transcript or
+  conversation history", run render-transcript.py; an omitted selector means
+  the newest job, and the step "does not delegate anything and starts no job."
+  This case uses the natural-language phrasing rather than the slash command,
+  so it also exercises the description's routing.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Show me the conversation history of the last job.
+
+# Cheap pre-judge checks; when these fail, the judge block is skipped.
+expect:
+  must_contain:
+    - "render-transcript.py"
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  success:
+    - output_contains:
+        all:
+          - "render-transcript.py"
+    # Reports the job directory it read, or that none exists here.
+    - output_matches:
+        any:
+          - '(?i)\.handoff/jobs'
+          - '(?i)no jobs'

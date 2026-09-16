@@ -1,0 +1,50 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: receipt-contract-splits-three-backends
+# Human-readable summary shown in case lists and reports.
+title: States the schema v6 receipt contract with three separate job counts
+# Background explaining the behavior this case covers.
+description: |
+  SKILL.md Output Contract: the receipt partitions a run's jobs three ways by
+  the backend that executed them -- codex_jobs, cc_jobs, copilot_jobs -- and
+  "a copilot job is never folded into either of the other two counts."
+  Receipt fields are generated with make-receipt.py, never hand-typed, and
+  receipt_schema_version is always 6.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Before I wrap this one up: what exactly goes into the Handoff Session
+    Receipt, and where does each number come from? This run had jobs on Codex,
+    on a second Claude Code, and on Copilot, and I do not want to hand-type any
+    of it.
+
+# Cheap pre-judge checks; when these fail, the judge block is skipped.
+expect:
+  must_contain:
+    - "codex_jobs"
+    - "cc_jobs"
+    - "copilot_jobs"
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | agent_judge | script.
+  type: rule_based
+  failure:
+    # Fields retired before schema 6; quoting them means an outdated contract.
+    - output_contains:
+        any:
+          - "monitoring_level"
+          - "receipt_schema_version: 5"
+  success:
+    # Three counts kept separate, and generated rather than typed.
+    - output_contains:
+        all:
+          - "codex_jobs"
+          - "cc_jobs"
+          - "copilot_jobs"
+          - "make-receipt.py"
+    # Pins the current schema version.
+    - output_matches:
+        any:
+          - 'receipt_schema_version'
+          - '(?i)schema (version )?6'
