@@ -30,11 +30,11 @@ judge:
   # Options: rule_based | agent_judge | script.
   type: rule_based
   failure:
-    # Fields retired before schema 6; quoting them means an outdated contract.
-    - output_contains:
+    # Reject obsolete receipt fields, not prose explaining their removal.
+    - output_matches:
         any:
-          - "monitoring_level"
-          - "receipt_schema_version: 5"
+          - '(?m)^\s*monitoring_level\s*:'
+          - '(?m)^\s*receipt_schema_version\s*:\s*5\b'
   success:
     # Three counts kept separate, and generated rather than typed.
     - output_contains:
