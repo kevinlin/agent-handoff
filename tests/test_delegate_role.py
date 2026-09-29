@@ -45,7 +45,37 @@ def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dic
     env["HANDOFF_COPILOT_BIN"] = str(
         write_fake(root / "copilot", version_shim(GITHUB_COPILOT_VERSION) + codex_body)
     )
+    env["HANDOFF_CURSOR_BIN"] = str(
+        write_fake(root / "cursor-agent", version_shim("2026.09.28-64d2043") + codex_body)
+    )
+    write_fake(root / "ide" / "cursor", "echo 'Cursor IDE launcher' >&2\nexit 64\n")
     return env
+
+
+def settle(job: Path) -> bool:
+    """Wait for a launched job to settle.
+
+    exit_code is the last thing run.sh writes, but its shell stays alive for
+    a moment after — long enough to race the temp-tree removal in teardown,
+    which is how this surfaced. Wait for the process too, not just the file.
+    """
+
+    settled = False
+    for _ in range(200):
+        if (job / "exit_code").is_file():
+            settled = True
+            break
+        time.sleep(0.05)
+    pid_file = job / "pid"
+    if settled and pid_file.is_file():
+        pid = int(pid_file.read_text(encoding="utf-8").strip() or 0)
+        for _ in range(200):
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(0.05)
+    return settled
 
 
 def run_delegate(env: dict[str, str], *arguments: str):
@@ -354,6 +384,7 @@ class BackendLifecycle:
     """
 
     BACKEND = "codex"
+    EFFORT = "high"
     WORKDIR_MARKER = '-C "$WORKDIR"'
     # What this backend's worker runs under; codex is sandboxed by its own
     # config instead, so it records none.
@@ -394,29 +425,7 @@ class BackendLifecycle:
         self.addCleanup(self.await_jobs)
 
     def await_exit(self, job: Path):
-        """Wait for a launched job to settle.
-
-        exit_code is the last thing run.sh writes, but its shell stays alive for
-        a moment after — long enough to race the temp-tree removal in teardown,
-        which is how this surfaced. Wait for the process too, not just the file.
-        """
-
-        settled = False
-        for _ in range(200):
-            if (job / "exit_code").is_file():
-                settled = True
-                break
-            time.sleep(0.05)
-        pid_file = job / "pid"
-        if settled and pid_file.is_file():
-            pid = int(pid_file.read_text(encoding="utf-8").strip() or 0)
-            for _ in range(200):
-                try:
-                    os.kill(pid, 0)
-                except OSError:
-                    break
-                time.sleep(0.05)
-        return settled
+        return settle(job)
 
     def await_jobs(self):
         for job in (self.repo / ".handoff" / "jobs").glob("job-*"):
@@ -442,6 +451,8 @@ class BackendLifecycle:
             str(self.prompt),
             "--backend",
             self.BACKEND,
+            "--effort",
+            self.EFFORT,
             *arguments,
         )
 
@@ -486,7 +497,7 @@ class BackendLifecycle:
         self.assertTrue(self.await_exit(job))
         (job / "session_id").write_text("fixture-session")
         meta = job / "meta"
-        meta.write_text(meta.read_text().replace("effort=high", "effort=invalid"))
+        meta.write_text(meta.read_text().replace(f"effort={self.EFFORT}", "effort=invalid"))
         result = self.resume(job_id)
         self.assertNotEqual(0, result.returncode)
         self.assertIn("invalid --effort", result.stderr)
@@ -600,7 +611,7 @@ class BackendLifecycle:
         path.write_text(
             'schema_version = 2\nrevision = 0\n'
             '[hosts.claude_code.identities.fast_worker]\n'
-            f'backend = "{self.BACKEND}"\nmodel = "fixture"\neffort = "high"\n'
+            f'backend = "{self.BACKEND}"\nmodel = "fixture"\neffort = "{self.EFFORT}"\n'
             f'permission_mode = "{posture}"\n', encoding="utf-8"
         )
 
@@ -625,11 +636,17 @@ class BackendLifecycle:
             mode = "plan" if read_only else ("dontAsk" if posture == "default" else "bypassPermissions")
             self.assertIn(f"--permission-mode {mode}", run_sh)
             self.assertEqual(not read_only and posture == "default", "--allowed-tools" in run_sh)
-        else:
+        elif self.BACKEND == "copilot":
             self.assertEqual(read_only, "--mode plan" in run_sh)
             self.assertEqual(not read_only, "--allow-all-tools" in run_sh)
             for flag in ("--allow-all-paths", "--allow-all-urls"):
                 self.assertEqual(posture == "allow-all" and not read_only, flag in run_sh)
+        elif self.BACKEND == "cursor":
+            self.assertEqual(read_only, "--mode plan" in run_sh)
+            self.assertEqual(not read_only, "--force" in run_sh)  # risk-ok: Cursor CLI flag name
+            self.assertEqual("plan" if read_only else "force", meta["permission_mode"])
+        else:
+            self.fail(f"no posture assertions for backend {self.BACKEND}")
 
     def test_configured_postures_and_resume_inherit_authority(self):
         for posture in ("default", "allow-all"):
@@ -1237,6 +1254,315 @@ class CopilotBinaryDiscoveryTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("copilot CLI not found", result.stderr)
         self.assertIn("HANDOFF_COPILOT_BIN", result.stderr)
+
+
+class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
+    BACKEND = "cursor"
+    EFFORT = "model"
+    # cursor-agent takes cwd from the shell and the workspace from --workspace.
+    WORKDIR_MARKER = '--workspace "$WORKDIR"'
+    PERMISSION_MODE = "force"
+    # Call ids embed a newline, escaped in the JSON.
+    DENIED_LINE = (
+        '{"type":"tool_call","subtype":"completed","call_id":"call_D\\nfc_9",'
+        '"tool_call":{"shellToolCall":{"result":{"rejected":{"command":"curl https://example.com",'
+        '"workingDirectory":"/r","reason":"","isReadonly":false}}}},"session_id":"sess-fixture"}'
+    )
+    # Named by tool kind.
+    DENIED_TOOLS = ["shellToolCall"]
+    LOG_LINES = (
+        '{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/r",'
+        '"session_id":"sess-fixture","model":"GPT-5.4 Mini Low","permissionMode":"default"}',
+        '{"type":"thinking","subtype":"delta","text":"planning","session_id":"sess-fixture"}',
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text",'
+        '"text":"looking"}]},"session_id":"sess-fixture"}',
+        '{"type":"tool_call","subtype":"started","call_id":"call_A\\nfc_1","tool_call":'
+        '{"shellToolCall":{"args":{"command":"pytest -q"}}},"session_id":"sess-fixture"}',
+        '{"type":"tool_call","subtype":"completed","call_id":"call_A\\nfc_1","tool_call":'
+        '{"shellToolCall":{"result":{"success":{"command":"pytest -q","exitCode":0,'
+        '"stdout":"ok","stderr":""}}}},"session_id":"sess-fixture"}',
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text",'
+        '"text":"work done"}]},"session_id":"sess-fixture"}',
+        # result.result concatenates every assistant message.
+        '{"type":"result","subtype":"success","is_error":false,"result":"lookingwork done",'
+        '"session_id":"sess-fixture","usage":{"inputTokens":11,"outputTokens":7,'
+        '"cacheReadTokens":0,"cacheWriteTokens":0}}',
+    )
+
+    def exec_line(self, job_id: str) -> str:
+        return (self.job_dir(job_id) / "run.sh").read_text(encoding="utf-8")
+
+    def bare_submit(self, *arguments: str):
+        """A submit with neither the class's --backend nor its --effort."""
+
+        return self.delegate(
+            "submit", "--repo", str(self.repo), "--prompt-file", str(self.prompt), *arguments
+        )
+
+    def no_jobs(self) -> bool:
+        return not any((self.repo / ".handoff" / "jobs").glob("job-*"))
+
+    def test_fresh_and_resume_command_lines(self):
+        job_id = self.submit("--model", "gpt-5.4-mini-low")
+        run_sh = self.exec_line(job_id)
+        self.assertIn('cd "$WORKDIR"\n', run_sh)
+        self.assertIn(
+            '"$CODEX_BIN" -p "$PROMPT" --output-format stream-json --trust '
+            '--workspace "$WORKDIR" --model "$MODEL" --force '  # risk-ok: Cursor CLI flag name
+            '>"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null',
+            run_sh,
+        )
+        self.finish(job_id)
+        run_sh = self.exec_line(self.resume(job_id).stdout.strip())
+        self.assertIn('cd "$WORKDIR"\n', run_sh)
+        self.assertIn(
+            '"$CODEX_BIN" -p "$PROMPT" --output-format stream-json --trust '
+            '--resume "$SESSION_ID" --force '  # risk-ok: Cursor CLI flag name
+            '>"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null',
+            run_sh,
+        )
+        self.assertNotIn("--model", run_sh)
+        self.assertNotIn("--workspace", run_sh)
+        # R3.5: Handoff writes nothing into Cursor's own configuration.
+        for text in (self.exec_line(job_id), run_sh):
+            self.assertNotIn(".cursor", text)
+            self.assertNotIn("CURSOR_CONFIG_DIR", text)
+        self.assertFalse((self.repo / ".cursor").exists())
+
+    def test_a_fix_round_whose_parent_binary_is_gone_resolves_again(self):
+        """R2.1: resume reuses the parent's binary only while it is executable."""
+
+        job_id = self.submit()
+        self.finish(job_id)
+        meta = self.job_dir(job_id) / "meta"
+        meta.write_text(meta.read_text(encoding="utf-8").replace(
+            self.env["HANDOFF_CURSOR_BIN"], str(self.root / "gone" / "cursor-agent")),
+            encoding="utf-8")
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        child = self.read_meta(result.stdout.strip())
+        self.assertEqual((self.env["HANDOFF_CURSOR_BIN"], "env"),
+                         (child["codex_bin"], child["codex_bin_source"]))
+
+    def test_the_last_assistant_and_the_last_result_win_literally(self):
+        job_id = self.submit()
+        job = self.finish(job_id)
+        empty = ('{"type":"assistant","message":{"role":"assistant","content":[]},'
+                 '"session_id":"sess-fixture"}')
+        later = ('{"type":"result","subtype":"success","result":"x","session_id":"sess-fixture",'
+                 '"usage":{"inputTokens":99,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0}}')
+        job.joinpath("log.jsonl").write_text(
+            "\n".join((*self.LOG_LINES, empty, later)) + "\n", encoding="utf-8")
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual(("", 99), (payload["agent_message"], payload["usage"]["inputTokens"]))
+
+    def test_flags_handoff_owns_or_forbids_never_appear(self):
+        for posture in ("default", "allow-all"):
+            for read_only in (False, True):
+                job_id = self.configured_submit(posture, *(["--read-only"] if read_only else []))
+                self.finish(job_id)
+                child = self.resume(job_id).stdout.strip()
+                for run_sh in (self.exec_line(job_id), self.exec_line(child)):
+                    for flag in ("--worktree", "--sandbox", "--approve-mcps", "--api-key",
+                                 "--stream-partial-output", "--yolo"):
+                        with self.subTest(flag=flag, posture=posture, read_only=read_only):
+                            self.assertNotRegex(run_sh, rf"{flag}(?![-\w])")
+
+    def test_read_only_is_plan_mode_and_never_force(self):
+        job_id = self.submit("--read-only")
+        run_sh = self.exec_line(job_id)
+        self.assertIn("--mode plan", run_sh)
+        self.assertNotIn("--force", run_sh)  # risk-ok: Cursor CLI flag name
+        self.assertEqual("plan", self.read_meta(job_id)["permission_mode"])
+
+    def test_both_postures_force_and_every_writing_job_warns(self):
+        for posture in ("default", "allow-all"):
+            with self.subTest(posture=posture):
+                self.configure_posture(posture)
+                result = self.submit_raw("--role", "fast_worker")
+                self.assertEqual(0, result.returncode, result.stderr)
+                job_id = result.stdout.strip()
+                self.assertIn("--force", self.exec_line(job_id))  # risk-ok: Cursor CLI flag name
+                meta = self.read_meta(job_id)
+                self.assertEqual(("force", posture),
+                                 (meta["permission_mode"], meta["permission_posture"]))
+                self.assertIn("cursor worker running with permission checks bypassed", result.stderr)
+                self.assertIn(".cursor/cli.json", result.stderr)
+                self.assertIn("--read-only", result.stderr)
+        result = self.submit_raw("--read-only")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("permission checks bypassed", result.stderr)
+
+    def test_an_effort_other_than_model_is_refused(self):
+        result = self.bare_submit("--backend", "cursor", "--effort", "high")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid --effort for cursor: high", result.stderr)
+        self.assertIn("Cursor carries effort in the model id", result.stderr)
+        self.configure_posture("default")
+        config = self.repo / ".handoff" / "config.toml"
+        config.write_text(config.read_text().replace('effort = "model"', 'effort = "high"'))
+        result = self.bare_submit("--role", "fast_worker")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Cursor carries effort in the model id", result.stderr)
+        self.assertTrue(self.no_jobs())
+
+    def test_a_role_less_job_gets_the_only_effort(self):
+        result = self.bare_submit("--backend", "cursor", "--dry-run")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        self.assertEqual("model", parse_pairs(result.stdout)["effort"])
+
+    def test_auto_is_refused_at_submit(self):
+        result = self.submit_raw("--model", "auto")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("'auto' is refused on a cursor job", result.stderr)
+        self.assertIn("handoff-config.py set", result.stderr)
+        self.configure_posture("default")
+        config = self.repo / ".handoff" / "config.toml"
+        config.write_text(config.read_text().replace('model = "fixture"', 'model = "auto"'))
+        result = self.bare_submit("--role", "fast_worker")
+        self.assertIn("'auto' is refused on a cursor job", result.stderr)
+        self.assertTrue(self.no_jobs())
+
+    def test_a_backend_contradicting_the_role_is_refused(self):
+        self.configure_posture("default")  # fast_worker is cursor-backed
+        result = self.bare_submit("--role", "fast_worker", "--backend", "codex")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("contradicts identity fast_worker, configured as backend=cursor", result.stderr)
+        (self.repo / ".handoff" / "config.toml").write_text(
+            'schema_version = 2\nrevision = 0\n'
+            '[hosts.claude_code.identities.fast_worker]\n'
+            'backend = "codex"\nmodel = "gpt-fast"\neffort = "high"\n',
+            encoding="utf-8",
+        )
+        result = self.bare_submit("--role", "fast_worker", "--backend", "cursor")
+        self.assertIn("contradicts identity fast_worker, configured as backend=codex", result.stderr)
+        self.assertTrue(self.no_jobs())
+
+    def test_a_model_cursor_rejects_at_launch_is_a_failed_job(self):
+        """Cursor checks the slug when the worker starts, after the job dir exists."""
+
+        refusal = "Cannot use this model: no-such-model. Available models: auto, gpt-5.4-mini-low"
+        write_fake(Path(self.env["HANDOFF_CURSOR_BIN"]),
+                   version_shim("fixture") + f"printf '%s\\n' '{refusal}' >&2\nexit 1\n")
+        job_id = self.submit("--model", "no-such-model")
+        job = self.job_dir(job_id)
+        self.assertTrue(self.await_exit(job))
+        status = self.delegate("status", job_id, "--repo", str(self.repo))
+        self.assertIn("state: FAILED", status.stdout)
+        self.assertEqual(refusal + "\n", (job / "stderr.log").read_text(encoding="utf-8"))
+        self.assertEqual("", (job / "log.jsonl").read_text(encoding="utf-8"))
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual(("", {}), (payload["session_id"], payload["usage"]))
+        refused = self.resume(job_id)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("no session id found", refused.stderr)
+
+    def test_a_killed_job_resumes_on_the_session_its_log_names(self):
+        """Wiring only: that Cursor restores the context is probe G's evidence."""
+
+        job_id = self.submit()
+        job = self.finish(job_id)
+        # Killed while its first tool call ran: no completed event, no result.
+        job.joinpath("log.jsonl").write_text("\n".join(self.LOG_LINES[:4]) + "\n", encoding="utf-8")
+        job.joinpath("exit_code").write_text("137\n", encoding="utf-8")
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        run_sh = self.exec_line(result.stdout.strip())
+        self.assertIn("SESSION_ID=sess-fixture\n", run_sh)
+        self.assertIn('--resume "$SESSION_ID"', run_sh)
+
+    def test_thinking_never_reaches_status_or_result(self):
+        job_id = self.submit()
+        job = self.finish(job_id)
+        thinking = '{"type":"thinking","subtype":"delta","text":"more","session_id":"sess-fixture"}'
+        job.joinpath("log.jsonl").write_text(
+            "\n".join((*self.LOG_LINES, thinking)) + "\n", encoding="utf-8"
+        )
+        status = self.delegate("status", job_id, "--repo", str(self.repo))
+        self.assertIn("last_event: result", status.stdout)
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        # Never result.result, which is every assistant message run together.
+        self.assertEqual("work done", payload["agent_message"])
+        self.assertEqual([], payload["errors"])
+
+    def test_an_unexpected_tool_call_shape_is_skipped_not_fatal(self):
+        job_id = self.submit()
+        job = self.finish(job_id)
+        odd = (
+            '{"type":"tool_call","subtype":"completed","call_id":"x","tool_call":'
+            '{"shellToolCall":null},"session_id":"sess-fixture"}',
+            '{"type":"tool_call","subtype":"completed","call_id":"y","tool_call":'
+            '{"newToolCall":{"result":"rejected"}},"session_id":"sess-fixture"}',
+            '{"type":"tool_call","subtype":"started","call_id":"z","tool_call":[],'
+            '"session_id":"sess-fixture"}',
+        )
+        job.joinpath("log.jsonl").write_text(
+            "\n".join((*self.LOG_LINES[:-1], *odd, self.LOG_LINES[-1])) + "\n", encoding="utf-8"
+        )
+        result = self.delegate("result", job_id, "--repo", str(self.repo), "--json")
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual((0, ["pytest -q"]), (payload["permission_denied"], payload["commands"]))
+        status = self.delegate("status", job_id, "--repo", str(self.repo))
+        self.assertNotIn("permission_denied", status.stdout)
+
+
+class CursorBinaryDiscoveryTests(unittest.TestCase):
+    """The backend is `cursor`, its agent is `cursor-agent`, and `cursor` is the IDE."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.prompt = self.root / "prompt.md"
+        self.prompt.write_text("test prompt\n", encoding="utf-8")
+        self.env = make_env(self.root, "exit 0\n")
+        self.agent = Path(self.env.pop("HANDOFF_CURSOR_BIN"))
+        self.ide = self.root / "ide" / "cursor"
+        self.generic = write_fake(self.root / "generic" / "agent", "exit 0\n")
+
+    def on_path(self, *directories: Path) -> dict[str, str]:
+        env = dict(self.env)
+        env["PATH"] = os.pathsep.join([*map(str, directories), "/usr/bin", "/bin"])
+        return env
+
+    def submit(self, env: dict[str, str], *extra: str):
+        return run_delegate(
+            env, "submit", "--repo", str(self.repo), "--prompt-file", str(self.prompt),
+            "--backend", "cursor", "--effort", "model", *extra,
+        )
+
+    def test_the_ide_launcher_earlier_on_path_is_never_the_worker(self):
+        result = self.submit(self.on_path(self.ide.parent, self.agent.parent))
+        self.assertEqual(0, result.returncode, result.stderr)
+        job = self.repo / ".handoff" / "jobs" / result.stdout.strip()
+        self.addCleanup(settle, job)
+        meta = parse_pairs((job / "meta").read_text(encoding="utf-8"))
+        self.assertEqual((str(self.agent), "path"), (meta["codex_bin"], meta["codex_bin_source"]))
+
+    def test_no_cursor_agent_fails_and_names_the_override(self):
+        # `cursor` and `agent` are both on PATH; neither may be taken.
+        result = self.submit(self.on_path(self.ide.parent, self.generic.parent), "--dry-run")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("cursor-agent", result.stderr)
+        self.assertIn("HANDOFF_CURSOR_BIN", result.stderr)
+        self.assertFalse((self.repo / ".handoff").exists())
+
+    def test_the_override_wins_over_path(self):
+        env = self.on_path(self.ide.parent)
+        env["HANDOFF_CURSOR_BIN"] = str(self.agent)
+        result = self.submit(env, "--dry-run")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = parse_pairs(result.stdout)
+        self.assertEqual((str(self.agent), "env"), (parsed["codex_bin"], parsed["codex_bin_source"]))
 
 if __name__ == "__main__":
     unittest.main()

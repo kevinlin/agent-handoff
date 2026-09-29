@@ -33,10 +33,12 @@ def fields(**overrides) -> dict:
         "cc_job_durations": "none",
         "copilot_jobs": "1",
         "copilot_job_durations": "none",
+        "cursor_jobs": "1",
+        "cursor_job_durations": "none",
         "scope": "project",
         "config_source": "project",
         "roles_used": "none",
-        "receipt_schema_version": "6",
+        "receipt_schema_version": "7",
     }
     base.update(overrides)
     return base
@@ -88,6 +90,7 @@ class ValidateReceiptTests(unittest.TestCase):
         self.assert_one_failure("codex_jobs must be an integer", codex_jobs="two")
         self.assert_one_failure("cc_jobs must be an integer", cc_jobs="two")
         self.assert_one_failure("copilot_jobs must be an integer", copilot_jobs="two")
+        self.assert_one_failure("cursor_jobs must be an integer", cursor_jobs="two")
 
     def test_delegated_implementation_is_a_phase(self):
         self.assertEqual([], validate_receipt.validate(fields(phase="delegated implementation")))
@@ -104,7 +107,15 @@ class ValidateReceiptTests(unittest.TestCase):
         self.assert_one_failure("unknown fields: direction", direction="claude")
 
     def test_old_schema_version_fails(self):
-        self.assert_one_failure("receipt_schema_version must be 6", receipt_schema_version="5")
+        self.assert_one_failure("receipt_schema_version must be 7", receipt_schema_version="6")
+
+    def test_a_v6_receipt_no_longer_validates(self):
+        v6 = fields(receipt_schema_version="6")
+        del v6["cursor_jobs"]
+        del v6["cursor_job_durations"]
+        failures = " ".join(validate_receipt.validate(v6))
+        self.assertIn("missing field: cursor_jobs", failures)
+        self.assertIn("missing field: cursor_job_durations", failures)
 
     def test_a_v5_receipt_no_longer_validates(self):
         v5 = fields(receipt_schema_version="5")
@@ -125,10 +136,15 @@ class ValidateReceiptTests(unittest.TestCase):
             ),
         )
 
+    def test_roles_used_accepts_a_cursor_host(self):
+        self.assertEqual([], validate_receipt.validate(fields(
+            roles_used='[{"role": "fast_worker", "host": "cursor", '
+            '"model": "claude-opus-5-5-high", "effort": "model", "verified": true}]')))
+
     def test_roles_used_rejects_an_unknown_host(self):
         self.assert_one_failure(
             "unknown host",
-            roles_used='[{"role": "fast_worker", "host": "cursor", '
+            roles_used='[{"role": "fast_worker", "host": "gemini", '
             '"model": "m", "effort": "medium", "verified": true}]',
         )
 
@@ -146,7 +162,7 @@ class ValidateReceiptTests(unittest.TestCase):
 
     def test_job_durations_accept_measured_entries_and_reject_junk(self):
         for field in ("codex_job_durations", "cc_job_durations",
-                      "copilot_job_durations"):
+                      "copilot_job_durations", "cursor_job_durations"):
             with self.subTest(field=field):
                 self.assertEqual(
                     [],
@@ -172,7 +188,7 @@ def stamp(moment: datetime) -> str:
 RECEIPT_ARGS = (
     "--phase", "review", "--claude-session", "abc123",
     "--checks", "unittest", "--codex-jobs", "0", "--cc-jobs", "0",
-    "--copilot-jobs", "0",
+    "--copilot-jobs", "0", "--cursor-jobs", "0",
     "--scope", "project", "--config-source", "project", "--roles-used", "[]",
 )
 
@@ -322,23 +338,27 @@ class MakeReceiptTests(unittest.TestCase):
 
         self.write_job(repo, "job-cp", started + timedelta(minutes=7),
                        started + timedelta(minutes=8, seconds=15), backend="copilot")
+        self.write_job(repo, "job-cu", started + timedelta(minutes=9),
+                       started + timedelta(minutes=13), backend="cursor")
 
         emitted = self.make_receipt_fields(repo, "--started-at", stamp(started),
                                            "--codex-jobs", "1", "--cc-jobs", "2",
-                                           "--copilot-jobs", "1")
+                                           "--copilot-jobs", "1", "--cursor-jobs", "1")
         self.assertEqual("job-cx=1min 00sec", emitted["codex_job_durations"])
         self.assertEqual("job-cc=2min 30sec; job-cc-r2=running", emitted["cc_job_durations"])
         self.assertEqual("job-cp=1min 15sec", emitted["copilot_job_durations"])
+        self.assertEqual("job-cu=4min 00sec", emitted["cursor_job_durations"])
 
     def test_an_unknown_backend_line_buckets_as_codex(self):
         repo = self.temp_repo()
         started = datetime.now(timezone.utc) - timedelta(hours=1)
         self.write_job(repo, "job-x", started + timedelta(minutes=1),
-                       started + timedelta(minutes=2), backend="cursor")
+                       started + timedelta(minutes=2), backend="gemini")
         emitted = self.make_receipt_fields(repo, "--started-at", stamp(started),
                                            "--codex-jobs", "1")
         self.assertEqual("job-x=1min 00sec", emitted["codex_job_durations"])
         self.assertEqual("none", emitted["copilot_job_durations"])
+        self.assertEqual("none", emitted["cursor_job_durations"])
 
     def test_ended_at_pins_the_far_end_of_the_duration(self):
         repo = self.temp_repo()

@@ -10,7 +10,7 @@ This document is the design of record for that layer: the identity model, the co
 
 ### Scope
 
-Covered: the five identities and what each takes, the resolution chain from a task row to a running job, the configuration schema and its ownership rules, the setup wizard (detect, preset, preview, apply, smoke, rollback, uninstall), permission posture, and the Copilot model catalogue.
+Covered: the five identities and what each takes, the resolution chain from a task row to a running job, the configuration schema and its ownership rules, the setup wizard (detect, preset, preview, apply, smoke, rollback, uninstall), permission posture, and the Copilot and Cursor model catalogues.
 
 | Out of scope | Where it lives |
 | --- | --- |
@@ -22,7 +22,7 @@ Covered: the five identities and what each takes, the resolution chain from a ta
 
 ### The invariant everything here rests on
 
-**The identity's configured `backend` decides which CLI runs a job — always.** All three values — `claude`, `codex`, `copilot` — are first-class execution channels. `backend = "claude"` is not a subagent-only marker and `backend = "copilot"` is not a second-class one: `delegate-codex.sh --role <identity>` runs any of them as a background job with the same jobId, job directory, monitoring, fix-round `resume`, worktree lifecycle, and receipt evidence.
+**The identity's configured `backend` decides which CLI runs a job — always.** All four values — `claude`, `codex`, `copilot`, `cursor` — are first-class execution channels. `backend = "claude"` is not a subagent-only marker and `backend = "copilot"` is not a second-class one: `delegate-codex.sh --role <identity>` runs any of them as a background job with the same jobId, job directory, monitoring, fix-round `resume`, worktree lifecycle, and receipt evidence.
 
 A per-job `--backend` that contradicts a configured identity is refused rather than honoured. Swapping a row onto a cheaper meter is a change to this file, visible in a diff, not a side effect of delegating.
 
@@ -51,7 +51,7 @@ task row names an identity
   → delegate-codex.sh --role <identity>
   → handoff-config.py resolve      (session → project → global → defaults, per field)
   → backend + model + effort + permission_mode
-  → codex exec --json | claude --print --output-format stream-json | copilot -p --output-format json
+  → codex exec --json | claude --print --output-format stream-json | copilot -p --output-format json | cursor-agent -p --output-format stream-json
   → .handoff/jobs/<jobId>/meta     (every value, and where it came from)
 ```
 
@@ -66,9 +66,9 @@ Resolution is per field, so an override for one identity field does not erase un
 | No Handoff config at all | A default model would bill someone silently; the error names `/agent-handoff config` | `delegate-codex.sh` submit |
 | `--backend` contradicting a named role | Moving work onto another vendor is a config change, and the message names the `handoff-config.py set` that would make it legitimate | `delegate-codex.sh` submit |
 | An effort the chosen CLI does not accept | The enums are per vendor, never one shared list | `validate_effort` in `delegate-codex.sh`, `validate_backend_efforts` in `handoff-setup.py` |
-| `model = "auto"` on copilot | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what Copilot picked rather than what the repo configured | `delegate-codex.sh` submit, and `validate_backend_models` at setup |
+| `model = "auto"` on copilot or cursor | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what the vendor picked rather than what the repo configured | `delegate-codex.sh` submit, and `validate_backend_models` at setup |
 
-The effort enums, for reference: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`. Copilot's is the CLI's superset. Which efforts a given Copilot model actually accepts is narrower, and the wizard reads that per-model list from the entitlement catalogue.
+The effort enums, for reference: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor takes only `model`, meaning "set by the model id". Cursor's effort is part of the model slug and is never passed as a separate flag. Copilot's is the CLI's superset. Which efforts a given Copilot model actually accepts is narrower, and the wizard reads that per-model list from the entitlement catalogue.
 
 ## Locations and precedence
 
@@ -138,7 +138,7 @@ schema_version = 2
 revision = 0
 
 [hosts.claude_code.identities.deep_reasoner]
-backend = "claude"          # claude | codex | copilot — which CLI executes
+backend = "claude"          # claude | codex | copilot | cursor — which CLI executes
 model = "opus"
 effort = "high"
 permission_mode = "default" # default | allow-all
@@ -185,9 +185,9 @@ always_on_host_rules = false
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
 | `hosts.claude_code` | table | per configured identity | The owned namespace. The `hosts.*` nesting is retained so configs written by earlier versions keep loading. |
 | `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. |
-| `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, or `copilot`. All three are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
-| `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot`, `auto` is refused at submit — name a concrete model. The wizard offers the account's entitled models rather than a text field. |
-| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort passed to the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`. A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
+| `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, or `cursor`. All four are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
+| `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot` and `cursor`, `auto` is refused at submit: name a concrete model. The wizard offers account models rather than a text field. |
+| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort for the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor takes only `model` (set by the model id, not passed as a flag). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
 | `hosts.claude_code.identities.<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
 | `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
@@ -207,6 +207,7 @@ Each of these fails closed in the safe direction: an older engine refuses a file
 | --- | --- | --- |
 | `e2e_specifier` / `e2e_verifier` | pre-3.2 refuses | `validate_config` raises on an identity name it does not recognise |
 | `backend = "copilot"` | pre-3.7 refuses | `validate_config` gates `backend` on the known tuple |
+| `backend = "cursor"` | pre-3.9 refuses | `validate_config` gates `backend` on the known tuple |
 | `[review]` | pre-3.8 ignores it | an unknown section round-trips rather than failing |
 
 `schema_version` stays `2` through all of this: adding identity names or a section does not change the document shape.
@@ -270,20 +271,21 @@ Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates
 
 ## Permission posture (v3.7.1)
 
-`default` is the CLI's own normal, bounded posture. Nothing prompts (a background
-job has no approval surface), so an unapproved action denies. `allow-all` means
-*use the provider's native unrestricted mode*, not force three CLIs into one
-security posture.
+`default` is the CLI's own normal, bounded posture; on cursor it is the force mode, because no
+narrower Cursor mode let a probed worker run its checks. Nothing prompts (a background
+job has no approval surface), so an unapproved action denies. `allow-all` means *use the provider's native unrestricted mode*,
+not force all CLIs into one security posture. On cursor, the two postures are the same.
 
 | Backend | `default` | `allow-all` |
 |---|---|---|
 | claude | `--permission-mode dontAsk --allowed-tools Read Glob Grep Edit Write Bash` | `--permission-mode bypassPermissions` |
 | codex (fresh and resume) | No sandbox flag or override; the user's codex config decides | `--dangerously-bypass-approvals-and-sandbox` |
 | copilot | `--allow-all-tools` | `--allow-all-tools --allow-all-paths --allow-all-urls` |
+| cursor | `--force` | `--force` | <!-- risk-ok: Cursor CLI flag name -->
 
-Only claude changes behaviour under `default`. Codex and copilot `default` are
+Among the three backends supported in v3.7.1, only claude changed behaviour under `default`. Codex and copilot `default` are
 exactly what they emitted before; `allow-all` is a new, opt-in escalation on all
-three. This deliberately narrows the blast radius for a patch release.
+three. Cursor's two postures use its force mode, so changing the field alone does not narrow it.
 
 Claude's default set is enough to edit and verify: a `default` worker was
 measured editing a file and running its own check script. Under `dontAsk` a tool
@@ -301,8 +303,8 @@ Precedence: `--read-only` > `HANDOFF_CLAUDE_PERMISSION_MODE` (claude only) >
 config `permission_mode` > `default`. The legacy env override is still
 validated before read-only overrides it. Read-only maps to `-s read-only`
 on fresh codex jobs (`-c 'sandbox_mode="read-only"'` on resume),
-`--permission-mode plan` on claude, and `--mode plan` on copilot. Copilot
-read-only never carries any allow-all flags.
+`--permission-mode plan` on claude, and `--mode plan` on copilot and cursor. Copilot
+read-only never carries any allow-all flags; cursor read-only never carries its force flag.
 
 Resolution materializes the default after merging: global `allow-all` plus a
 project identity omitting the field keeps `allow-all`. Like `model_source`,
@@ -317,7 +319,7 @@ Job `meta` and dry-run output record requested `permission_posture`, its
 `read-only`, `parent`, or `default`), and the effective concrete
 `permission_mode`. Overrides change the source and effective mode while the
 requested posture remains visible. Warnings use the effective mode. Receipt
-schema stays v6: `roles_used` rejects additional properties, so posture
+Receipt schema is v7: `roles_used` rejects additional properties, so posture
 evidence stays in job `meta`.
 
 Changing posture does not invalidate `verified` or `verified_at`. Smoke

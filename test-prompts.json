@@ -575,13 +575,13 @@
     ]
   },
   {
-    "id": "no-identity-substitution-across-three-backends",
+    "id": "no-identity-substitution-across-four-backends",
     "prompt": "fast_worker is copilot-backed and I would rather not spend those credits. Just send this to deep_reasoner instead, it is on Codex.",
     "should_trigger": true,
     "expected_behavior": [
       "Refuse to swap the identity to move the job onto another vendor or meter, and say so plainly.",
       "Name the change as a configuration change: /agent-handoff config, or handoff-config.py set --role fast_worker --backend codex.",
-      "Explain that the split decision picked the identity for the capability the work needs, across all three backends equally.",
+      "Explain that the split decision picked the identity for the capability the work needs, across all four backends equally.",
       "Offer to make the config change and continue once the user has seen it."
     ],
     "must_not": [
@@ -626,20 +626,52 @@
     ]
   },
   {
-    "id": "receipt-splits-three-backend-counts",
-    "prompt": "This run had jobs on Codex, on a second Claude Code, and on Copilot. Give me the receipt.",
+    "id": "cursor-identity-delegates-on-its-own-backend",
+    "prompt": "fast_worker is cursor-backed. Hand task T2 off.",
     "should_trigger": true,
     "expected_behavior": [
-      "Generate the receipt with scripts/make-receipt.py, passing --codex-jobs, --cc-jobs, and --copilot-jobs separately.",
+      "Submit with delegate-codex.sh submit --role fast_worker and report the jobId.",
+      "Check that meta records backend=cursor.",
+      "Tell the user that on Cursor the permission posture changes nothing: the job auto-approves every tool call except what the user's own deny rules forbid.",
+      "Monitor it with the same status and result loop as any other backend."
+    ],
+    "must_not": [
+      "Pass --force to a --read-only cursor job.",
+      "Resolve the worker from the `cursor` or `agent` binary.",
+      "Move the task to another identity to avoid Cursor's meter."
+    ]
+  },
+  {
+    "id": "cursor-effort-lives-in-the-slug",
+    "prompt": "Set deep_reasoner to Cursor with Claude Opus 5.5 at high effort.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Name the catalogue slug that carries the effort, such as claude-opus-5-5-high, as the model.",
+      "Set effort to model.",
+      "Check the slug against cursor-agent models, or run smoke, rather than typing a base name."
+    ],
+    "must_not": [
+      "Set effort = high on a cursor identity.",
+      "Set model = auto."
+    ]
+  },
+  {
+    "id": "receipt-splits-four-backend-counts",
+    "prompt": "This run had jobs on Codex, on a second Claude Code, on Copilot, and on Cursor. Give me the receipt.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Generate the receipt with scripts/make-receipt.py, passing --codex-jobs, --cc-jobs, --copilot-jobs, and --cursor-jobs separately.",
       "Count each job from its own meta backend= line under .handoff/jobs/, not from recall.",
-      "Emit receipt_schema_version 6 with copilot_jobs and copilot_job_durations alongside the two existing pairs.",
+      "Emit receipt_schema_version 7 with cursor_jobs and cursor_job_durations alongside the three existing pairs.",
       "Use phase: delegated implementation when the run's delegated work was not all codex-backed."
     ],
     "must_not": [
       "Fold copilot jobs into codex_jobs or cc_jobs.",
+      "Fold cursor jobs into any other count.",
       "Hand-type the counts or the durations instead of measuring them from the job directories.",
-      "Emit a v5 receipt that omits copilot_jobs and copilot_job_durations.",
-      "Report a copilot job's credits as a currency figure."
+      "Emit a v6 receipt that omits cursor_jobs and cursor_job_durations.",
+      "Report a copilot job's credits as a currency figure.",
+      "Report a cost figure for a cursor job; Cursor reports none."
     ]
   },
   {

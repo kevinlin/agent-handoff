@@ -5,11 +5,11 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.8.1](https://img.shields.io/badge/version-3.8.1-ef6f4f)](CHANGELOG.md)
+[![Version: 3.9.0](https://img.shields.io/badge/version-3.9.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Claude Code plans, splits, and signs off. A worker CLI does the work as a background job — Codex on its own subscription, a second Claude Code, or GitHub Copilot on its AI credits. The driver's quota and context window go further, and the driver still reads every diff before it accepts it.**
+**Claude Code plans, splits, and signs off. A worker CLI does the work as a background job — Codex on its own subscription, a second Claude Code, GitHub Copilot on its AI credits, or Cursor on its meter. The driver's quota and context window go further, and the driver still reads every diff before it accepts it.**
 
 [Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [How The Flow Runs](#how-the-flow-runs) · [User Guide](docs/user-guide/agent-handoff.html) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
 
@@ -39,7 +39,7 @@ cd agent-handoff
 bash install.sh
 ```
 
-Before first real use, say `/agent-handoff config`. Handoff opens a local page bound only to `127.0.0.1`. On it you pick a balanced, quality, or cost preset and set each identity's CLI, model, and effort. The beginner flow does not ask about project scope, local Git exclusion, or post-install checks; it sets safe defaults for them. The page shows the exact diff before you confirm. Codex models and per-model efforts come from the local CLI `model/list`; Claude aliases and efforts come from `claude --help`. Copilot publishes no model catalog, so you type its model name and the CLI checks the model-and-effort pair when you install. Nothing is guessed.
+Before first real use, say `/agent-handoff config`. Handoff opens a local page bound only to `127.0.0.1`. On it you pick a balanced, quality, or cost preset and set each identity's CLI, model, and effort. The beginner flow does not ask about project scope, local Git exclusion, or post-install checks; it sets safe defaults for them. The page shows the exact diff before you confirm. Codex models and per-model efforts come from the local CLI `model/list`; Claude aliases and efforts come from `claude --help`. Copilot models come from the account entitlement catalogue. Cursor models come from `cursor-agent models` when the page opens; the Cursor model slug carries effort, so effort is always `model`. Smoke checks the configured Cursor slug before a read-only Cursor run.
 
 <div align="center">
 <p><strong>Configuration demo: switch operating mode, CLI, model, and reasoning effort</strong></p>
@@ -106,11 +106,11 @@ python3 ~/.claude/skills/agent-handoff/scripts/handoff-session-ui.py --repo /pat
 
 <div align="center">
 <a href="docs/user-guide/diagrams/handoff-lifecycle.svg">
-<img src="docs/user-guide/diagrams/handoff-lifecycle.svg" alt="Agent Handoff as five phase columns over three lanes. In plan and split, Claude Code writes goal.md, attacks its own split at the adversarial gate, and sends the plan to deep_reasoner for a read-only spec review before it reaches you. In delegate, a packet and a role become one background job per row on codex, claude or copilot, and bad routing is refused before any job exists. Monitor reads each job's state off disk and handles anomalies. Full review checks the whole diff against goal.md and sends a failing one back as a resume fix round. The spec review and the fix rounds both go to the arbiter at their cap. Wrap up writes the receipt, and a strip below lists what every packet carries." width="900" />
+<img src="docs/user-guide/diagrams/handoff-lifecycle.svg" alt="Agent Handoff as five phase columns over three lanes. In plan and split, Claude Code writes goal.md, attacks its own split at the adversarial gate, and sends the plan to deep_reasoner for a read-only spec review before it reaches you. In delegate, a packet and a role become one background job per row on codex, claude, copilot, or cursor, and bad routing is refused before any job exists. Monitor reads each job's state off disk and handles anomalies. Full review checks the whole diff against goal.md and sends a failing one back as a resume fix round. The spec review and the fix rounds both go to the arbiter at their cap. Wrap up writes the receipt, and a strip below lists what every packet carries." width="900" />
 </a>
 </div>
 
-Claude Code drives five steps. It plans the work and splits it into one row per identity, then attacks its own split: a row that fails the gate is fixed before anything leaves the driver. `deep_reasoner` reads the plan before you do. Each surviving row goes to a worker CLI as a background job with its own jobId. The backend (Codex, a second Claude Code, or Copilot) comes from the identity's config, and the job looks the same on all three. The driver checks the job's status on disk instead of holding its history in context. When the job finishes, the driver reads the whole diff against `.handoff/goal.md`. A diff that fails goes back to the same worker session as a fix round, within the review cap (three passes by default); if findings are still open after the last pass, the arbiter rules on the dispute. A diff that passes goes to wrap up, which writes the session receipt.
+Claude Code drives five steps. It plans the work and splits it into one row per identity, then attacks its own split: a row that fails the gate is fixed before anything leaves the driver. `deep_reasoner` reads the plan before you do. Each surviving row goes to a worker CLI as a background job with its own jobId. The backend (Codex, a second Claude Code, Copilot, or Cursor) comes from the identity's config, and the job looks the same on all four. The driver checks the job's status on disk instead of holding its history in context. When the job finishes, the driver reads the whole diff against `.handoff/goal.md`. A diff that fails goes back to the same worker session as a fix round, within the review cap (three passes by default); if findings are still open after the last pass, the arbiter rules on the dispute. A diff that passes goes to wrap up, which writes the session receipt.
 
 The [user guide](docs/user-guide/agent-handoff.html) walks through the whole thing in five parts, each with its own diagrams under [`docs/user-guide/diagrams/`](docs/user-guide/diagrams/):
 
@@ -135,7 +135,7 @@ The numbers below come from a showcase workload model. They are not API billing 
 | Mechanical edits bill the Claude API meter | Mechanical edits land on whichever backend the identity names — the Codex subscription by default |
 | Execution history fills the driver's context | It stays in the job directory; the driver reads a result |
 | "I delegated it" is just a claim | Every task has a jobId, with the real backend/model/effort in its meta |
-| Token savings stay hand-wavy | The receipt says `codex_jobs`, `cc_jobs`, `copilot_jobs`, and `roles_used` |
+| Token savings stay hand-wavy | The receipt says `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs`, and `roles_used` |
 
 Three operating modes:
 
@@ -158,12 +158,14 @@ cc_jobs: 1
 cc_job_durations: job-t2=9min 30sec
 copilot_jobs: 1
 copilot_job_durations: job-t3=4min 47sec
+cursor_jobs: 0
+cursor_job_durations: none
 checks: bash scripts/check-skill-repo.sh .; jq schema check; git diff --check
 anomalies: none
 scope: project
 config_source: project
 roles_used: [{"role":"fast_worker","host":"codex","model":"gpt-fast","effort":"high","verified":true}]
-receipt_schema_version: 6
+receipt_schema_version: 7
 ```
 
 When exact token telemetry is unavailable, Handoff reports verifiable behavior: which work ran on which backend, how many jobs and fix rounds, that the full diff was read against the acceptance criteria, and that the checks passed.
@@ -187,7 +189,7 @@ Worker CLI (background jobs, on the identity's configured backend):
   implement -> report -> bounded fix rounds on the same session
 ```
 
-One channel carries delegated work: the Handoff background job (`delegate-codex.sh --role <identity>`, with durable state, loop monitoring, and resume rework). It runs on whichever CLI the identity's `backend` names — Codex, a second Claude Code, or GitHub Copilot — and everything about the job is identical on all three. In-process subagents are the two escape hatches, for a stuck-step assist or work no identity fits. Quality-critical steps stay in the driving session even though it is the expensive seat.
+One channel carries delegated work: the Handoff background job (`delegate-codex.sh --role <identity>`, with durable state, loop monitoring, and resume rework). It runs on whichever CLI the identity's `backend` names — Codex, a second Claude Code, GitHub Copilot, or Cursor — and everything about the job is identical on all four. In-process subagents are the two escape hatches, for a stuck-step assist or work no identity fits. Quality-critical steps stay in the driving session even though it is the expensive seat.
 
 Routing is never re-decided per run. To move a task to another vendor, change the config, where the change is visible. The driver cannot quietly swap a row to a cheaper identity: `delegate-codex.sh` refuses a per-job `--backend` that contradicts the identity's configuration.
 
@@ -225,17 +227,17 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 
 ### Jobs
 
-- `scripts/delegate-codex.sh` runs each task as a background job on Codex (`codex exec`), Claude Code (`claude --print`), or Copilot (`copilot -p`). The job shape and lifecycle are the same on all three: submit, status, resume, cancel. State lives in `<repo>/.handoff/jobs/`.
+- `scripts/delegate-codex.sh` runs each task as a background job on Codex (`codex exec`), Claude Code (`claude --print`), Copilot (`copilot -p`), or Cursor (`cursor-agent -p`). The job shape and lifecycle are the same on all four: submit, status, resume, cancel. State lives in `<repo>/.handoff/jobs/`.
 - `scripts/goal-sync.py` guards `.handoff/goal.md` with a sha256 check, so the monitor loop and the driver can't overwrite each other.
 
 ### Evidence after the run
 
 | Output | How to get it | What it shows |
 |---|---|---|
-| Session Receipt (schema v6) | Written at wrap-up; `scripts/validate-receipt.py` checks it | Wall-clock `duration`; `codex_jobs`, `cc_jobs`, `copilot_jobs` with per-job durations; checks; anomalies; `roles_used` with the backend, model, and effort that actually ran |
+| Session Receipt (schema v7) | Written at wrap-up; `scripts/validate-receipt.py` checks it | Wall-clock `duration`; `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs` with per-job durations; checks; anomalies; `roles_used` with the backend, model, and effort that actually ran |
 | Session page | `/agent-handoff visualise [<receipt-file>]` | The whole run on one loopback page: a clickable timeline, each job's transcript, the cost receipt, session facts, denials and anomalies. The timeline's prose is hand-written and unchecked; every other tab is read from disk. [Release notes](docs/releases/v3.7.2.md) |
-| Job transcript | `/agent-handoff transcript` | One job's `log.jsonl` as a readable HTML page, in any of the three backends' event formats. Drop a `log.jsonl` on the page to render a job from another repo |
-| Cost receipt | `/agent-handoff cost-receipt` | Measured numbers only. Codex jobs: token counters (the CLI emits no cost). Claude jobs: the CLI's own `total_cost_usd`. Copilot jobs: token counters, premium requests, and nano-AIU, which are AI credits, not money. No saving is computed. [Example](assets/v3.6.1-conversation-cost-receipt.png) |
+| Job transcript | `/agent-handoff transcript` | One job's `log.jsonl` as a readable HTML page, in any of the four backends' event formats. Drop a `log.jsonl` on the page to render a job from another repo |
+| Cost receipt | `/agent-handoff cost-receipt` | Measured numbers only. Codex jobs: token counters (the CLI emits no cost). Claude jobs: the CLI's own `total_cost_usd`. Copilot jobs: token counters, premium requests, and nano-AIU, which are AI credits, not money. Cursor jobs: token counters, with no cost figure. No saving is computed. [Example](assets/v3.6.1-conversation-cost-receipt.png) |
 
 ### Configuration
 
@@ -251,15 +253,15 @@ Five identities, each a `backend + model + effort` triple set on its own. `backe
 
 Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md)). All values live in `.handoff/config.toml`, project or global, and nowhere else.
 
-- `/agent-handoff config` opens the setup wizard: balanced, quality, or cost presets, editable per identity. It shows the exact diff before writing. Models and efforts come from each CLI's own list, except Copilot's model, which you type because Copilot publishes no catalog. After install it smoke-tests each configured backend.
+- `/agent-handoff config` opens the setup wizard: balanced, quality, or cost presets, editable per identity. It shows the exact diff before writing. Codex and Claude models come from their CLIs, Copilot models from account entitlements, and Cursor models from `cursor-agent models`. Cursor effort is fixed at `model`. After install it smoke-tests each configured backend.
 - Darwin ratchet ([`references/darwin-ratchet.md`](references/darwin-ratchet.md)): change the workflow one dimension at a time, and keep a change only when repo evidence improves.
 
 ## Safety
 
 - Each identity sets `permission_mode` to `default` or `allow-all`. See [the schema](docs/specs/design_agent-identities-and-config.md#permission-posture-v371) for the full mappings and research deviations.
-  - Under `default`, Claude runs in `dontAsk` mode with the tools `Read Glob Grep Edit Write Bash`. Codex inherits your own config with no sandbox flags. Copilot runs with `--allow-all-tools` and keeps its path and URL checks. Of the three, only Claude's flags changed when posture was added; Codex and Copilot keep the flags they had before.
-  - Under `allow-all`, each provider uses its own unrestricted mode. The three CLIs do not share one security posture.
-  - Read-only overrides both the configured posture and the Claude environment override, though the environment value is still validated first. It drops Claude's worker allowlist and Copilot's allow-all flags.
+  - Under `default`, Claude runs in `dontAsk` mode with the tools `Read Glob Grep Edit Write Bash`. Codex inherits your own config with no sandbox flags. Copilot runs with `--allow-all-tools` and keeps its path and URL checks. Cursor runs in its force mode under both postures; user or project deny rules in `.cursor/cli.json` are the only narrowing. Every writing Cursor job prints a bypass warning.
+  - Under `allow-all`, each provider uses its own unrestricted mode. The four CLIs do not share one security posture.
+  - Read-only overrides both the configured posture and the Claude environment override, though the environment value is still validated first. It drops Claude's worker allowlist and Copilot's allow-all flags; Cursor uses `--mode plan`.
   - A resumed job inherits its parent's posture and read-only setting. If the parent has no recorded posture, the resume uses `default`, never `allow-all`. Warnings follow the mode that actually runs.
   - No OS-level sandbox is added for Claude under `default`. Codex denials are not counted, and `permission_denied` is advisory, so verify edits and check results on disk.
 - Delegating is not handing over control: architecture, the split decision, cross-task integration, security- and correctness-critical paths, and final acceptance all stay with the driving session.
@@ -267,7 +269,7 @@ Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-gaun
 - Do not change repo visibility, tag releases, publish to registries, or announce externally without explicit permission.
 - Do not use `git reset --hard` as the default rollback path. Prefer reviewable diffs or reverts.
 - Git does not track `.handoff/config.toml` by default. Setup adds it to `.git/info/exclude` and leaves your `.gitignore` alone.
-- No backend invents a model name. A failed model detection, or a model Copilot refuses, stops with an error you have to resolve.
+- No backend invents a model name. A failed model detection or a rejected model stops with an error you have to resolve. A Cursor model rejected at launch leaves a failed job and Cursor's message in `stderr.log`.
 - The managed routing block, a persistent routing section Handoff can write into CLAUDE.md, is off by default. If its markers are corrupted in any of the five known ways, Handoff refuses to edit it and explains why.
 - The full protocol (Plan→Goal→PR→Verification) follows the same rules. Merge, production, tags, force-push, deletion, destructive migration, and external publish each need their own explicit instruction, and an earlier "continue" does not count.
 

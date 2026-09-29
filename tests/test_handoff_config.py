@@ -186,7 +186,7 @@ class BackendValidationTests(unittest.TestCase):
         self.assertIn("backend must be one of claude, codex", str(raised.exception))
 
     def test_every_supported_backend_validates(self):
-        for backend in ("claude", "codex", "copilot"):
+        for backend in ("claude", "codex", "copilot", "cursor"):
             with self.subTest(backend=backend):
                 handoff_config.validate_config(
                     self.identity_document(f'backend = "{backend}"\n')
@@ -197,7 +197,7 @@ class BackendValidationTests(unittest.TestCase):
 
         with self.assertRaises(handoff_config.ConfigValidationError) as raised:
             handoff_config.validate_config(self.identity_document('backend = "gemini"\n'))
-        self.assertIn("backend must be one of claude, codex, copilot", str(raised.exception))
+        self.assertIn("backend must be one of claude, codex, copilot, cursor", str(raised.exception))
 
 
 class LegacyMigrationTests(unittest.TestCase):
@@ -505,6 +505,17 @@ class CliTests(unittest.TestCase):
             self.assertFalse(identity["verified"])
             self.assertNotIn("verified_at", identity)
 
+
+    def test_a_cursor_identity_is_written_and_validates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = ("--repo", directory)
+            self.assertEqual(0, self.run_cli(*base, "init")[0])
+            status, _, error = self.run_cli(
+                *base, "set", "--role", "fast_worker", "--backend", "cursor",
+                "--model", "claude-opus-5-5-high", "--effort", "model",
+            )
+            self.assertEqual((0, ""), (status, error))
+            self.assertEqual(0, self.run_cli(*base, "validate")[0])
 
 class LockTests(unittest.TestCase):
     def test_held_lock_refuses_and_stale_lock_is_reclaimed(self):

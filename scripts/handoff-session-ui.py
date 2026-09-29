@@ -216,6 +216,12 @@ def denials(job, backend):
             {'tool': item.get('tool_name', 'details unavailable'),
              'command': item.get('tool_input', 'details unavailable')}
             for item in items if isinstance(item, dict)]}
+    if backend == 'cursor':
+        return {'state': 'reported', 'items': [
+            {'tool': kind, 'command': rejected.get('command', 'details unavailable')}
+            for kind, rejected in cost.cursor_rejections(events)]}
+    if backend != 'copilot':
+        return {'state': f'not reported ({backend})', 'items': []}
     starts = {}
     for event in events:
         data = event.get('data')

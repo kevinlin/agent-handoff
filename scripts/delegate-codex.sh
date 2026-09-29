@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # The name is historical: this is the delegation primitive for ALL backends.
 # It wraps `codex exec --json`, `claude --print --output-format stream-json`,
-# and `copilot -p --output-format json`
+# `copilot -p --output-format json`, and `cursor-agent -p --output-format stream-json`
 # as background jobs with durable state under <repo>/.handoff/jobs/<jobId>/ so
 # a Claude Code session (or a /loop tick) can submit work to a worker CLI, poll
 # it, collect the result, and send follow-up fix rounds against the same worker
@@ -29,12 +29,12 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 delegate-codex.sh — background delegation jobs for the Handoff flow
-(the name is historical; it drives the codex, claude, and copilot backends)
+(the name is historical; it drives the codex, claude, copilot, and cursor backends)
 
 Usage:
   delegate-codex.sh submit --repo <path> --prompt-file <file>
                     [--label <name>] [--effort <level>] [--model <model>]
-                    [--backend codex|claude|copilot]
+                    [--backend codex|claude|copilot|cursor]
                     [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
                     [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
@@ -49,7 +49,7 @@ Defaults: --backend codex, --effort high (Handoff default for delegated
 work), permission_mode=default: codex inherits the user's config, claude uses
 dontAsk with Read Glob Grep Edit Write Bash, copilot keeps --allow-all-tools. Use --read-only for review/adversarial
 jobs that must not touch the repo; it maps to `-s read-only` on codex,
-`--permission-mode plan` on claude, and `--mode plan` on copilot.
+`--permission-mode plan` on claude, and `--mode plan` on copilot and cursor.
 
 On copilot, `--mode plan` and `--allow-all-tools` are never generated together.
 Passing both was probed: plan mode still won on disk, but the worker emitted no
@@ -79,10 +79,25 @@ CLI's superset — which efforts a given copilot model accepts is decided per
 model by the API, and a rejected pair surfaces as Copilot's own error rather
 than being silently downgraded.
 
-`--model auto` is refused on a copilot job. An identity is a deliberate
+`--model auto` is refused on a copilot or cursor job. An identity is a deliberate
 backend + model + effort choice; `auto` hands the model choice back to the
 vendor per request, so the job's record would name what Copilot picked rather
 than what the repo configured.
+
+Cursor takes one effort, `model`: Cursor carries effort inside the model slug
+(claude-opus-5-5-high), so the slug is the whole choice. A role-less cursor job
+that names no --effort gets `model`.
+
+On cursor the permission posture changes nothing: default and allow-all both
+run in Cursor's force mode (-f), because no narrower Cursor mode let a probed
+worker run its own checks. Deny rules in .cursor/cli.json are the only
+narrowing, and every writing cursor job prints the bypass warning. A cursor job
+never carries --worktree, --sandbox, --approve-mcps, --api-key,
+--stream-partial-output, or --yolo.
+
+The cursor backend's binary is `cursor-agent`, set with HANDOFF_CURSOR_BIN.
+`cursor` on PATH is the Cursor IDE launcher and `agent` is too generic a name,
+so neither is ever resolved.
 
 A copilot job's session id is assigned at submit rather than extracted at the
 end: Copilot emits `sessionId` only in its terminal event, so a job that dies
@@ -171,10 +186,11 @@ is_git_repo() {
 resolve_worker_bin() {
   # Finds the CLI for one backend. The CODEX_* variable names are kept so the
   # meta keys and resume's parent-binary reuse stay unchanged across backends.
-  local backend="$1" env_var configured candidate=""
+  local backend="$1" env_var configured candidate="" bin_name="$1"
   case "$backend" in
     claude) env_var="HANDOFF_CLAUDE_BIN" ;;
     copilot) env_var="HANDOFF_COPILOT_BIN" ;;
+    cursor) env_var="HANDOFF_CURSOR_BIN" ;;
     *) env_var="HANDOFF_CODEX_BIN" ;;
   esac
   configured="${!env_var:-}"
@@ -212,11 +228,13 @@ resolve_worker_bin() {
     CODEX_BIN_SOURCE="path"
   fi
 
+  # The cursor backend's agent is `cursor-agent`; `cursor` on PATH is the IDE.
+  [ "$backend" = "cursor" ] && bin_name="cursor-agent"
   if [ -z "$candidate" ]; then
-    candidate="$(command -v "$backend" 2>/dev/null || true)"
+    candidate="$(command -v "$bin_name" 2>/dev/null || true)"
     CODEX_BIN_SOURCE="path"
   fi
-  [ -n "$candidate" ] && [ -x "$candidate" ] || die "$backend CLI not found; install it or set $env_var"
+  [ -n "$candidate" ] && [ -x "$candidate" ] || die "$bin_name CLI not found; install it or set $env_var"
 
   CODEX_BIN="$candidate"
   CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
@@ -269,6 +287,7 @@ validate_effort() {
     # is decided per model by the API, and that rejection surfaces as Copilot's
     # own error rather than being silently downgraded here.
     copilot) case "$2" in none|minimal|low|medium|high|xhigh|max) ;; *) die "invalid --effort for copilot: $2" ;; esac ;;
+    cursor) [ "$2" = "model" ] || die "invalid --effort for cursor: $2 (Cursor carries effort in the model id; name the variant in --model and use --effort model)" ;;
     *) case "$2" in minimal|low|medium|high|xhigh|max|ultra) ;; *) die "invalid --effort: $2" ;; esac ;;
   esac
 }
@@ -297,6 +316,14 @@ resolve_copilot_permission_mode() {
   return 0
 }
 
+resolve_cursor_permission_mode() {
+  # Both postures map to Cursor's force mode: probed, no narrower mode let a
+  # worker run its checks. Read-only is plan mode and never force.
+  PERMISSION_MODE="force"
+  [ "$1" = "true" ] && PERMISSION_MODE="plan"
+  return 0
+}
+
 resolve_codex_permission_mode() {
   PERMISSION_MODE=""
   [ "$2" = "allow-all" ] && PERMISSION_MODE="allow-all"
@@ -316,12 +343,14 @@ resolve_permission_mode() {
 
 warn_permission_bypass() {
   case "$BACKEND:$PERMISSION_MODE" in
-    claude:bypassPermissions|copilot:allow-all-tools|copilot:allow-all|codex:allow-all) ;;
+    claude:bypassPermissions|copilot:allow-all-tools|copilot:allow-all|codex:allow-all|cursor:force) ;;
     *) return 0 ;;
   esac
   echo "WARN $1 is a $BACKEND worker running with permission checks bypassed." >&2
   echo "     A background job has no approval surface; verify its work on disk." >&2
-  if [ "$BACKEND" = "claude" ] && [ "${HANDOFF_CLAUDE_PERMISSION_MODE:-}" = "bypassPermissions" ]; then
+  if [ "$BACKEND" = "cursor" ]; then
+    echo "     Cursor has no narrower posture: add deny rules in .cursor/cli.json, or use --read-only for a job that must not write." >&2
+  elif [ "$BACKEND" = "claude" ] && [ "${HANDOFF_CLAUDE_PERMISSION_MODE:-}" = "bypassPermissions" ]; then
     echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=dontAsk or unset the override." >&2
   elif [ -n "${PARENT_ID:-}" ]; then
     echo "     Resume with --read-only, or submit a new job with permission_mode=default." >&2
@@ -430,7 +459,7 @@ cmd_submit() {
   require_repo
   [ -n "$PROMPT_FILE" ] && [ -f "$PROMPT_FILE" ] || die "--prompt-file is required and must exist"
   case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier) ;; *) die "invalid --role: $ROLE" ;; esac
-  case "$BACKEND" in codex|claude|copilot) ;; *) die "invalid --backend: $BACKEND" ;; esac
+  case "$BACKEND" in codex|claude|copilot|cursor) ;; *) die "invalid --backend: $BACKEND" ;; esac
 
   if [ -n "$WORKTREE_BRANCH" ]; then
     is_git_repo "$REPO" || die "--worktree requires --repo to be a git repository"
@@ -472,12 +501,15 @@ cmd_submit() {
   fi
   [ "$MODEL_EXPLICIT" = "false" ] || MODEL_SOURCE="explicit"
   [ "$EFFORT_EXPLICIT" = "false" ] || EFFORT_SOURCE="explicit"
+  # Cursor has one effort value. A role-less job that named none gets it rather
+  # than the codex-shaped default.
+  if [ "$BACKEND" = "cursor" ] && [ "$EFFORT_EXPLICIT" = "false" ] && [ -z "$ROLE" ]; then EFFORT="model"; fi
   if [ "$BACKEND_EXPLICIT" = "true" ] && [ -z "$ROLE" ]; then BACKEND_SOURCE="explicit"; fi
   # An identity is a deliberate backend + model + effort choice, and `auto`
   # hands the model choice back to the vendor per request — which would make
   # this job's record name what Copilot picked, not what the repo configured.
-  if [ "$BACKEND" = "copilot" ] && [ "$MODEL" = "auto" ]; then
-    die "model 'auto' is refused on a copilot job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend copilot --model <model>'"
+  if [ "$MODEL" = "auto" ] && { [ "$BACKEND" = "copilot" ] || [ "$BACKEND" = "cursor" ]; }; then
+    die "model 'auto' is refused on a $BACKEND job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend $BACKEND --model <model>'"
   fi
   [[ "$MODEL" != *$'\n'* && "$MODEL" != *$'\r'* ]] || die "model must be a single line"
   validate_effort "$BACKEND" "$EFFORT"
@@ -681,6 +713,8 @@ write_run_script() {
       write_claude_exec_line "$effort" "$model" "$session_id"
     elif [ "$BACKEND" = "copilot" ]; then
       write_copilot_exec_line "$effort" "$model" "$read_only" "$session_id"
+    elif [ "$BACKEND" = "cursor" ]; then
+      write_cursor_exec_line "$model" "$read_only" "$session_id"
     elif [ -n "$session_id" ]; then
       # `codex exec resume` accepts no -C/-s flags: cwd comes from the shell,
       # sandbox and effort go through -c config overrides.
@@ -766,6 +800,30 @@ write_copilot_exec_line() {
   printf '"$CODEX_BIN" -p "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
 }
 
+write_cursor_exec_line() {
+  local model="$1" read_only="$2" session_id="$3"
+  # --trust always: a fresh worktree is a workspace Cursor has never seen.
+  # Handoff owns the worktree protocol, so Cursor's own worktree flag is never
+  # passed, and neither are its sandbox, MCP-approval, API-key, or
+  # partial-output flags. No env scrubbing: Cursor reads none of the
+  # ANTHROPIC_* or CLAUDE_CODE_* variables.
+  local args="--output-format stream-json --trust"
+  if [ -n "$session_id" ]; then
+    # A resumed session carries its model and workspace; cwd comes from the cd.
+    args="$args --resume \"\$SESSION_ID\""
+  else
+    args="$args --workspace \"\$WORKDIR\""
+    [ -n "$model" ] && args="$args --model \"\$MODEL\""
+  fi
+  if [ "$read_only" = "true" ]; then
+    args="$args --mode plan"
+  else
+    args="$args --force"  # risk-ok: Cursor CLI flag name
+  fi
+  echo 'cd "$WORKDIR"'
+  printf '"$CODEX_BIN" -p "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
+}
+
 launch_job() {
   local job="$1"
   nohup bash "$job/run.sh" >/dev/null 2>&1 &
@@ -775,7 +833,8 @@ launch_job() {
 
 # Reads a job log once and prints the last event type and the denial count, one
 # per line. Held as a string rather than a heredoc so it can run inside a
-# command substitution.
+# command substitution. Keep apostrophes out of the block, comments included:
+# bash 3.2 (macOS) mis-parses one in a quoted heredoc nested inside $(...).
 STATUS_SCAN_PY="$(cat <<'SCAN'
 import json, sys
 
@@ -791,6 +850,10 @@ with open(path, encoding="utf-8") as fh:
         except json.JSONDecodeError:
             continue
         etype = event.get("type", "")
+        # The cursor reasoning stream, hundreds of events a job, would bury the
+        # event that says where the worker is.
+        if backend == "cursor" and etype == "thinking":
+            continue
         if etype:
             last = etype
         if backend == "copilot":
@@ -799,6 +862,13 @@ with open(path, encoding="utf-8") as fh:
             error = (event.get("data") or {}).get("error") or {}
             if etype == "tool.execution_complete" and error.get("code") == "denied":
                 denied += 1
+        elif backend == "cursor":
+            # Typed: a refused call completes with a `rejected` result object.
+            call = event.get("tool_call")
+            if etype == "tool_call" and event.get("subtype") == "completed" and isinstance(call, dict):
+                if any(isinstance(body, dict) and isinstance(body.get("result"), dict)
+                       and "rejected" in body["result"] for body in call.values()):
+                    denied += 1
         elif event.get("subtype") == "permission_denied":
             denied += 1
 print(last)
@@ -879,8 +949,8 @@ import json, sys
 
 # The backend is an input, never sniffed from the event shape: Copilot's
 # terminal event is `type: "result"`, the same type name Claude's stream-json
-# uses with a completely different payload, so a backend-blind parser mis-reads
-# a copilot log without erroring.
+# uses with a completely different payload. Cursor shares system, assistant,
+# user, and result type names with Claude, so the parser needs the backend.
 log_path, sid_path, as_json = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
 backend = sys.argv[4]
 messages, commands, reasoning, usage, denied = [], [], [], {}, []
@@ -926,6 +996,34 @@ try:
                 elif etype == "result":
                     # Copilot's terminal event is flat, not nested under data.
                     usage = event.get("usage") or usage
+                continue
+            if backend == "cursor":
+                if etype == "thinking":
+                    continue
+                if etype == "assistant":
+                    # One event per message. Cursor's result.result runs every
+                    # message together, so the answer is the last event's text,
+                    # taken literally: an empty last message is still the last.
+                    blocks = (event.get("message") or {}).get("content") or []
+                    messages.append("".join(
+                        block.get("text") or "" for block in blocks
+                        if isinstance(block, dict) and block.get("type") == "text"))
+                elif etype == "tool_call":
+                    # The tool kind is the one key under tool_call holding an object.
+                    call = event.get("tool_call")
+                    kind, body = next(((k, v) for k, v in (call.items() if isinstance(call, dict) else ())
+                                       if isinstance(v, dict)), ("", {}))
+                    result = body.get("result")
+                    if event.get("subtype") == "started" and kind == "shellToolCall":
+                        command = (body.get("args") or {}).get("command")
+                        if command:
+                            commands.append(command)
+                    elif event.get("subtype") == "completed" and isinstance(result, dict) \
+                            and "rejected" in result:
+                        denied.append(kind)
+                elif etype == "result":
+                    # The last result's usage, never an earlier one's.
+                    usage = event.get("usage") or {}
                 continue
             if etype == "system" and event.get("subtype") == "permission_denied":
                 # A denied tool call still leaves exit 0 behind, so without this

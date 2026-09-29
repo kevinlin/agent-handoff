@@ -3,10 +3,13 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 import unittest.mock
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,10 +34,12 @@ def receipt_text(**overrides) -> str:
         "cc_job_durations": "job-b=2min 00sec",
         "copilot_jobs": "1",
         "copilot_job_durations": "job-c=3min 00sec",
+        "cursor_jobs": "1",
+        "cursor_job_durations": "job-d=4min 00sec",
         "scope": "project",
         "config_source": "project",
         "roles_used": "none",
-        "receipt_schema_version": "6",
+        "receipt_schema_version": "7",
     }
     base.update(overrides)
     body = "\n".join(f"{k}: {v}" for k, v in base.items())
@@ -54,7 +59,8 @@ def make_repo(tmp: Path, jobs: dict[str, str]) -> Path:
 class LoadReceiptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        make_repo(self.tmp, {"job-a": "codex", "job-b": "claude", "job-c": "copilot"})
+        make_repo(self.tmp, {"job-a": "codex", "job-b": "claude", "job-c": "copilot",
+                             "job-d": "cursor"})
 
     def assert_refused(self, text, needle, repo=None):
         with self.assertRaises(rcr.ReceiptError) as caught:
@@ -63,10 +69,10 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_valid_receipt_loads_jobs_in_order(self):
         loaded = rcr.load_receipt(receipt_text(), self.tmp)
-        self.assertEqual([j["job_id"] for j in loaded["jobs"]], ["job-a", "job-b", "job-c"])
+        self.assertEqual([j["job_id"] for j in loaded["jobs"]], ["job-a", "job-b", "job-c", "job-d"])
         self.assertEqual([j["backend"] for j in loaded["jobs"]],
-                         ["codex", "claude", "copilot"])
-        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, False, False])
+                         ["codex", "claude", "copilot", "cursor"])
+        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, False, False, False])
 
     def test_two_receipt_blocks_are_refused(self):
         self.assert_refused(receipt_text() + "\n" + receipt_text(), "exactly one")
@@ -76,6 +82,10 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_schema_version_five_is_refused(self):
         self.assert_refused(receipt_text(receipt_schema_version="5"), "schema_version")
+        self.assert_refused(receipt_text(receipt_schema_version="6"), "schema_version")
+
+    def test_a_cursor_count_disagreeing_with_entries_is_refused(self):
+        self.assert_refused(receipt_text(cursor_jobs="2"), "cursor_jobs")
 
     def test_job_id_with_path_separator_is_refused(self):
         self.assert_refused(
@@ -102,13 +112,14 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_running_entry_is_carried_not_dropped(self):
         loaded = rcr.load_receipt(receipt_text(cc_job_durations="job-b=running"), self.tmp)
-        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, True, False])
+        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, True, False, False])
 
     def test_none_contributes_no_jobs(self):
         loaded = rcr.load_receipt(
             receipt_text(codex_jobs="0", codex_job_durations="none",
                          cc_jobs="0", cc_job_durations="none",
-                         copilot_jobs="0", copilot_job_durations="none"), self.tmp)
+                         copilot_jobs="0", copilot_job_durations="none",
+                         cursor_jobs="0", cursor_job_durations="none"), self.tmp)
         self.assertEqual(loaded["jobs"], [])
 
     def test_a_copilot_job_listed_under_the_wrong_pair_is_refused(self):
@@ -208,6 +219,131 @@ COPILOT_DENIAL = {"type": "tool.execution_complete", "data": {
     "error": {"message": "Permission to run this tool was denied", "code": "denied"}}}
 COPILOT_OK_TOOL = {"type": "tool.execution_complete",
                    "data": {"toolCallId": "t2", "error": None}}
+
+CURSOR_INIT = {"type": "system", "subtype": "init", "session_id": "s1",
+               "model": "GPT-5.4 Mini Low", "permissionMode": "default"}
+CURSOR_THINKING = {"type": "thinking", "subtype": "delta", "text": "hm", "session_id": "s1"}
+CURSOR_REJECTED = {"type": "tool_call", "subtype": "completed", "call_id": "call_X\nfc_1",
+                   "tool_call": {"shellToolCall": {"result": {"rejected": {
+                       "command": "curl https://example.com", "reason": ""}}}},
+                   "session_id": "s1"}
+CURSOR_RESULT = {"type": "result", "subtype": "success", "is_error": False,
+                 "result": "first message second message", "session_id": "s1",
+                 "usage": {"inputTokens": 130, "outputTokens": 17,
+                           "cacheReadTokens": 17408, "cacheWriteTokens": 0}}
+
+
+class CursorFoldTests(unittest.TestCase):
+    def test_tokens_come_from_the_last_result_and_reasoning_is_unknown(self):
+        folded = rcr.fold_usage([CURSOR_INIT, CURSOR_THINKING, CURSOR_RESULT], "cursor")
+        self.assertEqual({"input": 130, "cache_read": 17408, "cache_write": 0,
+                          "output": 17, "reasoning": None}, folded["usage"])
+        self.assertIsNone(folded["cost_usd"])
+        self.assertEqual(["GPT-5.4 Mini Low"], folded["models"])
+
+    def test_only_the_last_result_counts(self):
+        earlier = {**CURSOR_RESULT, "usage": {"inputTokens": 5, "outputTokens": 1,
+                                              "cacheReadTokens": 0, "cacheWriteTokens": 0}}
+        folded = rcr.fold_usage([earlier, CURSOR_RESULT], "cursor")
+        self.assertEqual(130, folded["usage"]["input"])
+        self.assertTrue(folded["repeated"])
+
+    def test_denials_count_typed_rejections(self):
+        folded = rcr.fold_usage([CURSOR_REJECTED, CURSOR_RESULT, CURSOR_REJECTED], "cursor")
+        self.assertEqual(2, folded["denials"])
+
+    def test_no_result_is_unknown_never_zero(self):
+        folded = rcr.fold_usage([CURSOR_INIT], "cursor")
+        self.assertEqual({c: None for c in rcr.COUNTERS}, folded["usage"])
+
+    def test_a_cursor_log_never_reaches_the_claude_parser(self):
+        claude = rcr.fold_usage([CURSOR_REJECTED, CURSOR_RESULT], "claude")
+        cursor = rcr.fold_usage([CURSOR_REJECTED, CURSOR_RESULT], "cursor")
+        self.assertEqual((None, 0), (claude["usage"]["input"], claude["denials"]))
+        self.assertEqual((130, 1), (cursor["usage"]["input"], cursor["denials"]))
+
+    def test_an_unknown_backend_reads_nothing(self):
+        folded = rcr.fold_usage([CURSOR_RESULT], "gemini")
+        self.assertEqual({c: None for c in rcr.COUNTERS}, folded["usage"])
+        self.assertIsNone(folded["denials"])
+
+    def test_an_unexpected_tool_call_shape_is_skipped(self):
+        odd = [{"type": "tool_call", "subtype": "completed", "tool_call": {"shellToolCall": None}},
+               {"type": "tool_call", "subtype": "completed",
+                "tool_call": {"newToolCall": {"result": "rejected"}}},
+               {"type": "tool_call", "subtype": "completed", "tool_call": []}]
+        self.assertEqual(0, rcr.fold_usage(odd, "cursor")["denials"])
+
+
+class CursorJobRowTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def write_job(self, job_id, meta, events=()):
+        job = self.tmp / ".handoff" / "jobs" / job_id
+        job.mkdir(parents=True)
+        (job / "meta").write_text(meta)
+        (job / "exit_code").write_text("0\n")
+        (job / "log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+    def row(self, job_id):
+        return rcr.job_row(self.tmp, {"job_id": job_id, "backend": "cursor", "running": False})
+
+    def test_the_model_column_shows_what_ran_then_falls_back_to_the_slug(self):
+        self.write_job("job-k", "backend=cursor\nmodel=gpt-5.4-mini\n", [CURSOR_INIT, CURSOR_RESULT])
+        self.write_job("job-k-r2", "backend=cursor\nmodel=inherit\nparent=job-k\n",
+                       [CURSOR_INIT, CURSOR_RESULT])
+        self.write_job("job-k-r3", "backend=cursor\nmodel=inherit\nparent=job-k-r2\n")
+        self.write_job("job-e", "backend=cursor\nmodel=no-such-model\n")
+        self.assertEqual("GPT-5.4 Mini Low", self.row("job-k")["model"])
+        self.assertEqual("GPT-5.4 Mini Low", self.row("job-k-r2")["model"])
+        self.assertEqual("gpt-5.4-mini", self.row("job-k-r3")["model"])
+        self.assertEqual("no-such-model", self.row("job-e")["model"])
+        self.assertEqual({c: None for c in rcr.COUNTERS}, self.row("job-e")["usage"])
+
+    def test_a_parent_and_its_fix_round_sum_and_carry_no_cost(self):
+        self.write_job("job-k", "backend=cursor\nmodel=gpt-5.4-mini\n", [CURSOR_INIT, CURSOR_RESULT])
+        self.write_job("job-k-r2", "backend=cursor\nmodel=inherit\nparent=job-k\n",
+                       [CURSOR_INIT, CURSOR_RESULT])
+        summary = rcr.summarize([self.row("job-k"), self.row("job-k-r2")])
+        self.assertEqual(260, summary["outside_driver"]["usage"]["input"]["value"])
+        self.assertEqual({"jobs": 2}, summary["cursor_meter"])
+        self.assertFalse(summary["outside_driver"]["cost_applicable"])
+
+
+class FourBackendRoundTripTests(unittest.TestCase):
+    def test_one_job_per_backend_makes_a_receipt_both_readers_accept(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        started = datetime.now(timezone.utc) - timedelta(minutes=30)
+        backends = ("codex", "claude", "copilot", "cursor")
+        for offset, backend in enumerate(backends):
+            job = tmp / ".handoff" / "jobs" / f"job-{backend}"
+            job.mkdir(parents=True)
+            submitted = (started + timedelta(minutes=offset + 1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            (job / "meta").write_text(
+                f"backend={backend}\nmodel=m\nrole=fast_worker\nlabel=l\nsubmitted_at={submitted}\n")
+            (job / "exit_code").write_text("0\n")
+        made = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "make-receipt.py"), "--repo", str(tmp),
+             "--phase", "delegated implementation", "--claude-session", "none",
+             "--checks", "unittest", "--codex-jobs", "1", "--cc-jobs", "1",
+             "--copilot-jobs", "1", "--cursor-jobs", "1",
+             "--started-at", started.strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "--roles-used", '[{"role":"fast_worker","host":"cursor","model":"m",'
+                             '"effort":"model","verified":false}]'],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(0, made.returncode, made.stderr)
+        receipt = next((tmp / ".handoff" / "receipts").glob("receipt-*.md"))
+        checked = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "validate-receipt.py"), str(receipt)],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(0, checked.returncode, checked.stdout)
+        loaded = rcr.load_receipt(receipt.read_text(encoding="utf-8"), tmp)
+        self.assertEqual(list(backends), [job["backend"] for job in loaded["jobs"]])
+        for field in ("codex_jobs", "cc_jobs", "copilot_jobs", "cursor_jobs"):
+            self.assertEqual("1", loaded["fields"][field])
 
 
 class CopilotFoldTests(unittest.TestCase):
@@ -458,6 +594,15 @@ def row(job_id, backend, input_tokens, cost=None, state="DONE", denials=None,
 
 
 class SummaryTests(unittest.TestCase):
+    def test_denials_sum_across_claude_copilot_and_cursor_jobs(self):
+        summary = rcr.summarize([row("a", "claude", 1, denials=1),
+                                 row("b", "copilot", 1, denials=2),
+                                 row("c", "cursor", 1, denials=3)])
+        self.assertEqual(6, summary["denials"])
+
+    def test_a_run_without_cursor_has_no_cursor_jobs(self):
+        self.assertEqual({"jobs": 0}, rcr.summarize([row("a", "codex", 1)])["cursor_meter"])
+
     def test_codex_jobs_appear_in_both_figures(self):
         summary = rcr.summarize([row("a", "codex", 100), row("b", "claude", 10, cost=2.5)])
         self.assertEqual(summary["codex_subscription"]["usage"]["input"]["value"], 100)
@@ -546,6 +691,21 @@ class SummaryTests(unittest.TestCase):
 
 
 class MarkdownTests(unittest.TestCase):
+    def test_a_cursor_job_reads_no_cost_figure_rather_than_unknown(self):
+        out = rcr.render_markdown(self.payload([row("job-cu", "cursor", 130)]))
+        line = next(l for l in out.splitlines() if l.startswith("| `job-cu`"))
+        self.assertTrue(line.endswith("| n/a - no cost figure |"), line)
+
+    def test_the_summary_names_the_cursor_meter_only_when_it_ran(self):
+        out = rcr.render_markdown(self.payload([row("job-cu", "cursor", 130)]))
+        self.assertIn("**Ran on the Cursor meter** (1 job). Cursor reports tokens but no "
+                      "cost figure", out)
+        self.assertNotIn("Cursor meter", rcr.render_markdown(self.payload()))
+
+    def test_denials_name_every_reporting_backend(self):
+        out = rcr.render_markdown(self.payload([row("c", "cursor", 1, denials=2)]))
+        self.assertIn("claude-backed, copilot-backed, and cursor-backed jobs: **2**", out)
+
     def payload(self, rows=None, driver=None):
         rows = rows if rows is not None else [
             row("job-a", "codex", 779279), row("job-b", "claude", 160, cost=6.633623999999999)]
@@ -639,10 +799,10 @@ class MarkdownTests(unittest.TestCase):
         job_line = next(l for l in out.splitlines() if l.startswith("| `job-cp`"))
         self.assertTrue(job_line.endswith("| n/a - AI credits |"), job_line)
 
-    def test_denials_are_attributed_to_both_reporting_backends(self):
+    def test_denials_are_attributed_to_three_reporting_backends(self):
         rows = [row("job-cp", "copilot", 1, denials=2)]
         out = rcr.render_markdown(self.payload(rows=rows))
-        self.assertIn("claude-backed and copilot-backed jobs", out)
+        self.assertIn("claude-backed, copilot-backed, and cursor-backed jobs", out)
 
     def test_denial_command_strings_never_reach_the_output(self):
         rows = [row("job-b", "claude", 1, denials=11)]
@@ -655,6 +815,11 @@ TEMPLATE = ROOT / "assets" / "cost-receipt.html"
 
 
 class TemplateTests(unittest.TestCase):
+    def test_template_renders_the_cursor_meter_and_cost_cell(self):
+        for needle in ("cursor_meter", "Ran on the Cursor meter", "n/a - no cost figure",
+                       "and cursor-backed jobs"):
+            self.assertIn(needle, self.html)
+
     def setUp(self):
         self.html = TEMPLATE.read_text(encoding="utf-8")
 
@@ -673,9 +838,9 @@ class TemplateTests(unittest.TestCase):
                        "Copilot AI-credit meter", "j.premium_requests", "j.nano_aiu"):
             self.assertIn(needle, self.html)
 
-    def test_template_attributes_denials_to_both_reporting_backends(self):
-        self.assertIn("claude-backed and ", self.html)
-        self.assertIn("copilot-backed jobs", self.html)
+    def test_template_attributes_denials_to_three_reporting_backends(self):
+        self.assertIn("claude-backed, copilot-backed, ", self.html)
+        self.assertIn("and cursor-backed jobs", self.html)
         self.assertNotIn("denials across claude-backed jobs", self.html)
 
     def test_page_never_uses_inner_html(self):
@@ -732,7 +897,7 @@ import io
 
 
 class CliTests(unittest.TestCase):
-    """One job per backend, so the CLI path exercises the three-way partition."""
+    """One job per backend, so the CLI path exercises the four-way partition."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -754,12 +919,20 @@ class CliTests(unittest.TestCase):
         (copilot / "exit_code").write_text("0\n")
         (copilot / "log.jsonl").write_text(json.dumps(COPILOT_DENIAL) + "\n")
         (copilot / "usage.json").write_text(json.dumps(COPILOT_PARENT_USAGE))
+        cursor = jobs / "job-d"
+        cursor.mkdir(parents=True)
+        (cursor / "meta").write_text("backend=cursor\nmodel=gpt-5.4-mini\nrole=fast_worker\nlabel=l\n")
+        (cursor / "exit_code").write_text("0\n")
+        (cursor / "log.jsonl").write_text(
+            "\n".join(json.dumps(e) for e in (CURSOR_INIT, CURSOR_REJECTED, CURSOR_REJECTED,
+                                               CURSOR_RESULT)) + "\n")
         self.receipts = self.tmp / ".handoff" / "receipts"
         self.receipts.mkdir(parents=True)
         self.text = receipt_text(
             codex_jobs="1", codex_job_durations="job-a=1min 00sec",
             cc_jobs="1", cc_job_durations="job-b=2min 00sec",
             copilot_jobs="1", copilot_job_durations="job-c=3min 00sec",
+            cursor_jobs="1", cursor_job_durations="job-d=4min 00sec",
             roles_used='[{"role":"fast_worker","host":"copilot",'
                        '"model":"mai-code-1.1-flash","effort":"medium","verified":true}]')
 
@@ -848,12 +1021,12 @@ class CliTests(unittest.TestCase):
         self.run_cli()
         self.assertEqual(self.payload_from_html()["jobs"][0]["job_id"], "job-a")
 
-    def test_a_mixed_three_backend_run_renders(self):
+    def test_a_mixed_four_backend_run_renders(self):
         self.write("receipt-20260908T155001Z.md")
         self.assertEqual(self.run_cli()[0], 0)
         payload = self.payload_from_html()
         self.assertEqual([j["backend"] for j in payload["jobs"]],
-                         ["codex", "claude", "copilot"])
+                         ["codex", "claude", "copilot", "cursor"])
         copilot = payload["jobs"][2]
         self.assertEqual(copilot["premium_requests"], 1)
         self.assertEqual(copilot["nano_aiu"], 84828000)
@@ -871,7 +1044,17 @@ class CliTests(unittest.TestCase):
                / "cost-receipt-20260908T155001Z.md").read_text()
         self.assertIn("Copilot AI-credit meter", out)
         self.assertIn("84,828,000", out)
-        self.assertIn("claude-backed and copilot-backed jobs", out)
+        self.assertIn("claude-backed, copilot-backed, and cursor-backed jobs", out)
+
+    def test_a_cursor_job_with_two_rejections_reports_two(self):
+        row = rcr.job_row(self.tmp, {"job_id": "job-d", "backend": "cursor", "running": False})
+        self.assertEqual((2, "GPT-5.4 Mini Low"), (row["denials"], row["model"]))
+        self.write("receipt-20260908T155001Z.md")
+        self.assertEqual(0, self.run_cli()[0])
+        md = (self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.md").read_text()
+        line = next(l for l in md.splitlines() if l.startswith("| `job-d`"))
+        self.assertIn("GPT-5.4 Mini Low", line)
+        self.assertIn("n/a - no cost figure", line)
 
 
 if __name__ == "__main__":

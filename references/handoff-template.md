@@ -42,7 +42,7 @@ Delegation packet rules:
 
 ## Spec Review Packet (Phase 1, every plan)
 
-Use this packet on every plan, before it reaches the user. A later round under the cap is a `resume` of the same job carrying the revised plan, the declined blocking findings, and your reasons, not a new packet. Send it as a read-only job on the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; on a copilot-backed one it becomes `--mode plan`, which never carries `--allow-all-tools`. The job, the jobId, and the receipt entry are the same on all three.
+Use this packet on every plan, before it reaches the user. A later round under the cap is a `resume` of the same job carrying the revised plan, the declined blocking findings, and your reasons, not a new packet. Send it as a read-only job on the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; on a copilot-backed one it becomes `--mode plan`, which never carries `--allow-all-tools`; on a cursor-backed one it becomes `--mode plan`, which never carries Cursor's force mode. The job, the jobId, and the receipt entry are the same on all four.
 
 The spec goes in the packet verbatim. The reviewer starts cold and must not go looking for the plan itself; what it is given is what it judges.
 

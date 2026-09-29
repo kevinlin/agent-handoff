@@ -299,13 +299,22 @@ function render() {
     creditCard.appendChild(dl);
   }
 
+  const cursorJobs = data.summary.cursor_meter.jobs;
+  if (cursorJobs) {
+    const cursorCard = section("card lead");
+    const cursorHead = el("h2", "Ran on the Cursor meter ");
+    cursorHead.appendChild(el("span", jobCount(cursorJobs), "count"));
+    cursorCard.appendChild(cursorHead);
+    cursorCard.appendChild(el("p", "Cursor reports tokens but no cost figure, so none is shown.", "note"));
+  }
+
   const overlap = section("card");
   overlap.appendChild(el("h2", "Reading the two figures"));
   overlap.appendChild(el("p", "Codex jobs are counted in both figures above. They are "
     + "not addends, and no difference between them is a saving.", "note caveat"));
   if (data.summary.denials !== null) {
-    overlap.appendChild(el("p", "Permission denials across claude-backed and "
-      + `copilot-backed jobs: ${data.summary.denials}. A denied tool call does `
+    overlap.appendChild(el("p", "Permission denials across claude-backed, copilot-backed, "
+      + `and cursor-backed jobs: ${data.summary.denials}. A denied tool call does `
       + "not move a job's exit code.", "note"));
   }
 
@@ -326,6 +335,7 @@ function render() {
             : [absent("n/a"), absent("n/a")]),
         j.backend === "codex" ? absent("n/a - subscription")
           : j.backend === "copilot" ? absent("n/a - AI credits")
+          : j.backend === "cursor" ? absent("n/a - no cost figure")
           : (j.cost_usd === null ? absent("unknown") : measured(j.cost_usd))];
     }), "Delegated jobs, per-job telemetry", "jobs"));
 

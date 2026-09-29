@@ -124,6 +124,7 @@ class SetupUITests(unittest.TestCase):
             encoding="utf-8",
         )
         self.env = os.environ.copy()
+        self.env.pop("HANDOFF_CURSOR_BIN", None)
         self.env.update(
             {
                 "HOME": str(self.home),
@@ -224,6 +225,7 @@ class SetupUITests(unittest.TestCase):
                 "claude": ["low", "medium", "high", "xhigh", "max"],
                 "codex": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
                 "copilot": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+                "cursor": ["model"],
             },
             state["efforts_by_backend"],
         )
@@ -639,7 +641,7 @@ class CopilotSetupUITests(SetupUITests):
         self.assertIn("copilot", state["model_options"])
         self.assertIn("copilot", state["model_discovery"])
         self.assertEqual(
-            {"claude", "codex", "copilot"}, set(state["efforts_by_backend"])
+            {"claude", "codex", "copilot", "cursor"}, set(state["efforts_by_backend"])
         )
 
     def test_the_wizard_offers_only_the_models_the_account_can_use(self):
@@ -754,7 +756,7 @@ class CopilotSetupUITests(SetupUITests):
         # approval, and reported efforts Handoff cannot pass are not a reason
         # to offer every effort instead
         self.assertEqual(["sound-model"], offered)
-        self.assertEqual(["claude", "codex", "copilot"], sorted(state["model_options"]))
+        self.assertEqual(["claude", "codex", "copilot", "cursor"], sorted(state["model_options"]))
 
     def test_the_bearer_never_reaches_the_served_state(self):
         with self.catalogue():
@@ -827,6 +829,131 @@ class CopilotSetupUITests(SetupUITests):
                 self.copilot_payload(effort="ultra"), repo=self.repo, env=self.env
             )
 
+
+CURSOR_UI_FAKE = """#!/bin/sh
+printf '%s\\n' "$*" >> "$HANDOFF_TEST_CURSOR_ARGS"
+if [ "$1" = "models" ]; then
+  if [ -n "${HANDOFF_TEST_CURSOR_MODELS_ERROR:-}" ]; then
+    printf '%s\\n' "$HANDOFF_TEST_CURSOR_MODELS_ERROR" >&2
+    exit 1
+  fi
+  printf 'Available models\\n\\nauto - Auto (default)\\ngpt-5.4-mini-low - GPT-5.4 Mini Low\\ncomposer-2.5 - Composer 2.5\\n\\nTip: use --model <id> to switch.\\n'
+  exit 0
+fi
+exit 0
+"""
+
+RETAINED_CURSOR_CONFIG = (
+    "schema_version = 2\nrevision = 0\n\n"
+    "[hosts.claude_code.identities.deep_reasoner]\n"
+    'backend = "claude"\nmodel = "opus"\neffort = "high"\n\n'
+    "[hosts.claude_code.identities.fast_worker]\n"
+    'backend = "cursor"\nmodel = "gpt-5.2-retired"\neffort = "model"\n\n'
+    "[hosts.claude_code.identities.arbiter]\n"
+    'backend = "codex"\nmodel = "gpt-detected"\neffort = "xhigh"\n'
+)
+
+
+class CursorSetupUITests(SetupUITests):
+    """The Cursor model is picked from `cursor-agent models`, read at page load."""
+
+    def setUp(self):
+        super().setUp()
+        self.cursor_log = self.root / "cursor-ui-args.txt"
+        fake = self.bin / "cursor-agent"
+        fake.write_text(CURSOR_UI_FAKE, encoding="utf-8")
+        fake.chmod(0o755)
+        self.env["HANDOFF_TEST_CURSOR_ARGS"] = str(self.cursor_log)
+
+    def cursor_calls(self):
+        return self.cursor_log.read_text(encoding="utf-8").splitlines() if self.cursor_log.exists() else []
+
+    def state(self):
+        return handoff_setup_ui.build_state(self.repo, self.env)
+
+    def cursor_payload(self, model="gpt-5.4-mini-low", effort="model"):
+        return {
+            "mode": "custom",
+            "identities": {
+                "deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"},
+                "fast_worker": {"backend": "cursor", "model": model, "effort": effort},
+                "arbiter": {"backend": "codex", "model": "gpt-detected", "effort": "xhigh"},
+            },
+            "review": {"spec_max_rounds": 1, "implementation_max_rounds": 3},
+            "scope": "project",
+            "exclude_choice": "track",
+            "routing_action": "none",
+            "write_agents": False,
+            "smoke": False,
+        }
+
+    def test_opening_the_wizard_runs_cursor_agent_models_and_nothing_else(self):
+        state = self.state()
+        self.assertEqual(["models"], self.cursor_calls())
+        options = state["model_options"]["cursor"]
+        self.assertEqual(["gpt-5.4-mini-low", "composer-2.5"], [o["value"] for o in options])
+        self.assertEqual("GPT-5.4 Mini Low", options[0]["label"])
+        self.assertEqual({"cursor-agent models"}, {o["source"] for o in options})
+        self.assertEqual(["model"], state["efforts_by_backend"]["cursor"])
+        self.assertEqual("Read from cursor-agent models", state["model_discovery"]["cursor"])
+        self.assertFalse(state["model_discovery_failed"]["cursor"])
+        self.assertNotIn("cursor", state["clis"])
+
+    def test_the_only_effort_is_model(self):
+        options = self.state()["model_options"]
+        payload = handoff_setup_ui.normalize_payload(
+            self.cursor_payload(), repo=self.repo, env=self.env, model_options=options)
+        self.assertEqual("model", payload["identities"]["fast_worker"]["effort"])
+        with self.assertRaises(handoff_setup_ui.UIError) as refusal:
+            handoff_setup_ui.normalize_payload(
+                self.cursor_payload(effort="high"), repo=self.repo, env=self.env,
+                model_options=options)
+        self.assertIn("allowed values: model", str(refusal.exception))
+
+    def test_a_model_the_catalogue_does_not_offer_is_refused(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        with self.assertRaises(handoff_setup_ui.UIError) as refusal:
+            controller.preview(self.cursor_payload(model="gpt-5.4-mini"))
+        self.assertIn("not in `cursor-agent models`", str(refusal.exception))
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
+    def test_a_missing_cli_offers_no_model_and_names_the_fix(self):
+        (self.bin / "cursor-agent").unlink()
+        state = self.state()
+        self.assertEqual([], state["model_options"]["cursor"])
+        self.assertIn("HANDOFF_CURSOR_BIN", state["model_discovery"]["cursor"])
+        self.assertTrue(state["model_discovery_failed"]["cursor"])
+
+    def test_a_logged_out_cli_names_cursor_agent_login(self):
+        self.env["HANDOFF_TEST_CURSOR_MODELS_ERROR"] = "Error: Authentication required."
+        state = self.state()
+        self.assertEqual([], state["model_options"]["cursor"])
+        self.assertIn("cursor-agent login", state["model_discovery"]["cursor"])
+
+    def test_a_retained_slug_is_kept_marked_and_a_failure_still_shows(self):
+        config = self.repo / ".handoff" / "config.toml"
+        config.parent.mkdir()
+        config.write_text(RETAINED_CURSOR_CONFIG, encoding="utf-8")
+        kept = {o["value"]: o for o in self.state()["model_options"]["cursor"]}
+        self.assertEqual("Not in the current catalogue", kept["gpt-5.2-retired"]["label"])
+        self.assertEqual(["model"], kept["gpt-5.2-retired"]["efforts"])
+        self.env["HANDOFF_TEST_CURSOR_MODELS_ERROR"] = "Error: Authentication required."
+        state = self.state()
+        self.assertEqual(["gpt-5.2-retired"], [o["value"] for o in state["model_options"]["cursor"]])
+        self.assertTrue(state["model_discovery_failed"]["cursor"])
+        self.assertIn("cursor-agent login", state["model_discovery"]["cursor"])
+
+    def test_the_page_wires_the_cursor_backend(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("cursor:'Cursor'", source)
+        self.assertIn("'cursor-agent models':'Read from cursor-agent models',", source)
+        self.assertIn("model:'Set by the model id'", source)
+        # The discovery failure shows beside a retained slug, not only on an
+        # empty list, and survives a model change.
+        self.assertIn("state.model_discovery_failed[backend]", source)
+        self.assertIn(".textContent = sourceText(", source)
+        # The effort field is locked on cursor.
+        self.assertIn("values.backend !== 'cursor'", source)
 
 if __name__ == "__main__":
     unittest.main()
