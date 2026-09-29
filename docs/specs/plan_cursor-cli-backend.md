@@ -1,6 +1,6 @@
 # Cursor CLI as the Fourth Backend Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. In this repository the plan runs under `/agent-handoff`: each task is one delegated row.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. In this repository the plan runs under `/agent-handoff` as the rows in *Execution order*. Workers do not commit: each task's commit step is the driver's, after its review.
 
 **Goal:** A cursor-backed identity runs `cursor-agent -p --output-format stream-json` as the same durable Handoff job that codex, claude, and copilot get, with receipt schema v7 and version 3.9.0.
 
@@ -38,15 +38,23 @@ Inputs the spec implies but its acceptance checks do not exercise, most likely t
 
 ## Execution order
 
-Tasks touch disjoint files within a wave, so a wave's rows can run in parallel as `--worktree` jobs.
+Rows touch disjoint files within a wave, so a wave's rows run in parallel as `--worktree` jobs cut from the same base commit.
 
-| Wave | Tasks | Why this order |
-|---|---|---|
-| 1 | 1, 4, 5 | Independent files. Task 1 carries the config engine's `BACKENDS` row because `submit --role` validates the config. |
-| 2 | 2 | Smoke's first step runs `delegate-codex.sh submit --dry-run`, which needs Task 1. |
-| 3 | 3 | The web wizard calls the catalogue reader Task 2 adds. |
-| 4 | 6, 7 | Prose describes what shipped. |
-| 5 | 8 | Live end-to-end run on the installed copy. Driver-run. |
+| Wave | Row | Tasks | Why this order |
+|---|---|---|---|
+| 1 | A | 1, 2, 3 | One row, because the three are a chain: Task 1 carries the config engine's `BACKENDS` row (`submit --role` validates the config), smoke's first step in Task 2 runs `submit --dry-run`, and Task 3 calls Task 2's catalogue reader. |
+| 1 | B | 4 | Independent files. |
+| 1 | C | 5 | Independent files. |
+| 2 | D, E | 6, 7 | Prose describes what shipped, so it waits for the code rows to be reviewed and merged. |
+| 3 | driver | 8 | Live end-to-end run on the user's Cursor meter. |
+
+**Risk-scan check for a worker.** Workers never compare warning line numbers, because a changed file shifts them. Instead, after staging (not committing) the row's work, check that the diff adds no risky line without a marker. It must print nothing:
+
+```bash
+git add -A && git diff --cached <base-sha> -- . ':!test-prompts.json' | grep -E '^\+' \
+  | grep -E 'git[[:space:]]+reset[[:space:]]+--hard|[Hh]ard [Gg]it [Rr]eset|rm -rf|force push|--force' \
+  | grep -vE 'risk-ok|[Dd]o not|not `' || true  # risk-ok: the scan's own pattern
+```
 
 ---
 
@@ -205,6 +213,40 @@ class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
         )
         self.assertNotIn("--model", run_sh)
         self.assertNotIn("--workspace", run_sh)
+        # R3.5: Handoff writes nothing into Cursor's own configuration.
+        for text in (self.exec_line(job_id), run_sh):
+            self.assertNotIn(".cursor", text)
+            self.assertNotIn("CURSOR_CONFIG_DIR", text)
+        self.assertFalse((self.repo / ".cursor").exists())
+
+    def test_a_fix_round_whose_parent_binary_is_gone_resolves_again(self):
+        """R2.1: resume reuses the parent's binary only while it is executable."""
+
+        job_id = self.submit()
+        self.finish(job_id)
+        meta = self.job_dir(job_id) / "meta"
+        meta.write_text(meta.read_text(encoding="utf-8").replace(
+            self.env["HANDOFF_CURSOR_BIN"], str(self.root / "gone" / "cursor-agent")),
+            encoding="utf-8")
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        child = self.read_meta(result.stdout.strip())
+        self.assertEqual((self.env["HANDOFF_CURSOR_BIN"], "env"),
+                         (child["codex_bin"], child["codex_bin_source"]))
+
+    def test_the_last_assistant_and_the_last_result_win_literally(self):
+        job_id = self.submit()
+        job = self.finish(job_id)
+        empty = ('{"type":"assistant","message":{"role":"assistant","content":[]},'
+                 '"session_id":"sess-fixture"}')
+        later = ('{"type":"result","subtype":"success","result":"x","session_id":"sess-fixture",'
+                 '"usage":{"inputTokens":99,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0}}')
+        job.joinpath("log.jsonl").write_text(
+            "\n".join((*self.LOG_LINES, empty, later)) + "\n", encoding="utf-8")
+        payload = json.loads(
+            self.delegate("result", job_id, "--repo", str(self.repo), "--json").stdout
+        )
+        self.assertEqual(("", 99), (payload["agent_message"], payload["usage"]["inputTokens"]))
 
     def test_flags_handoff_owns_or_forbids_never_appear(self):
         for posture in ("default", "allow-all"):
@@ -580,12 +622,12 @@ write_cursor_exec_line() {
                     continue
                 if etype == "assistant":
                     # One event per message. Cursor's result.result runs every
-                    # message together, so the answer is the last event's text.
+                    # message together, so the answer is the last event's text,
+                    # taken literally: an empty last message is still the last.
                     blocks = (event.get("message") or {}).get("content") or []
-                    text = "".join(block.get("text") or "" for block in blocks
-                                   if isinstance(block, dict) and block.get("type") == "text")
-                    if text:
-                        messages.append(text)
+                    messages.append("".join(
+                        block.get("text") or "" for block in blocks
+                        if isinstance(block, dict) and block.get("type") == "text"))
                 elif etype == "tool_call":
                     # The tool kind is the one key under tool_call holding an object.
                     call = event.get("tool_call")
@@ -600,7 +642,8 @@ write_cursor_exec_line() {
                             and "rejected" in result:
                         denied.append(kind)
                 elif etype == "result":
-                    usage = event.get("usage") or usage
+                    # The last result's usage, never an earlier one's.
+                    usage = event.get("usage") or {}
                 continue
 ```
 
@@ -613,8 +656,7 @@ Update the parser's leading comment to say the backend is an input because Curso
 Run: `bash -n scripts/delegate-codex.sh && python3 -m unittest tests.test_delegate_role tests.test_handoff_config`
 Expected: PASS, including every `BackendLifecycle` test on `CodexWorktreeTests`, `ClaudeWorktreeTests`, `CopilotWorktreeTests`, and `CursorWorktreeTests`.
 
-Run: `bash scripts/check-skill-repo.sh . | grep -v skillgantry-workspace | grep -E '^\./'`
-Expected: no listed line comes from a file this task changed.
+Run the risk-scan check from *Execution order*. Expected: it prints nothing.
 
 - [ ] **Step 6: Commit**
 
@@ -679,11 +721,15 @@ if sys.argv[1:2] == ["models"]:
 if os.environ.get("HANDOFF_TEST_CURSOR_STDERR"):
     sys.stderr.write(os.environ["HANDOFF_TEST_CURSOR_STDERR"] + "\\n")
     sys.exit(1)
+# Cursor emits one assistant event per message, and result.result runs them together.
+narration = os.environ.get("HANDOFF_TEST_CURSOR_NARRATION", "Checking.")
 reply = os.environ.get("HANDOFF_TEST_CURSOR_REPLY", "HANDOFF_SMOKE_OK")
 for event in (
     {"type": "system", "subtype": "init", "session_id": "s", "model": "GPT-5.4 Mini Low"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": narration}]}},
     {"type": "assistant", "message": {"content": [{"type": "text", "text": reply}]}},
-    {"type": "result", "subtype": "success", "result": reply, "usage": {"inputTokens": 1}},
+    {"type": "result", "subtype": "success", "result": narration + reply,
+     "usage": {"inputTokens": 1}},
 ):
     print(json.dumps(event))
 """.replace("__PYTHON__", sys.executable).replace("__MODELS__", repr(CURSOR_MODELS_OUTPUT))
@@ -810,8 +856,11 @@ class CursorSetupTests(SetupTests):
         self.assertIn(refusal, error)
         self.assertFalse(self.configured()["fast_worker"]["verified"])
 
-    def test_smoke_needs_the_sentinel_in_the_last_assistant_message(self):
+    def test_smoke_reads_the_sentinel_from_the_last_assistant_message_only(self):
+        # The sentinel sits in an earlier message and in result.result, not in
+        # the last assistant event, so a pass here would mean the wrong event.
         self.assertEqual(0, self.run_cli(*self.custom_args(self.cursor_choices()))[0])
+        self.env["HANDOFF_TEST_CURSOR_NARRATION"] = "HANDOFF_SMOKE_OK"
         self.env["HANDOFF_TEST_CURSOR_REPLY"] = "Sure, happy to help."
         status, _, error = self.smoke()
         self.assertEqual(1, status)
@@ -1224,8 +1273,10 @@ class CursorSetupUITests(SetupUITests):
         self.assertIn("cursor:'Cursor'", source)
         self.assertIn("'cursor-agent models':'Read from cursor-agent models',", source)
         self.assertIn("model:'Set by the model id'", source)
-        # The discovery failure shows beside a retained slug, not only on an empty list.
-        self.assertIn("state.model_discovery_failed[values.backend]", source)
+        # The discovery failure shows beside a retained slug, not only on an
+        # empty list, and survives a model change.
+        self.assertIn("state.model_discovery_failed[backend]", source)
+        self.assertIn(".textContent = sourceText(", source)
         # The effort field is locked on cursor.
         self.assertIn("values.backend !== 'cursor'", source)
 ```
@@ -1322,17 +1373,26 @@ Page script:
     const BACKEND_LABELS_ORDER = ['claude','codex','copilot','cursor'];
 ```
 
-`EFFORT_LABELS` gains `model:'Set by the model id',`. `sourceLabel` gains `'cursor-agent models':'Read from cursor-agent models',`. In `renderCards`:
+`EFFORT_LABELS` gains `model:'Set by the model id',`. `sourceLabel` gains `'cursor-agent models':'Read from cursor-agent models',`. A new helper after `sourceLabel`, so the card and the model-change handler say the same thing:
 
 ```js
-        const discovery = esc(state.model_discovery[values.backend] || 'No models available');
-        const sourceLine = models.length
-          ? `Source: ${esc(sourceLabel(source))}`
-            + (state.model_discovery_failed[values.backend] ? ` · ${discovery}` : '')
-          : discovery;
+    // A retained model fills the list, so a failed discovery is named beside
+    // the source rather than only on an empty list.
+    function sourceText(backend, source) {
+      return `Source: ${sourceLabel(source)}`
+        + (state.model_discovery_failed[backend] ? ` · ${state.model_discovery[backend] || ''}` : '');
+    }
 ```
 
-and the effort `<select>` is locked on cursor: `${efforts.length && values.backend !== 'cursor' ? '' : 'disabled'}`. `syncEffort` already sets `model`, the only value, so a disabled field still submits it.
+In `renderCards`:
+
+```js
+        const sourceLine = models.length
+          ? esc(sourceText(values.backend, source))
+          : esc(state.model_discovery[values.backend] || 'No models available');
+```
+
+In `bindIdentityInputs`, the model-change line becomes `if (field === 'model') card.querySelector('.source').textContent = sourceText(matrix[identity].backend, matrix[identity].model_source);`. The effort `<select>` is locked on cursor: `${efforts.length && values.backend !== 'cursor' ? '' : 'disabled'}`. `syncEffort` already sets `model`, the only value, so a disabled field still submits it.
 
 - [ ] **Step 4: Run the tests to see them pass**
 
@@ -1405,6 +1465,11 @@ pass `"--cursor-jobs", "1"`, and assert `self.assertEqual("job-cu=4min 00sec", e
 - `receipt_text()`: add `"cursor_jobs": "1"`, `"cursor_job_durations": "job-d=4min 00sec"`; version `"7"`.
 - Any other `receipt_text()` caller whose repo has no `job-d` passes `cursor_jobs="0", cursor_job_durations="none"`.
 - `LoadReceiptTests.setUp`: `make_repo(..., {"job-a": "codex", "job-b": "claude", "job-c": "copilot", "job-d": "cursor"})`; `test_valid_receipt_loads_jobs_in_order` expects `["codex", "claude", "copilot", "cursor"]`; `test_schema_version_five_is_refused` also refuses `"6"`; `test_none_contributes_no_jobs` adds `cursor_jobs="0", cursor_job_durations="none"`. Add `test_a_cursor_count_disagreeing_with_entries_is_refused` with `receipt_text(cursor_jobs="2")` and the text `"cursor_jobs"`.
+- Existing assertions that consume the widened fixtures and must widen with them:
+  - `test_valid_receipt_loads_jobs_in_order` (lines 66 to 69): job ids `["job-a", "job-b", "job-c", "job-d"]`, backends with `"cursor"` last, running `[False, False, False, False]`.
+  - `test_running_entry_is_carried_not_dropped` (line 105): `[False, True, False, False]`.
+  - `CliTests.test_a_mixed_three_backend_run_renders` (lines 850 to 856): renamed `test_a_mixed_four_backend_run_renders`, backends `["codex", "claude", "copilot", "cursor"]`.
+  - `CliTests.test_markdown_of_a_mixed_run_names_the_credit_meter` (line 874): `"claude-backed, copilot-backed, and cursor-backed jobs"`.
 - Replace `test_denials_are_attributed_to_both_reporting_backends` (Markdown) and `test_template_attributes_denials_to_both_reporting_backends` (template) with the three-backend wording below.
 - `CliTests.setUp`: add a cursor job with two rejections, and the pair in `self.text`:
 
@@ -1443,6 +1508,13 @@ class CursorFoldTests(unittest.TestCase):
                           "output": 17, "reasoning": None}, folded["usage"])
         self.assertIsNone(folded["cost_usd"])
         self.assertEqual(["GPT-5.4 Mini Low"], folded["models"])
+
+    def test_only_the_last_result_counts(self):
+        earlier = {**CURSOR_RESULT, "usage": {"inputTokens": 5, "outputTokens": 1,
+                                              "cacheReadTokens": 0, "cacheWriteTokens": 0}}
+        folded = rcr.fold_usage([earlier, CURSOR_RESULT], "cursor")
+        self.assertEqual(130, folded["usage"]["input"])
+        self.assertTrue(folded["repeated"])
 
     def test_denials_count_typed_rejections(self):
         folded = rcr.fold_usage([CURSOR_REJECTED, CURSOR_RESULT, CURSOR_REJECTED], "cursor")
@@ -1857,7 +1929,10 @@ test('a cursor call id with an embedded newline still pairs its halves', () => {
   const edit = rows.find(r => r.tool === 'editToolCall');
   assert.equal(edit.kind, 'file_change');
   assert.deepEqual(edit.changes, [{ path: 'tracked.txt', kind: 'update' }]);
-  assert.equal(edit.raw.call_id, 'call_E\nfc_1');
+  // The row keeps both halves, so the page's body shows the completion too.
+  assert.equal(edit.raw.started.call_id, 'call_E\nfc_1');
+  assert.equal(edit.raw.completed.subtype, 'completed');
+  assert.deepEqual(edit.raw.completed.tool_call.editToolCall.result, { success: {} });
 });
 
 test('a rejected cursor call is a denial and a spawnError is a failure', () => {
@@ -1962,6 +2037,9 @@ Update the comment above `inferBackend`: Cursor's `system`, `user`, `assistant`,
           const result = (body && body.result) || {};
           const outcome = Object.keys(result)[0] || '';
           const detail = (outcome && result[outcome]) || {};
+          // renderRow prints JSON.stringify(row.raw), so keep both halves: a
+          // non-shell success (a read, an edit) has no output text of its own.
+          target.raw = { started: target.raw, completed: event };
           target.outcome = outcome;
           target.is_error = outcome !== 'success';
           if (outcome === 'rejected') target.denied = true;   // typed, never pattern-matched
@@ -2039,6 +2117,7 @@ Verify: `grep -rn "3\.8\.[12]" SKILL.md README.md docs/user-guide/agent-handoff.
 - Output Contract block: after the `copilot_job_durations:` line add `cursor_jobs: <0 | count>` and a `cursor_job_durations:` line in the copilot line's exact placeholder style; `receipt_schema_version: 7`.
 - Line 203: partition "four ways"; "A copilot or cursor job is never folded into any other count."
 - Line 209: "`receipt_schema_version` is always `7`; a receipt with no `cursor_jobs` and `cursor_job_durations`, or one carrying `direction` or `monitoring_level`, predates this contract".
+- Line 149, Session Visualisation: "Receipt schema stays 6" becomes "Receipt schema stays 7". The Cost Receipt section names cursor jobs: token counters and no cost figure.
 - `grep -n -i copilot SKILL.md` and treat each remaining enumeration the same way.
 
 - [ ] **Step 3: references/**
@@ -2050,6 +2129,7 @@ Verify: `grep -rn "3\.8\.[12]" SKILL.md README.md docs/user-guide/agent-handoff.
   - Line 92, the posture paragraph: add "On cursor the posture changes nothing: default and allow-all both run in Cursor's force mode, and deny rules in the user's or project's `.cursor/cli.json` are the only narrowing. Handoff writes nothing there. Every writing cursor job prints the bypass warning. Read-only is `--mode plan`."
   - After that paragraph, add R8.4's two remaining limits: "Cursor's attribution setting adds a `Co-authored-by: Cursor <cursoragent@cursor.com>` trailer to worker commits, e2e worker commits included. It is the user's setting: report it, do not strip it." and "`(NO ZDR)` in a Cursor model's display name means that model has no zero data retention, and a delegated job sends repository contents to it."
   - Line 116, monitoring: "any of the four backends". Add: "On cursor, a model Cursor refuses fails at launch: `status` reads FAILED, `log.jsonl` is empty, and `stderr.log` holds Cursor's message and the models it accepts."
+  - Lines 156 and 157, wrap up: the count arguments are `--codex-jobs`, `--cc-jobs`, `--copilot-jobs`, and `--cursor-jobs`; "Never fold a copilot or cursor job into another count"; the measured fields include `cursor_job_durations`; `receipt_schema_version` is `7`. Without this, a driver following the text passes no cursor count and `make-receipt.py` refuses the mismatch.
 - `fable5-principles.md` lines 66, 74, 76: "four backends", "the Codex subscription, the Claude meter, Copilot's AI credits, or the Cursor meter", "identical on all four", "the same across all four backends", "on Codex, Copilot, or Cursor".
 - `setup.md` line 16, add: "Cursor models come from `cursor-agent models`, read when the page opens, which is free: one option per `slug - Display name` line, `auto` dropped. When the CLI is missing or logged out the page offers no Cursor model and names `cursor-agent login` or `HANDOFF_CURSOR_BIN`. A cursor identity's effort is fixed at `model`. A configured slug that has left the catalogue stays selectable, marked. Smoke checks the slug against the catalogue before its one paid `--mode ask` run. `(NO ZDR)` in a display name means no zero data retention." The closing rule becomes "Never render one shared effort enum across the four CLIs."
 - `handoff-template.md` line 45: "; on a cursor-backed one it becomes `--mode plan`, which never carries Cursor's force mode. The job, the jobId, and the receipt entry are the same on all four."
@@ -2077,7 +2157,7 @@ Verify: `python3 -c "import xml.dom.minidom,glob;[xml.dom.minidom.parse(f) for f
 
 - feat: `cursor` is a fourth `backend` value. A cursor-backed identity runs `cursor-agent -p --output-format stream-json` as the same durable job the other three get: jobId, job directory, monitor loop, bounded `resume`, worktree lifecycle, and receipt evidence.
 - feat: a cursor identity's model is a whole catalogue slug (`claude-opus-5-5-high`, `composer-2.5`), and its effort is always `model`, because Cursor carries effort in the slug. Any other effort, and `model = "auto"`, are refused at setup and at submit.
-- feat: both wizards read Cursor's model list from `cursor-agent models` when they open, which is free. Smoke checks the slug against that list before its one paid read-only run, because Cursor quietly runs a variant of a base name it does not list.
+- feat: the web wizard reads Cursor's model list from `cursor-agent models` when it opens, which is free, and offers only those slugs. The terminal wizard takes a typed slug and fixes its effort at `model`. Smoke checks any configured slug against the list before its one paid read-only run, because Cursor quietly runs a variant of a base name it does not list.
 - **breaking**: receipt schema v7 adds `cursor_jobs` and `cursor_job_durations`. A v6 receipt no longer validates; regenerate it with `make-receipt.py`.
 - feat: the cost receipt shows a cursor job's tokens, and its cost cell reads "n/a - no cost figure": Cursor reports no cost, so none is made up. The model column shows the model that ran, read from the job's `init` event.
 - feat: the transcript viewer renders cursor logs. `thinking` events are dropped, each tool call is one row with its outcome, and a dropped log is recognised as cursor from its first `tool_call` or `thinking` event.
@@ -2091,6 +2171,7 @@ Verify: `python3 -c "import xml.dom.minidom,glob;[xml.dom.minidom.parse(f) for f
 `test-prompts.json`:
 - `receipt-splits-three-backend-counts` becomes `receipt-splits-four-backend-counts`. Prompt: "This run had jobs on Codex, on a second Claude Code, on Copilot, and on Cursor. Give me the receipt." `expected_behavior` passes `--cursor-jobs` too and emits `receipt_schema_version 7` with `cursor_jobs` and `cursor_job_durations` beside the three existing pairs. `must_not` adds "Fold cursor jobs into any other count.", "Emit a v6 receipt that omits cursor_jobs and cursor_job_durations.", and "Report a cost figure for a cursor job; Cursor reports none."
 - `no-identity-substitution-across-three-backends` becomes `no-identity-substitution-across-four-backends`, and its expected text says "all four backends".
+- Both new cases carry `"should_trigger": true`, which `run-test-prompts.py` requires on every case.
 - New case `cursor-identity-delegates-on-its-own-backend`. Prompt: "fast_worker is cursor-backed. Hand task T2 off." `expected_behavior`: "Submit with delegate-codex.sh submit --role fast_worker and report the jobId.", "Check that meta records backend=cursor.", "Tell the user that on Cursor the permission posture changes nothing: the job auto-approves every tool call except what the user's own deny rules forbid.", "Monitor it with the same status and result loop as any other backend." `must_not`: "Pass --force to a --read-only cursor job.", "Resolve the worker from the `cursor` or `agent` binary.", "Move the task to another identity to avoid Cursor's meter." <!-- risk-ok: Cursor CLI flag name -->
 - New case `cursor-effort-lives-in-the-slug`. Prompt: "Set deep_reasoner to Cursor with Claude Opus 5.5 at high effort." `expected_behavior`: "Name the catalogue slug that carries the effort, such as claude-opus-5-5-high, as the model.", "Set effort to model.", "Check the slug against cursor-agent models, or run smoke, rather than typing a base name." `must_not`: "Set effort = high on a cursor identity.", "Set model = auto."
 
@@ -2103,11 +2184,10 @@ Run:
 ```bash
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
-bash scripts/check-skill-repo.sh . | grep -v skillgantry-workspace | grep -E '^\./'
-grep -rn -i -E "three backends|three CLIs|three vendors|three job counts|schema v6|receipt_schema_version: 6" SKILL.md README.md CLAUDE.md references/ docs/user-guide/agent-handoff.html
+grep -rn -i -E "three backends|three CLIs|three vendors|three job counts|schema v6|schema stays 6|receipt_schema_version: 6|receipt_schema_version\` is (always )?\`6\`" SKILL.md README.md CLAUDE.md references/ docs/user-guide/agent-handoff.html || true
 ```
 
-Expected: `SUMMARY fail=0 warn=1`; no listed warning line comes from a file this task changed; `PASS static checks`; the last grep prints nothing.
+Expected: `SUMMARY fail=0 warn=1`; `PASS static checks`; the grep prints nothing. Then run the risk-scan check from *Execution order*; it prints nothing.
 
 - [ ] **Step 8: Commit**
 
@@ -2142,8 +2222,7 @@ Requirements: R8.3.
 
 - [ ] **Step 3: Verify and commit**
 
-Run: `bash scripts/check-skill-repo.sh . | grep -v skillgantry-workspace | grep -E '^\./'`
-Expected: no listed line comes from a file this task changed.
+Run the risk-scan check from *Execution order*. Expected: it prints nothing.
 
 ```bash
 git add docs/specs
@@ -2182,29 +2261,40 @@ bash install.sh --dry-run
 
 Expected: every command exits 0.
 
-- [ ] **Step 2: Install and record the revision**
+- [ ] **Step 2: Resolve the installed copy and record its revision**
+
+The flow runs the installed copy at `~/.claude/skills/agent-handoff`. Check what it is before touching it:
 
 ```bash
-bash install.sh
-bash install.sh --status      # installed revision must equal `git rev-parse HEAD`
+CHECKOUT="$(git rev-parse --show-toplevel)"
+ls -ld "$HOME/.claude/skills/agent-handoff"
+```
+
+- If it is a symlink to `$CHECKOUT`, do **not** run `bash install.sh`. Its "already installed" test compares the unresolved path, so it would move the symlink aside and replace it with a copy. The installed revision is then `git -C "$CHECKOUT" rev-parse HEAD` with a clean `git status`; record both.
+- Otherwise run `bash install.sh` and `bash install.sh --status`, and record the revision it prints.
+
+```bash
 H="$HOME/.claude/skills/agent-handoff/scripts"
+D="$H/delegate-codex.sh"
 ```
 
 - [ ] **Step 3: Scratch repo and identity**
 
+Keep every path absolute: the delegate script checks `--prompt-file` relative to the shell's cwd.
+
 ```bash
-S="$(mktemp -d)/repo"; mkdir -p "$S"; cd "$S"
-git init -q -b main
-printf 'helo world\n' > greeting.txt
-printf '#!/usr/bin/env bash\ngrep -qx "hello world" greeting.txt && echo CHECK_OK || { echo CHECK_FAILED; exit 1; }\n' > check.sh
-printf '.handoff/\n' > .gitignore
-git add -A && git commit -qm init
+E2E="$(mktemp -d)"; S="$E2E/repo"; mkdir -p "$S"
+git -C "$S" init -q -b main
+printf 'helo world\n' > "$S/greeting.txt"
+printf '#!/usr/bin/env bash\ngrep -qx "hello world" greeting.txt && echo CHECK_OK || { echo CHECK_FAILED; exit 1; }\n' > "$S/check.sh"
+printf '.handoff/\n' > "$S/.gitignore"
+git -C "$S" add -A && git -C "$S" commit -qm init
 python3 "$H/handoff-config.py" --repo "$S" init
 python3 "$H/handoff-config.py" --repo "$S" set --role fast_worker --backend cursor --model gpt-5.4-mini-low --effort model
 python3 "$H/handoff-setup.py" --status --repo "$S"
 ```
 
-Pick a slug that `cursor-agent models` lists; `gpt-5.4-mini-low` is the one the probes used. Before running smoke, read `--status`: smoke checks every configured identity, including ones merged in from `~/.config/handoff/config.toml`, and a claude-backed one spends a Claude request. Set the other core identities in the scratch config to codex if that is not wanted. Then:
+Pick a slug `cursor-agent models` lists; `gpt-5.4-mini-low` is the one the probes used. Read `--status` before smoke: smoke checks every configured identity, including ones merged in from `~/.config/handoff/config.toml`, and a claude-backed one spends a Claude request. Set the other identities in the scratch config to codex if that is not wanted. Then:
 
 ```bash
 python3 "$H/handoff-setup.py" --smoke --repo "$S"      # expect fast_worker: PASS
@@ -2213,31 +2303,35 @@ python3 "$H/make-receipt.py" --start --repo "$S"
 
 - [ ] **Step 4: Jobs**
 
-Write three packets outside the repo:
-- `edit.md`: "Fix the typo in greeting.txt so the file reads exactly `hello world`. Then run `bash check.sh` and quote its output. Do not commit."
-- `question.md`: "What exact text does greeting.txt contain now? Answer in one line."
-- `notes.md`: "Create NOTES.md containing the single line `worktree ok`, then commit it with the message `notes`."
-- `write.md`: "Create a file named should-not-exist.txt containing the letter x."
+Write four packets under `$E2E`, outside the repo:
+- `$E2E/edit.md`: "Fix the typo in greeting.txt so the file reads exactly `hello world`. Then run `bash check.sh` and quote its output. Do not commit."
+- `$E2E/question.md`: "What exact text does greeting.txt contain now? Answer in one line."
+- `$E2E/notes.md`: "Create NOTES.md containing the single line `worktree ok`, then commit it with the message `notes`."
+- `$E2E/write.md`: "Create a file named should-not-exist.txt containing the letter x."
 
 ```bash
-D="$H/delegate-codex.sh"
-J=$(bash "$D" submit --repo "$S" --prompt-file edit.md --label e2e-edit --role fast_worker)
+J=$(bash "$D" submit --repo "$S" --prompt-file "$E2E/edit.md" --label e2e-edit --role fast_worker)
 bash "$D" status "$J" --repo "$S" --wait --timeout 600; bash "$D" result "$J" --repo "$S"
-R=$(bash "$D" resume "$J" --repo "$S" --prompt-file question.md)
+R=$(bash "$D" resume "$J" --repo "$S" --prompt-file "$E2E/question.md")
 bash "$D" status "$R" --repo "$S" --wait --timeout 600; bash "$D" result "$R" --repo "$S"
-W=$(bash "$D" submit --repo "$S" --prompt-file notes.md --label e2e-wt --role fast_worker --worktree e2e/cursor-wt)
+W=$(bash "$D" submit --repo "$S" --prompt-file "$E2E/notes.md" --label e2e-wt --role fast_worker --worktree e2e/cursor-wt)
 bash "$D" status "$W" --repo "$S" --wait --timeout 600
-O=$(bash "$D" submit --repo "$S" --prompt-file write.md --label e2e-ro --role fast_worker --read-only)
+# The edit leg leaves greeting.txt modified on purpose. Commit it, so the
+# read-only leg starts from a clean tree and any change it makes shows.
+git -C "$S" commit -qam "accept the e2e edit"
+BEFORE="$(git -C "$S" status --porcelain)"
+O=$(bash "$D" submit --repo "$S" --prompt-file "$E2E/write.md" --label e2e-ro --role fast_worker --read-only)
 bash "$D" status "$O" --repo "$S" --wait --timeout 600; bash "$D" result "$O" --repo "$S"
+AFTER="$(git -C "$S" status --porcelain)"
 ```
 
 Confirm each item on disk, not from the worker's report:
-- `greeting.txt` reads `hello world`.
-- `log.jsonl` of `$J` holds a `shellToolCall` for `bash check.sh` whose completed result's stdout contains `CHECK_OK`.
-- `meta` of `$J` records `backend=cursor`, `effort=model`, `permission_mode=force`; the submit printed the bypass warning naming `.cursor/cli.json`.
-- `$R` resumed the same session: its `session_id` file equals `$J`'s, and its `init` event carries the same `session_id`. Its `result.usage.inputTokens` is its own invocation's count, not a running total.
+- `greeting.txt` read `hello world` after `$J`.
+- `$S/.handoff/jobs/$J/log.jsonl` holds a `shellToolCall` for `bash check.sh` whose completed result's stdout contains `CHECK_OK`.
+- `meta` of `$J` records `backend=cursor`, `effort=model`, `permission_mode=force`, and the submit printed the bypass warning naming `.cursor/cli.json`.
+- `$R` resumed the same session: its `session_id` file equals `$J`'s, and its `init` event carries the same `session_id`. Its `result.usage.inputTokens` is its own invocation's count, well below `$J`'s, not a running total.
 - `$W`'s `meta` has a 40-character `base_commit`; branch `e2e/cursor-wt` has the `notes` commit (record whether it carries a `Co-authored-by: Cursor` trailer); `bash "$D" cleanup "$W" --repo "$S"` removes the worktree.
-- `$O` runs `--mode plan` with no force flag in `run.sh`; `should-not-exist.txt` does not exist and `git -C "$S" status --porcelain` is empty.
+- `$O`'s `run.sh` carries `--mode plan` and no force flag; `should-not-exist.txt` does not exist; `$BEFORE` and `$AFTER` are both empty.
 
 - [ ] **Step 5: Receipt and cost receipt**
 
@@ -2247,22 +2341,23 @@ python3 "$H/make-receipt.py" --repo "$S" --phase "delegated implementation" --cl
   --scope project --config-source project \
   --roles-used '[{"role":"fast_worker","host":"cursor","model":"gpt-5.4-mini-low","effort":"model","verified":true}]'
 python3 "$H/render-cost-receipt.py" last --repo "$S" --no-open
-python3 "$H/render-transcript.py" "$J" --repo "$S" --no-open
+python3 "$H/render-transcript.py" --help
 ```
 
-`make-receipt.py` refuses a count its job directories do not support, so exit 0 proves four cursor jobs. The cost receipt's cursor rows show tokens, the display name from `init`, and "n/a - no cost figure"; `$J` and `$R` are two rows whose input tokens sum. Open the transcript page once and check that thinking is absent and tool calls read as one row each. (Check `render-transcript.py --help` for its exact arguments first.)
+`make-receipt.py` refuses a count its job directories do not support, so exit 0 proves four cursor jobs. The cost receipt's cursor rows show tokens, the display name from `init`, and "n/a - no cost figure"; `$J` and `$R` are two rows whose input tokens sum. Render `$J`'s transcript with the arguments `--help` shows, open it once, and check that no thinking row appears and each tool call reads as one row.
 
 - [ ] **Step 6: Open questions, cheap probes only**
 
-- Resume of a session that never existed: `cursor-agent -p "Reply ok" --output-format stream-json --trust --mode ask --resume "$(python3 -c 'import uuid;print(uuid.uuid4())')"` from `$S`. Record exit code, stderr, and whether it started a new session under that id.
+- Resume of a session that never existed, from `$S`: `cursor-agent -p "Reply ok" --output-format stream-json --trust --mode ask --resume "$(python3 -c 'import uuid;print(uuid.uuid4())')"`. Record the exit code, stderr, and whether it started a new session under that id.
 - A `-p` run while logged out, and a mid-run API failure: do not log the user out or exhaust a quota to provoke them. Record each as `[open]` unless it happens on its own.
-- Write each result into `docs/research/cursor-cli-specification.md` with its provenance tag and the date.
+- Write each result into `$CHECKOUT/docs/research/cursor-cli-specification.md` with its provenance tag and the date.
 
 - [ ] **Step 7: Record and commit**
 
-Fill in *Verification record* below with the installed revision, the helper paths, the four jobIds, and one line of evidence per R9.3 item. Commit:
+Fill in *Verification record* below with the installed revision, the helper paths, the four jobIds, and one line of evidence per R9.3 item. From the checkout, not from `$S`:
 
 ```bash
+cd "$CHECKOUT"
 git add docs/specs/plan_cursor-cli-backend.md docs/research/cursor-cli-specification.md
 git commit -m "specs: Record the Cursor backend's live end-to-end verification"
 ```
@@ -2295,3 +2390,16 @@ Per the requirements' *Out of scope*: no Handoff writes to `.cursor/cli.json`, n
 - A sandbox-based cursor `default`, if a Cursor build runs shells under `--sandbox enabled`.
 - Make the bash catch-alls in `delegate-codex.sh` die on an unknown backend instead of defaulting to codex.
 - Redraw `delegate-paths.svg`, `identities.svg`, and `handoff-lifecycle.svg` with a fourth backend chip.
+
+## Spec review
+
+Reviewed once by `deep_reasoner` (codex / gpt-6-astra / xhigh, read-only) as job `job-2026-09-30T01-08-13-82680-spec-review`: 27 commands, 0 denials. Every cited line was checked against the repository before it was folded in. No finding reopened a settled decision.
+
+**Accepted, three blocking:**
+1. `references/claude-driven.md:156-157` and `SKILL.md:149` still told the driver to pass three counts and schema 6; Task 6 now names them, and Step 7's grep catches the backticked spelling.
+2. Four existing assertions in `tests/test_cost_receipt.py` consume the widened fixtures; Task 4 lists them. The two new prompt cases carry `should_trigger`.
+3. Task 8's recipe used relative packet paths, asserted a clean tree after a leg that leaves it dirty, and never returned to the checkout. Rewritten with absolute paths and a committed baseline. The driver found a fourth problem while checking the install step: the installed skill is a symlink to the checkout, and `install.sh` would replace it with a copy.
+
+**Accepted, five advisory:** the viewer row keeps its completed event (`raw.started`, `raw.completed`); the wizard's model-change handler keeps the discovery failure (`sourceText`); `result` takes the last assistant event and the last usage literally, with tests that fail on the wrong event in Tasks 1, 2, and 4; the risk-scan acceptance checks the diff's added lines instead of warning line numbers; the changelog separates web discovery from the terminal's typed slug. Two coverage gaps also got tests: R3.5 (no `.cursor` writes) and R2.1's resume fallback.
+
+**Declined:** a DOM-rendered viewer test. `tests/test_transcript_viewer.mjs` runs only the `viewer-normalize` block, and the render path prints `row.raw`, which the new assertions cover. R6.2's timeout path has no targeted test either: it is one `except subprocess.TimeoutExpired` branch, and a test would sleep for the full timeout.
