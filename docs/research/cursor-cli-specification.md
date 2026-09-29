@@ -281,6 +281,16 @@ All runs on `gpt-5.4-mini-low` unless noted, in a throwaway repo reset between r
 | B2 | sandbox, outside write | `--force --sandbox enabled` | 0 | outside write landed; network 200 | <!-- risk-ok: Cursor CLI flag name -->
 | B3 | sandbox, no force | `--sandbox enabled` | 0 | first shell call `spawn /bin/zsh ENOENT`; worker stopped; nothing written |
 
+## 12. Handoff end-to-end run (2026-09-30)
+
+Recorded by Task 8 of `docs/specs/plan_cursor-cli-backend.md`, driving build `2026.09.28-64d2043` through `delegate-codex.sh` on `gpt-5.4-mini-low`, from a scratch repo under a long session scratch path.
+
+- **[probed] Resuming an id Cursor never saw does not fail.** `-p "Reply with exactly: ok" --output-format stream-json --trust --mode ask --resume <fresh uuid4>` exited 0 with an empty stderr; `init` and `result` both carried the new uuid as `session_id`, and the run answered `ok`. Cursor starts a new, empty session under that id. So a Handoff fix round against a session Cursor never persisted loses its context silently, with no error in `stderr.log`. This corrects the expectation in R4.3.
+- **[probed] A mistyped `workingDirectory` surfaces as `spawn /bin/zsh ENOENT`.** The model retyped the long workspace path into `shellToolCall.args.workingDirectory` wrong twice (`agent-hand-off`, then a dropped `harness-`). Both calls completed with `spawnError` "spawn /bin/zsh ENOENT": the missing path is the cwd, not the shell. A fix round that named the typo ran the check. This may also explain probe A's `spawnError` on `cat ../outside.txt` (inference, not verified).
+- **[probed] `askQuestionToolCall` is rejected under `-p --mode plan`.** A read-only job asked to write a file tried to ask the user a question; the call completed with a `rejected` result, and Handoff counted it as one denial. Nothing was written.
+- **[probed] The commit trailer appears on worktree commits.** A worker commit on a Handoff worktree branch carried `Co-authored-by: Cursor <cursoragent@cursor.com>`.
+- **[open] A `-p` run while logged out, and a mid-run API failure.** Not provoked: neither could be caused without logging the user out or exhausting a quota.
+
 ## References
 
 - Cursor CLI output format: https://cursor.com/docs/cli/reference/output-format

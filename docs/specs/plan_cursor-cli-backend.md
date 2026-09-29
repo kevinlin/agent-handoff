@@ -2367,19 +2367,21 @@ git commit -m "specs: Record the Cursor backend's live end-to-end verification"
 
 ## Verification record
 
-Filled in by Task 8.
+Run by the driver on 2026-09-30 against a scratch repo, with `fast_worker` set to cursor / `gpt-5.4-mini-low` / `model` and the other core identities on codex. Job ids below are from that repo's `.handoff/jobs/`.
 
 | R9.3 item | Evidence |
 |---|---|
-| Installed revision and helper paths | |
-| One expected edit on disk | |
-| A named repo check ran, output in `log.jsonl` | |
-| `meta` records `backend=cursor` | |
-| `resume` on the same session, usage counted once | |
-| `--worktree` job pins its base and cleans up | |
-| `--read-only` job leaves the tree unchanged | |
-| Receipt counts the jobs under `cursor_jobs` | |
-| Cost receipt shows tokens | |
+| Installed revision and helper paths | `~/.claude/skills/agent-handoff` is a symlink to this checkout, so `install.sh` was not run (Task 8 Step 2). Revision `a2c1832` on a clean tree. Helpers from `~/.claude/skills/agent-handoff/scripts/`: `delegate-codex.sh`, `handoff-config.py`, `handoff-setup.py`, `make-receipt.py`, `validate-receipt.py`, `render-cost-receipt.py`, `render-transcript.py`. Worker: `cursor-agent` build `2026.09.28-64d2043`. |
+| Smoke (R6.5) | `fast_worker: PASS (slug in cursor-agent models, run accepted by Cursor)` in 16 s; `verified=true` written. |
+| One expected edit on disk | `job-2026-09-30T03-57-17-23270-e2e-edit`: `greeting.txt` went from `helo world` to `hello world`. |
+| A named repo check ran, output in `log.jsonl` | The edit job's two `bash check.sh` calls failed with `spawnError` "spawn /bin/zsh ENOENT": the model mistyped the long workspace path in `workingDirectory`. The worker said so. Fix round `...-e2e-edit-r2` named the typo; its completed `shellToolCall` result is `success` with stdout `CHECK_OK`. |
+| `meta` records `backend=cursor` | Edit job `meta`: `backend=cursor`, `effort=model`, `permission_mode=force`, `permission_posture=default`. The submit printed the bypass warning naming `.cursor/cli.json`. |
+| `resume` on the same session, usage counted once | Parent and `-r2` both hold session `f442fd62-82f6-4295-9217-f9d38aaf6a8e` in `session_id` and in their `init` events. The round recalled its earlier edit without reading a file. Input tokens: 17,843 for the parent, 938 for the round, so usage is per invocation and the two rows sum without double counting. |
+| `--worktree` job pins its base and cleans up | `job-2026-09-30T03-59-12-26925-e2e-wt`: `base_commit=9b226c0c59525db2b4550bcd8a79679613988d20`; branch `e2e/cursor-wt` holds commit `0055da8 notes`, which carries `Co-authored-by: Cursor <cursoragent@cursor.com>`; `cleanup` removed the worktree. |
+| `--read-only` job leaves the tree unchanged | `job-2026-09-30T03-59-40-28687-e2e-ro`: `run.sh` carries `--mode plan` and no force flag, no bypass warning printed, `git status --porcelain` empty before and after, `should-not-exist.txt` absent. One typed denial (`askQuestionToolCall`) reported by both `status` and `result`. |
+| Receipt counts the jobs under `cursor_jobs` | `receipt-20260929T200019Z.md`: `cursor_jobs: 4` with four measured durations, `receipt_schema_version: 7`, `validate-receipt.py` PASS. |
+| Cost receipt shows tokens | Four cursor rows with tokens, model "GPT-5.4 Mini Low" from `init` (the resumed round included), cost cell "n/a - no cost figure", the Cursor meter sentence, denials 1. Outside-driver input 54,976 is the sum of the four rows. |
+| Transcript viewer on real logs | The parent's and the round's `log.jsonl` run through the shipped `viewer-normalize` block: backend inferred as cursor, 265 `thinking` events dropped, one row per tool call with its outcome, no unknown or unparsed rows. `render-transcript.py` wrote the page. |
 
 ## Not doing
 
