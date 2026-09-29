@@ -3,8 +3,9 @@
 
 Numbers come only from measurement: codex jobs yield token counters, claude
 jobs yield the CLI's own cost figure, copilot jobs yield token counters plus an
-AI-credit meter, and the driver row is scoped to the run interval. Nothing is
-estimated, and no saving is computed.
+AI-credit meter, cursor jobs yield token counters and no cost figure, and the
+driver row is scoped to the run interval. Nothing is estimated, and no saving
+is computed.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from handoff_runtime import inject, job_state, read_meta  # noqa: E402
 
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "cost-receipt.html"
 RECEIPT_HEADER = "[Handoff session receipt]"
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 FIELD_LINE = re.compile(r"^([a-z_]+):\s*(.+)$")
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -35,6 +36,7 @@ BACKEND_FIELDS = {
     "codex": ("codex_jobs", "codex_job_durations"),
     "claude": ("cc_jobs", "cc_job_durations"),
     "copilot": ("copilot_jobs", "copilot_job_durations"),
+    "cursor": ("cursor_jobs", "cursor_job_durations"),
 }
 
 
@@ -132,6 +134,13 @@ USAGE_FIELDS = {
         "cache_write": "cache_creation_input_tokens",
         "output": "output_tokens",
     },
+    # Cursor reports no reasoning count.
+    "cursor": {
+        "input": "inputTokens",
+        "cache_read": "cacheReadTokens",
+        "cache_write": "cacheWriteTokens",
+        "output": "outputTokens",
+    },
 }
 CREDITS = ("premium_requests", "nano_aiu")
 
@@ -211,9 +220,50 @@ def _fold_copilot(events: list[dict], usage_json: dict | None) -> dict:
             "models": sorted(model_metrics), "repeated": False, "credits": credits}
 
 
+def cursor_rejections(events: list[dict]) -> list[tuple[str, dict]]:
+    """(tool kind, rejected payload) for each completed call Cursor refused."""
+    found = []
+    for event in events:
+        call = event.get("tool_call")
+        if (event.get("type") != "tool_call" or event.get("subtype") != "completed"
+                or not isinstance(call, dict)):
+            continue
+        for kind, body in call.items():
+            result = body.get("result") if isinstance(body, dict) else None
+            if isinstance(result, dict) and "rejected" in result:
+                payload = result["rejected"]
+                found.append((kind, payload if isinstance(payload, dict) else {}))
+    return found
+
+
+def _fold_cursor(events: list[dict]) -> dict:
+    """Use the last result's tokens, typed rejections, and the init model.
+
+    Each invocation has its own usage. No result means unknown usage.
+    Cursor reports no reasoning count or cost figure.
+    """
+    usage = _blank_usage()
+    models: list[str] = []
+    seen_terminal = 0
+    for event in events:
+        if event.get("type") == "system" and event.get("subtype") == "init" and event.get("model"):
+            models = [event["model"]]
+        elif event.get("type") == "result":
+            seen_terminal += 1
+            usage = _blank_usage()
+            raw = event.get("usage") or {}
+            for counter, field in USAGE_FIELDS["cursor"].items():
+                _add(usage, counter, raw.get(field))
+    return {"usage": usage, "cost_usd": None, "denials": len(cursor_rejections(events)),
+            "models": models, "repeated": seen_terminal > 1,
+            "credits": {key: None for key in CREDITS}}
+
+
 def fold_usage(events: list[dict], backend: str, usage_json: dict | None = None) -> dict:
     if backend == "copilot":
         return _fold_copilot(events, usage_json)
+    if backend == "cursor":
+        return _fold_cursor(events)
 
     usage = _blank_usage()
     cost_usd = None
@@ -229,7 +279,7 @@ def fold_usage(events: list[dict], backend: str, usage_json: dict | None = None)
             seen_terminal += 1
             for counter, field in USAGE_FIELDS["codex"].items():
                 _add(usage, counter, raw.get(field))
-    else:
+    elif backend == "claude":
         # Only the last result is authoritative; an earlier one is a repeat.
         for event in events:
             if event.get("type") != "result":
@@ -246,6 +296,8 @@ def fold_usage(events: list[dict], backend: str, usage_json: dict | None = None)
             # modelUsage names the models; its numbers duplicate `usage`.
             models = sorted(event.get("modelUsage") or {})
             denials = len(event.get("permission_denials") or [])
+
+    # Unknown backends keep every counter unknown and denials unreported.
 
     return {"usage": usage, "cost_usd": cost_usd, "denials": denials,
             "models": models, "repeated": seen_terminal > 1,
@@ -274,12 +326,15 @@ def job_row(repo: Path, job: dict) -> dict:
     usage_json = read_usage_json(job_dir) if job["backend"] == "copilot" else None
     folded = fold_usage(read_events(job_dir), job["backend"], usage_json)
     credits = folded.pop("credits")
+    model = resolve_model(repo, job["job_id"])
+    if job["backend"] == "cursor" and folded["models"]:
+        model = folded["models"][-1]
     return {
         "job_id": job["job_id"],
         "label": meta.get("label", ""),
         "role": meta.get("role", ""),
         "backend": job["backend"],
-        "model": resolve_model(repo, job["job_id"]),
+        "model": model,
         "state": job_state(job_dir),
         **folded,
         **credits,
@@ -400,13 +455,15 @@ def _credit_figure(rows: list[dict]) -> dict:
 def summarize(rows: list[dict]) -> dict:
     """Two figures whose populations overlap by design: codex jobs are in both.
     They are never added together, and neither is a saving. The copilot credit
-    meter is a third kind of reading, in neither of them."""
+    meter is a third kind of reading, in neither of them. The Cursor meter
+    reports tokens in the outside-driver figure, but no cost."""
     codex_rows = [r for r in rows if r["backend"] == "codex"]
     denials = [r["denials"] for r in rows if r["denials"] is not None]
     return {
         "codex_subscription": _figure(codex_rows, with_cost=False),
         "outside_driver": _figure(rows, with_cost=True),
         "copilot_credits": _credit_figure(rows),
+        "cursor_meter": {"jobs": sum(1 for r in rows if r["backend"] == "cursor")},
         "denials": sum(denials) if denials else None,
     }
 
@@ -540,8 +597,11 @@ def render_markdown(payload: dict) -> str:
             "no difference between them is a saving.",
             ""]
     out += [_credit_sentence(summary["copilot_credits"]), ""]
+    if summary["cursor_meter"]["jobs"]:
+        out += [f"**Ran on the Cursor meter** ({_job_count(summary['cursor_meter']['jobs'])}). "
+                "Cursor reports tokens but no cost figure, so none is shown.", ""]
     if summary["denials"] is not None:
-        out += ["Permission denials across claude-backed and copilot-backed jobs: "
+        out += ["Permission denials across claude-backed, copilot-backed, and cursor-backed jobs: "
                 f"**{summary['denials']}**. "
                 "A denied tool call does not move a job's exit code.", ""]
 
@@ -552,10 +612,11 @@ def render_markdown(payload: dict) -> str:
             "|---|---|---|---|---|" + "---|" * (len(COUNTERS) + 3)]
     for job in payload["jobs"]:
         counters = " | ".join(md_cell(job["usage"][c]) for c in COUNTERS)
-        # Neither codex nor copilot reports a currency figure, so neither cell
-        # is an unknown reading: there is nothing there to read.
+        # Codex, Copilot, and Cursor report no currency figure, so their cells
+        # are not unknown readings: there is nothing there to read.
         cost_cell = {"codex": "n/a - subscription",
-                     "copilot": "n/a - AI credits"}.get(job["backend"]) or (
+                     "copilot": "n/a - AI credits",
+                     "cursor": "n/a - no cost figure"}.get(job["backend"]) or (
             repr(job["cost_usd"]) if job["cost_usd"] is not None else "unknown")
         credits = " | ".join(
             "n/a" if job["backend"] != "copilot" else md_cell(job[key])

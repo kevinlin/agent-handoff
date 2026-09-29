@@ -26,6 +26,19 @@ SPEC.loader.exec_module(ui)
 
 
 class SessionTests(unittest.TestCase):
+    def test_cursor_denials_are_reported_and_an_unknown_backend_is_not_read(self):
+        job = self.repo / '.handoff/jobs/job-a'
+        rejected = {'type': 'tool_call', 'subtype': 'completed', 'call_id': 'c\nf',
+                    'tool_call': {'shellToolCall': {'result': {'rejected': {
+                        'command': 'curl https://example.com', 'reason': ''}}}}}
+        (job / 'log.jsonl').write_text(json.dumps(rejected) + '\n' + json.dumps(rejected) + '\n')
+        found = ui.denials(job, 'cursor')
+        self.assertEqual('reported', found['state'])
+        self.assertEqual(2, len(found['items']))
+        self.assertEqual({'tool': 'shellToolCall', 'command': 'curl https://example.com'},
+                         found['items'][0])
+        self.assertEqual({'state': 'not reported (gemini)', 'items': []}, ui.denials(job, 'gemini'))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
