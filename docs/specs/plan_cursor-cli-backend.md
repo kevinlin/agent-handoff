@@ -51,9 +51,9 @@ Rows touch disjoint files within a wave, so a wave's rows run in parallel as `--
 **Risk-scan check for a worker.** Workers never compare warning line numbers, because a changed file shifts them. Instead, after staging (not committing) the row's work, check that the diff adds no risky line without a marker. It must print nothing:
 
 ```bash
+PATTERN='git[[:space:]]+reset[[:space:]]+--hard|[Hh]ard [Gg]it [Rr]eset|rm -rf|force push|--force'  # risk-ok: the scan's own pattern
 git add -A && git diff --cached <base-sha> -- . ':!test-prompts.json' | grep -E '^\+' \
-  | grep -E 'git[[:space:]]+reset[[:space:]]+--hard|[Hh]ard [Gg]it [Rr]eset|rm -rf|force push|--force' \
-  | grep -vE 'risk-ok|[Dd]o not|not `' || true  # risk-ok: the scan's own pattern
+  | grep -E "$PATTERN" | grep -vE 'risk-ok|[Dd]o not|not `' || true
 ```
 
 ---
