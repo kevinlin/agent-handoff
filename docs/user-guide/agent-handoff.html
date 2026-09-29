@@ -183,7 +183,7 @@
 <header>
   <h1>Agent Handoff — user guide</h1>
   <p class="lede">Handoff splits coding work between a driving Claude Code session and a worker CLI. The driver plans, splits, and signs off; the worker executes each task as a background job on its own meter. The driver’s quota and context window go further, and the driver still reviews the whole diff against criteria written before the work started.</p>
-  <p class="meta">user guide · kevinlin/agent-handoff @ v3.8.1 · updated 2026-09-12</p>
+  <p class="meta">user guide · kevinlin/agent-handoff @ v3.9.0 · updated 2026-09-30</p>
 </header>
 
 <h2 id="overview">How a run works</h2>
@@ -191,7 +191,7 @@
 <p>One flow, one driver. Claude Code refines your request into a plan, attacks its own split before acting on it, hands each delegable row to a worker CLI as a background job, watches those jobs by reading files rather than by holding their history in context, and reads every returned diff against the plan before accepting it. The run ends with a receipt whose numbers were measured rather than remembered.</p>
 
 <figure>
-  <img src="diagrams/handoff-lifecycle.svg" alt="Agent Handoff as five phase columns over three lanes. In plan and split, Claude Code writes goal.md, attacks its own split at the adversarial gate, and sends the plan to deep_reasoner for a read-only spec review before it reaches you. In delegate, a packet and a role become one background job per row on codex, claude or copilot, and bad routing is refused before any job exists. Monitor reads each job's state off disk and handles anomalies. Full review checks the whole diff against goal.md and sends a failing one back as a resume fix round. The spec review and the fix rounds both go to the arbiter at their cap. Wrap up writes the receipt, and a strip below lists what every packet carries.">
+  <img src="diagrams/handoff-lifecycle.svg" alt="Agent Handoff as five phase columns over three lanes. In plan and split, Claude Code writes goal.md, attacks its own split at the adversarial gate, and sends the plan to deep_reasoner for a read-only spec review before it reaches you. In delegate, a packet and a role become one background job per row on codex, claude, copilot, or cursor, and bad routing is refused before any job exists. Monitor reads each job's state off disk and handles anomalies. Full review checks the whole diff against goal.md and sends a failing one back as a resume fix round. The spec review and the fix rounds both go to the arbiter at their cap. Wrap up writes the receipt, and a strip below lists what every packet carries.">
   <figcaption>The five steps, the worker beneath them, and the files each step leaves behind.</figcaption>
 </figure>
 
@@ -221,7 +221,7 @@
 <p>An identity is a capability tier with a concrete home: a backend, a model, an effort level, and a permission posture. When the driver splits work, it asks one question per row: which capability does this need. The identity’s configuration answers the rest.</p>
 
 <figure>
-  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus a card for the driver itself, which is not an identity and keeps the split, integration, critical paths and final acceptance. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print or copilot -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
+  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus a card for the driver itself, which is not an identity and keeps the split, integration, critical paths and final acceptance. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print, copilot -p, or cursor-agent -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
   <figcaption>One identity resolves into one CLI on one meter. Nothing in a prompt can change that.</figcaption>
 </figure>
 
@@ -234,7 +234,7 @@
   <div class="card driver"><h4>The driver itself <span class="src">not an identity</span></h4><p>What the driver keeps: the split decision, cross-task integration, security- and correctness-critical paths, final acceptance. These rows run inline and are marked <code>-</code> in the goal file’s identity column.</p></div>
 </div>
 
-<p>The three core identities are always configured. The e2e pair is written only when setup runs with <code>--with-e2e</code>, and a config carrying just the core three is complete. All five can be mixed across the three vendors, and their values live in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global) and nowhere else.</p>
+<p>The three core identities are always configured. The e2e pair is written only when setup runs with <code>--with-e2e</code>, and a config carrying just the core three is complete. All five can be mixed across the four vendors, and their values live in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global) and nowhere else.</p>
 
 <h3>How a row becomes a job on a meter</h3>
 
@@ -245,8 +245,8 @@
 <ul>
   <li>No Handoff config at all is an error pointing at <code>/agent-handoff config</code>, never a default model.</li>
   <li>A per-job <code>--backend</code> that contradicts a named identity is refused, with the config command that would make it legitimate.</li>
-  <li>An effort value the chosen CLI does not accept is refused. The enums are per vendor: <code>ultra</code> is Codex-only, <code>none</code> is Copilot-only, Claude takes <code>low</code> through <code>max</code>.</li>
-  <li><code>model = "auto"</code> on Copilot is refused, because the receipt would then record what the vendor picked rather than what you configured.</li>
+  <li>An effort value the chosen CLI does not accept is refused. The enums are per vendor: <code>ultra</code> is Codex-only, <code>none</code> is Copilot-only, Claude takes <code>low</code> through <code>max</code>, and Cursor takes only <code>model</code> because its catalogue slug carries the effort.</li>
+  <li><code>model = "auto"</code> on Copilot or Cursor is refused, because the receipt would then record what the vendor picked rather than what you configured.</li>
 </ul>
 
 <div class="callout claude">
@@ -255,7 +255,7 @@
 
 <h3>Permission posture</h3>
 
-<p>Each identity picks <code>default</code> or <code>allow-all</code>. Default means Claude’s <code>dontAsk</code> with a worker tool set, Codex inheriting your own config with no sandbox flags, and Copilot keeping its path and URL checks. Allow-all uses each provider’s own unrestricted mode, so the three CLIs do not share one posture. Read-only wins over both and is inherited by fix rounds.</p>
+<p>Each identity picks <code>default</code> or <code>allow-all</code>. Default means Claude’s <code>dontAsk</code> with a worker tool set, Codex inheriting your own config with no sandbox flags, and Copilot keeping its path and URL checks. Allow-all uses each provider’s own unrestricted mode, so the four CLIs do not share one posture. Cursor runs in its force mode under both because no narrower mode let a probed worker run its checks; deny rules in the user's or project's <code>.cursor/cli.json</code> are the only narrowing. Handoff writes nothing there and warns on every writing Cursor job. Read-only wins over both, uses <code>--mode plan</code> on Cursor, and is inherited by fix rounds.</p>
 
 <p>This has two limits. It is the permission-rule layer only: no OS-level sandbox is added for a Claude worker running under <code>default</code>. And a denied tool call does not change a job’s exit code, so a worker can finish “successfully” having skipped checks it was refused — which is why the review gate reads the denial count first and re-runs blocked commands itself. Details in <a href="../specs/design_agent-identities-and-config.md">the identity and configuration design</a>.</p>
 
@@ -266,12 +266,12 @@
   <figcaption>Everything before apply is reversible, and <code>verified</code> means a CLI actually answered rather than that a file was written.</figcaption>
 </figure>
 
-<p><code>/agent-handoff config</code> opens a page bound to <code>127.0.0.1</code>. Model lists come from each CLI itself — Codex from its own <code>model/list</code>, Claude from <code>claude --help</code>, Copilot from the models your account is entitled to, each listed with the reasoning efforts that model accepts. Nothing is guessed, and nothing is quietly downgraded. If a model list cannot be read, that identity offers nothing and the page names the login to fix — you are never asked to type a name the wizard could not check.</p>
+<p><code>/agent-handoff config</code> opens a page bound to <code>127.0.0.1</code>. Model lists come from each CLI itself — Codex from its own <code>model/list</code>, Claude from <code>claude --help</code>, Copilot from the models your account is entitled to, each listed with the reasoning efforts that model accepts, and Cursor from <code>cursor-agent models</code> at page load. A Cursor model is a whole catalogue slug and its effort is always <code>model</code>. A configured slug no longer in the catalogue stays visible but smoke refuses it before the paid read-only run. Nothing is guessed, and nothing is quietly downgraded. If a model list cannot be read, the page offers no new model and names the login to fix. A model already in the config remains visible so reopening the page cannot replace it silently.</p>
 
 <p>The page also carries the two review caps, because they belong to the same configuration and not to a prompt:</p>
 
 <pre><code>[hosts.claude_code.identities.fast_worker]
-backend = "codex"           # claude | codex | copilot
+backend = "codex"           # claude | codex | copilot | cursor
 model = "gpt-5.6-sol"
 effort = "medium"
 permission_mode = "default" # default | allow-all
@@ -378,7 +378,7 @@ implementation_max_rounds = 3</code></pre>
   <figcaption>State is derived from files. A worker that died without writing an exit code reads as failed rather than hanging as running forever.</figcaption>
 </figure>
 
-<p>A failed status, or two consecutive ticks with no new event, is an anomaly with a fixed handling: cancel the job, read <code>stderr.log</code> and the tail of the event log, then either resubmit with a corrected prompt or take the task back into the driver. Either way it is recorded for the receipt. On Copilot the log is not optional — an API failure can arrive with stderr empty and the detail carried only as an error event inside the log. And an idle or API timeout that arrives after successful model events is not a login error; the wrong diagnosis produces a resubmit that fails the same way.</p>
+<p>A failed status, or two consecutive ticks with no new event, is an anomaly with a fixed handling: cancel the job, read <code>stderr.log</code> and the tail of the event log, then either resubmit with a corrected prompt or take the task back into the driver. Either way it is recorded for the receipt. On Copilot the log is not optional — an API failure can arrive with stderr empty and the detail carried only as an error event inside the log. A Cursor model rejected at launch leaves an empty log and puts Cursor's accepted-model list in stderr.log. And an idle or API timeout that arrives after successful model events is not a login error; the wrong diagnosis produces a resubmit that fails the same way.</p>
 
 <div class="callout alert">
   <p><strong>A denied tool call does not move the exit code.</strong> A worker that was blocked runs to completion believing it ran checks it never ran, so its report of those checks is worthless. Treat any non-zero denial count as a failed job. Re-run the blocked commands yourself, and record it. Codex denials are not counted at all, which is another reason the driver verifies checks on disk instead of trusting a summary.</p>
@@ -511,7 +511,7 @@ implementation_max_rounds = 3</code></pre>
 <p>Handoff claims that delegated work ran on another meter and stayed out of the driver’s context. A driver saying so proves nothing. The files below let you check the claim, and scripts write them, not the driver.</p>
 
 <figure>
-  <img src="diagrams/evidence-flow.svg" alt="Left, while the run is going: a session-start marker stamped before the first job; goal.md with every task status, review round, ruling and note; and one directory per job holding prompt.md, run.sh, meta, log.jsonl, stderr.log and exit_code. Middle, at wrap up: the receipt is generated by measuring those files, carrying duration, the three job counts, checks, anomalies and roles_used, is validated before anything reaches disk, and is then saved under .handoff/receipts/. Right, afterwards: the job transcript, the cost receipt, the session page, and a resume that reads this rather than the repo. Three rules: generated never typed, measured never repriced, and a gap is named rather than written as zero.">
+  <img src="diagrams/evidence-flow.svg" alt="Left, while the run is going: a session-start marker stamped before the first job; goal.md with every task status, review round, ruling and note; and one directory per job holding prompt.md, run.sh, meta, log.jsonl, stderr.log and exit_code. Middle, at wrap up: the receipt is generated by measuring those files, carrying duration, the four job counts, checks, anomalies and roles_used, is validated before anything reaches disk, and is then saved under .handoff/receipts/. Right, afterwards: the job transcript, the cost receipt, the session page, and a resume that reads this rather than the repo. Three rules: generated never typed, measured never repriced, and a gap is named rather than written as zero.">
   <figcaption>The receipt indexes the run rather than summarising it, and each reader on the right opens what it points at.</figcaption>
 </figure>
 
@@ -527,7 +527,7 @@ implementation_max_rounds = 3</code></pre>
   <tr><td><code>log.jsonl</code></td><td>The worker’s event stream: what it read, what it ran, what it concluded. The transcript and the cost receipt both read it</td></tr>
   <tr><td><code>stderr.log</code></td><td>Tokens, warnings, auth errors. The first thing to read on a failed job</td></tr>
   <tr><td><code>pid</code> · <code>exit_code</code> · <code>cancelled</code></td><td>The three inputs the job state is derived from</td></tr>
-  <tr><td><code>session_id</code></td><td>The handle that makes a fix round a resume instead of a restart. Extracted from the stream on Codex and Claude, assigned before launch on Copilot, which emits its id only at the end</td></tr>
+  <tr><td><code>session_id</code></td><td>The handle that makes a fix round a resume instead of a restart. Extracted from the stream on Codex and Claude, assigned before launch on Copilot, which emits its id only at the end; Cursor records it from its event stream</td></tr>
   <tr><td><code>usage.json</code></td><td>Copilot only: the token and credit counters its CLI writes at exit</td></tr>
 </table>
 
@@ -551,14 +551,16 @@ cc_jobs: 1
 cc_job_durations: job-t2=9min 30sec
 copilot_jobs: 1
 copilot_job_durations: job-t3=4min 47sec
+cursor_jobs: 0
+cursor_job_durations: none
 checks: bash scripts/check-skill-repo.sh .; jq schema check; git diff --check
 anomalies: none
 scope: project
 config_source: project
 roles_used: [{"role":"fast_worker","host":"codex","model":"gpt-fast","effort":"high","verified":true}]
-receipt_schema_version: 6</code></pre>
+receipt_schema_version: 7</code></pre>
 
-<p>None of it comes from memory. <code>duration</code> is wall clock from the start marker, so a run that sat waiting on a permission prompt carries that wait in the number. Per-job durations come from each job’s submission time and the timestamp on its exit code, with jobs left over from an earlier run excluded and a job still going reading <code>running</code>. The three job counts partition the run by each job’s own recorded backend, which is what makes “four jobs ran on the Codex subscription” a claim you can check rather than a sentence. A role that was never verified is listed with that flag as it stands, never dropped to make the receipt look cleaner.</p>
+<p>None of it comes from memory. <code>duration</code> is wall clock from the start marker, so a run that sat waiting on a permission prompt carries that wait in the number. Per-job durations come from each job’s submission time and the timestamp on its exit code, with jobs left over from an earlier run excluded and a job still going reading <code>running</code>. The four job counts partition the run by each job’s own recorded backend, which is what makes “four jobs ran on the Codex subscription” a claim you can check rather than a sentence. A role that was never verified is listed with that flag as it stands, never dropped to make the receipt look cleaner.</p>
 
 <p>The receipt is validated and then saved: the generator refuses to emit an invalid receipt, and writes what passed to <code>.handoff/receipts/</code>, which is where the cost receipt and the session page look when you name no file. The validator re-reads a written receipt on demand, with the same check the project’s CI runs. A receipt from an older schema fails, and that failure is the signal to regenerate it rather than hand-patch it.</p>
 
@@ -575,7 +577,7 @@ receipt_schema_version: 6</code></pre>
 
 <ul>
   <li><strong>The transcript</strong> (<code>/agent-handoff transcript</code>) renders one job’s event log as a page: the prompt, every command, every file change, every denied call, and the final answer. It answers “what did this job actually do”, which the job’s summary cannot. You can also drop a log file onto the page to read a job from another repository.</li>
-  <li><strong>The cost receipt</strong> (<code>/agent-handoff cost-receipt</code>) reports what each meter recorded, in that meter’s own units: token counters for Codex jobs with no cost figure, because that CLI emits none; the CLI’s own reported cost for Claude jobs, labelled as CLI-reported; premium requests and AI credits for Copilot jobs, which are never printed as money. Overlapping figures are marked as overlapping and are not added together.</li>
+  <li><strong>The cost receipt</strong> (<code>/agent-handoff cost-receipt</code>) reports what each meter recorded, in that meter’s own units: token counters for Codex jobs with no cost figure, because that CLI emits none; the CLI’s own reported cost for Claude jobs, labelled as CLI-reported; premium requests and AI credits for Copilot jobs, which are never printed as money; token counters for Cursor jobs, with no cost figure. Overlapping figures are marked as overlapping and are not added together.</li>
   <li><strong>The session page</strong> (<code>/agent-handoff visualise</code>) puts the run on one local page: the timeline, each job’s transcript, the cost receipt, the receipt’s own facts, and one list of every denied tool call across the run. The timeline is drawn by a model reading the receipt, so its prose is a narrative and labelled as one; its lanes, though, are checked against the files — a lane naming a job the receipt does not index, or claiming a window the evidence contradicts, loses its hotspot and says so.</li>
 </ul>
 

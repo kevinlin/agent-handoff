@@ -30,7 +30,7 @@ cases:
     - evals/cases/identity-not-swapped-for-meter.yaml
     - evals/cases/driver-keeps-quality-critical-work.yaml
     - evals/cases/no-fabricated-token-savings.yaml
-    - evals/cases/receipt-contract-splits-three-backends.yaml
+    - evals/cases/receipt-contract-splits-four-backends.yaml
     - evals/cases/cost-receipt-renders-not-delegates.yaml
     - evals/cases/transcript-renders-not-delegates.yaml
     - evals/cases/review-cap-escalates-to-arbiter.yaml

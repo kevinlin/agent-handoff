@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.9.0 (2026-09-30)
+
+### Cursor CLI is the fourth backend
+
+- feat: `cursor` is a fourth `backend` value. A cursor-backed identity runs `cursor-agent -p --output-format stream-json` as a durable job with the same jobId, job directory, monitor loop, bounded `resume`, worktree lifecycle, and receipt evidence as the other three.
+- feat: a Cursor model is a whole catalogue slug, such as `claude-opus-5-5-high` or `composer-2.5`; effort is always `model`. Setup and submit refuse other efforts and `model = "auto"`.
+- feat: the web wizard reads `cursor-agent models` on page load. The terminal wizard takes a typed slug. Smoke checks the slug against the catalogue before one paid read-only run, since Cursor may silently use a different variant for a base name it does not list.
+- **breaking**: receipt schema v7 adds `cursor_jobs` and `cursor_job_durations`. A v6 receipt no longer validates; regenerate it with `make-receipt.py`.
+- feat: the cost receipt shows Cursor token counters, no cost figure, and the model that ran from the job's `init` event when available.
+- feat: the transcript viewer renders Cursor logs, drops `thinking` events, and pairs tool calls with their outcomes.
+- note: on Cursor, `default` and `allow-all` both run in Cursor's force mode. Deny rules in the user's or project's `.cursor/cli.json` are the only narrowing; Handoff does not write there and warns for each writing job. Read-only uses `--mode plan`.
+
 ## v3.8.1 (2026-09-12)
 
 ### Copilot models are picked, not typed

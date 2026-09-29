@@ -22,7 +22,7 @@ An unconfigured identity passed to `delegate-codex.sh --role` hits the existing 
 
 ## Worktree protocol
 
-Driver-owned, four rules, identical on all three backends:
+Driver-owned, four rules, identical on all four backends:
 
 1. **Resolve routing against the main repo.** `--repo` is always the main repo. A worktree is a derived working directory, never a `--repo` value — passing one falls through to the global config and runs the wrong model.
 2. **Cut from an immutable commit SHA**, never a branch name. A branch can advance between cutting the worktree and reading the verdict, and then the verdict names a commit nobody tested.
@@ -39,7 +39,7 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 
 `--base` (default `HEAD`) is resolved to a SHA before the job directory exists, so an invalid base fails clean. The worktree lands at `<repo>/.handoff/worktrees/<jobId>`, and `meta` records `worktree=`, `branch=`, and `base_commit=`.
 
-A fix round inherits the tree: `resume` reads `worktree=` and `backend=` from the parent's `meta`, so it lands in the same tree on the same CLI. None of `codex exec resume`, `claude --resume`, and `copilot --resume` takes a `-C`; all three get their cwd from the generated `run.sh`.
+A fix round inherits the tree: `resume` reads `worktree=` and `backend=` from the parent's `meta`, so it lands in the same tree on the same CLI. None of `codex exec resume`, `claude --resume`, `copilot --resume`, and `cursor-agent --resume` takes a `-C`; all four get their cwd from the generated `run.sh`.
 
 Once a worktree is merged or abandoned:
 
@@ -49,7 +49,7 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" cleanup <jobId> --repo "$REPO"
 
 `cleanup` is idempotent and refuses a worktree holding uncommitted changes, reporting it rather than discarding work. `cancel` calls it and keeps the tree for inspection if it refuses.
 
-**One code path serves all three backends.** The worktree protocol is pure Git and gains nothing from a per-backend implementation, so there is none: `tests/test_delegate_role.py` runs the whole lifecycle — create, record, immutable SHA pinning, invalid base refused before the job dir exists, worktree as cwd, idempotent `cleanup`, dirty-tree refusal, `resume` landing in the parent worktree — from one base class against codex, claude, and copilot. Do not hand-run `git worktree add` for a claude-backed or copilot-backed row; that path is gone.
+**One code path serves all four backends.** The worktree protocol is pure Git and gains nothing from a per-backend implementation, so there is none: `tests/test_delegate_role.py` runs the whole lifecycle — create, record, immutable SHA pinning, invalid base refused before the job dir exists, worktree as cwd, idempotent `cleanup`, dirty-tree refusal, `resume` landing in the parent worktree — from one base class against codex, claude, copilot, and cursor. Do not hand-run `git worktree add` for a claude-backed, copilot-backed, or cursor-backed row; that path is gone.
 
 The Task tool's `isolation: "worktree"` is still **not** used: it provides no base pinning, no metadata, and no cleanup contract, so it cannot satisfy this protocol.
 
