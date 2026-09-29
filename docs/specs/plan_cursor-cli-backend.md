@@ -595,8 +595,9 @@ write_cursor_exec_line() {
 
 ```python
         etype = event.get("type", "")
-        # Cursor's reasoning stream, hundreds of events a job, would bury the
-        # event that says where the worker is.
+        # The cursor reasoning stream, hundreds of events a job, would bury the
+        # event that says where the worker is. (No apostrophes in this block:
+        # bash 3.2 mis-parses one in a heredoc nested inside $(...).)
         if backend == "cursor" and etype == "thinking":
             continue
         if etype:
