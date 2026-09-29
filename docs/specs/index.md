@@ -8,6 +8,13 @@
 | [design_agent-handoff-evidence.md](design_agent-handoff-evidence.md) | Session evidence, transcripts, receipts | 3 plans: duration, cost-receipt, transcript-viewer |
 | [design_agent-identities-and-config.md](design_agent-identities-and-config.md) | Identities, configuration, setup | 1 plan: permission-mode |
 | [design_session-visualisation.md](design_session-visualisation.md) | Session visualisation page | 0 plans |
+| [design_cursor-cli-backend.md](design_cursor-cli-backend.md) | Cursor CLI as the fourth backend | 1 requirements doc, 0 plans |
+
+## Requirements
+
+| File | Topic | Design | Version | Status |
+|---|---|---|---|---|
+| [requirements_cursor-cli-backend.md](requirements_cursor-cli-backend.md) | Cursor CLI as the fourth backend | design_cursor-cli-backend | v3.9.0 | draft |
 
 ## Plan
 
