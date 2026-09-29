@@ -170,7 +170,7 @@ Cannot use this model: no-such-model-xyz. Available models: auto, gpt-5.3-codex-
 
 **[probed] Usage is per invocation.** The resumed turn in F reported `inputTokens: 130` against its parent's 18350.
 
-**[open]** Resuming an id whose job died before `init`, and resuming an id that never existed.
+**[open]** Resuming an id whose job died before `init`, resuming an id that never existed, and resuming a job killed between `init` and its first tool call. Probe G was killed during its first tool call, so it does not settle the last case.
 
 ## 5. Models and effort
 
