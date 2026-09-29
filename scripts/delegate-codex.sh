@@ -833,7 +833,8 @@ launch_job() {
 
 # Reads a job log once and prints the last event type and the denial count, one
 # per line. Held as a string rather than a heredoc so it can run inside a
-# command substitution.
+# command substitution. Keep apostrophes out of the block, comments included:
+# bash 3.2 (macOS) mis-parses one in a quoted heredoc nested inside $(...).
 STATUS_SCAN_PY="$(cat <<'SCAN'
 import json, sys
 
