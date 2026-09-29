@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -272,6 +273,15 @@ class CliTests(Base):
         status = rt.main(["--repo", str(self.repo), "--no-open", "ghost",
                           "--template", str(template)])
         self.assertEqual(status, 2)
+
+
+class IgnoredTests(Base):
+    def test_ignored_output_in_a_folder_not_yet_created(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        (self.repo / ".gitignore").write_text(".handoff/\n", encoding="utf-8")
+        out = self.repo / ".handoff" / "transcripts" / "job.html"
+        self.assertFalse(out.parent.exists())
+        self.assertTrue(rt._is_ignored(out))
 
 
 if __name__ == "__main__":

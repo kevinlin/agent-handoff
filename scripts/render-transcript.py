@@ -120,7 +120,8 @@ def build_payload(job_dir: Path) -> dict:
 def _is_ignored(path: Path) -> bool:
     try:
         done = subprocess.run(["git", "check-ignore", "-q", str(path)],
-                              cwd=path.parent, capture_output=True)
+                              cwd=next(p for p in path.parents if p.is_dir()),
+                              capture_output=True)
     except OSError:
         return False
     return done.returncode == 0
