@@ -26,7 +26,7 @@ Phase 0 (preflight) and Phase 5 (wrap up) fall outside these four by constructio
 
 **The identity's configured `backend` decides which CLI runs a job — always.** The task row names a capability tier; config turns that tier into a backend, model, and effort. Nothing in a prompt, a packet, or a routing decision made mid-run can move a job onto another vendor or meter. A per-job `--backend` contradicting a named role is refused rather than honoured, because changing where work bills is a config change the user should see (`/agent-handoff config`), not a side effect of delegating.
 
-**All three backends are the same job.** A claude-backed or copilot-backed row gets the same jobId, the same job directory, the same monitor loop, the same bounded `resume` fix round, the same worktree lifecycle, and the same receipt evidence a codex-backed one gets. There is no second-class backend and no per-backend flow branch. Where the CLIs genuinely differ (effort enums, permission flags, session-id timing, binary identification) the difference is contained inside `delegate-codex.sh`.
+**All four backends are the same job.** A claude-backed, copilot-backed, or cursor-backed row gets the same jobId, the same job directory, the same monitor loop, the same bounded `resume` fix round, the same worktree lifecycle, and the same receipt evidence a codex-backed one gets. There is no second-class backend and no per-backend flow branch. Where the CLIs genuinely differ (effort enums, permission flags, session-id timing, binary identification) the difference is contained inside `delegate-codex.sh`.
 
 **`.handoff/goal.md` is the only shared state, and it is the reference every gate judges against.** Not the stage before it, and not the maker's self-report. The file is written before any implementation exists, which is the only moment acceptance criteria are authorable: a criterion written after seeing the diff is a description of the diff, not a test of it.
 
@@ -108,7 +108,7 @@ Three rules hold across the rounds:
 - **Read-only in both directions.** The reviewer returns prioritized findings and nothing else: no edit to the spec, the goal file, or product code. Its findings are input to the driver's judgment, never a verdict applied unread. The cap bounds how long the argument over the driver's ruling can run.
 - **Sequential, not parallel.** The user reads the adjusted plan, not a plan plus a review they have to reconcile themselves.
 
-It runs as a real job (`submit --role deep_reasoner --read-only --label spec-review`), so it has a jobId and receipt evidence on any of the three backends. `--read-only` becomes `-s read-only` on codex, `--permission-mode plan` on claude, `--mode plan` on copilot. The label is load-bearing: `resume` reads it off the root job to decide which cap applies.
+It runs as a real job (`submit --role deep_reasoner --read-only --label spec-review`), so it has a jobId and receipt evidence on any of the four backends. `--read-only` becomes `-s read-only` on codex, `--permission-mode plan` on claude, `--mode plan` on copilot and cursor. The label is load-bearing: `resume` reads it off the root job to decide which cap applies.
 
 ### Three instruments, and they are not variants of each other
 
@@ -187,18 +187,18 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
   --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
 ```
 
-Four protocol rules, driver-owned, identical on all three backends:
+Four protocol rules, driver-owned, identical on all four backends:
 
 1. **Routing resolves against the main repo.** `--repo` is always the main repo. A worktree is a derived working directory, never a `--repo` value; passing one falls through to the global config and runs the wrong model.
 2. **Cut from an immutable commit SHA**, never a branch name. `--base` is resolved through `git rev-parse --verify <base>^{commit}` *before the job directory exists*, so an invalid base fails clean. A branch name could advance between cutting the tree and reading the verdict, and then the verdict names a commit nobody tested.
 3. **The worker commits on its worktree branch.** It does not merge, push, rebase, or remove the tree.
 4. **The driver reviews, integrates, and cleans up.**
 
-The tree lands at `<repo>/.handoff/worktrees/<jobId>` and `meta` records `worktree=`, `branch=`, `base_commit=`. A fix round inherits the tree: `resume` reads `worktree=` and `backend=` from the parent's `meta`, because none of `codex exec resume`, `claude --resume`, and `copilot --resume` accepts a `-C` — all three take cwd from the generated `run.sh`.
+The tree lands at `<repo>/.handoff/worktrees/<jobId>` and `meta` records `worktree=`, `branch=`, `base_commit=`. A fix round inherits the tree: `resume` reads `worktree=` and `backend=` from the parent's `meta`. Codex, Claude, Copilot, and Cursor resumes take cwd from the generated `run.sh`.
 
 `cleanup <jobId>` removes the tree, is idempotent, and **refuses a worktree holding uncommitted changes**, reporting it rather than discarding work. `cancel` calls it and keeps the tree for inspection when it refuses.
 
-One code path serves all three backends. The worktree protocol is pure Git and gains nothing from a per-backend implementation, so there is none — `tests/test_delegate_role.py` runs the whole lifecycle from one base class against codex, claude, and copilot. (Backend parity here was an open risk in v3.2.0, when the Claude path was driver-executed prose; v3.5.0 closed it by dispatching on the identity's backend inside the script.) The Task tool's `isolation: "worktree"` is still not used: no base pinning, no metadata, no cleanup contract.
+One code path serves all four backends. The worktree protocol is pure Git and gains nothing from a per-backend implementation, so there is none; `tests/test_delegate_role.py` runs the lifecycle against codex, claude, copilot, and cursor. (Backend parity here was an open risk in v3.2.0, when the Claude path was driver-executed prose; v3.5.0 closed it by dispatching on the identity's backend inside the script.) The Task tool's `isolation: "worktree"` is still not used: no base pinning, no metadata, no cleanup contract.
 
 ### Packets are self-contained
 
@@ -214,21 +214,22 @@ The e2e packets are the only ones that **replace** the shared template's "Do not
 
 ### The permission posture, stated plainly
 
-Each identity selects `permission_mode=default|allow-all`. Default uses Claude `dontAsk` with `Read Glob Grep Edit Write Bash`, inherited Codex config without sandbox flags, or Copilot `--allow-all-tools` retaining path/URL checks. Allow-all means *use the provider's native unrestricted mode*, not force three CLIs into one security posture. Only claude changes behaviour under default; Codex and Copilot retain their previous flags. Read-only wins over the retained Claude env override and configured posture; the env value is still validated first. Read-only drops Claude's worker allowlist and Copilot's allow-all flags. Resume inherits posture and read_only; missing parent posture means default, never allow-all. Warnings follow the effective concrete mode. No OS-level sandbox is added for Claude default. Codex denials are not counted, and permission_denied is advisory, not enforced. Verify edits and checks on disk.
+Each identity selects `permission_mode=default|allow-all`. Default uses Claude `dontAsk` with `Read Glob Grep Edit Write Bash`, inherited Codex config without sandbox flags, Copilot `--allow-all-tools` retaining path/URL checks, or Cursor's force mode. Allow-all means *use the provider's native unrestricted mode*, not force all CLIs into one security posture. Codex and Copilot retain their previous default flags, and Cursor's two postures are the same. Read-only wins over the retained Claude env override and configured posture; the env value is still validated first. Read-only drops Claude's worker allowlist and Copilot's allow-all flags, and uses Cursor plan mode. Resume inherits posture and read_only; missing parent posture means default, never allow-all. Warnings follow the effective concrete mode. No OS-level sandbox is added for Claude default. Codex denials are not counted, and permission_denied is advisory, not enforced. Verify edits and checks on disk.
 
 | Backend | Default | Allow-all |
 | --- | --- | --- |
 | claude | `--permission-mode dontAsk --allowed-tools Read Glob Grep Edit Write Bash` | `--permission-mode bypassPermissions` |
 | codex, fresh and resume | No sandbox flag or override; inherit the user's config | `--dangerously-bypass-approvals-and-sandbox` |
 | copilot | `--allow-all-tools` | `--allow-all-tools --allow-all-paths --allow-all-urls` |
+| cursor | `--force` | `--force` | <!-- risk-ok: Cursor CLI flag name -->
 
 Under `dontAsk` a call that is not already approved is denied rather than run; under `bypassPermissions` it runs. That is the only difference, and how much it buys is the user's configuration to decide rather than Handoff's: `deny` and `ask` rules were measured producing hard denials under **both** postures, and a tool those same settings already approve was reached under both, `WebFetch` included. This changes the permission-rule layer only -- no OS-level sandbox, no workspace-only IO, no denied network -- so `default` is a narrower posture, not containment.
 
 The deliberate research deviations are documented in `docs/specs/design_agent-identities-and-config.md`: codex default inherits config instead of forcing workspace-write, preserving the worker-commit contract; exec has no ask-for-approval flag and never prompts; copilot default retains allow-all-tools because Handoff cannot enumerate each repo's test/build/lint commands. Copilot path and URL verification remain on until allow-all.
 
-Read-only uses codex read-only sandbox overrides, Claude plan without the worker allowlist, or Copilot plan without allow-all flags. The Copilot combination is deliberately avoided: probing found zero denials and claims of writes that never happened when plan and allow-all-tools were combined.
+Read-only uses codex read-only sandbox overrides, Claude plan without the worker allowlist, or plan mode on Copilot and Cursor. The Copilot combination with allow-all flags is deliberately avoided: probing found zero denials and claims of writes that never happened. Cursor read-only never carries its force flag.
 
-Job meta records requested permission_posture and permission_posture_source separately from effective permission_mode. Receipt schema remains v6; posture evidence stays in job meta. Worktrees and packets are scope controls, not enforced containment.
+Job meta records requested permission_posture and permission_posture_source separately from effective permission_mode. Receipt schema is v7; posture evidence stays in job meta. Worktrees and packets are scope controls, not enforced containment.
 
 ---
 
@@ -410,7 +411,7 @@ Three rules follow:
 
 - **`.handoff/goal.md`**: a `## Arbitration` block, one line per escalation whatever the outcome, giving the gate, the task (`plan` for the spec gate), the arbiter's jobId, the verdict (`approve`, `reject`, or `no verdict`), a one-line reason, and `same-vendor` where it applies. Task status gains `rework-<n>`, `arbitration`, and `rejected`; `taken-back` stays, for anomalies.
 - **Notes**: a rejection adds a handover covering what the reviewer found, what the arbiter ruled, and what continuing would take (raise the cap, rewrite the brief, or take the task over). This is what the user reads when they come back.
-- **The receipt**: `anomalies` carries `arbitration: <task> approve|reject (<jobId>)`. The arbiter job already sits in the job counts and `roles_used`. The schema stays at v6; `docs/specs/design_agent-handoff-evidence.md` records why.
+- **The receipt**: `anomalies` carries `arbitration: <task> approve|reject (<jobId>)`. The arbiter job already sits in the job counts and `roles_used`. The schema is v7; arbitration adds no field, as `docs/specs/design_agent-handoff-evidence.md` records.
 
 `/agent-handoff resume` presents rejected rows first and never reopens one on its own. A rejection is the user's to act on. Reopening one is a new run, because the rejected run already emitted its receipt: Phase 0 stamps a new start, so the new receipt counts only the reopened work. The user picks the route. Raising the cap and resuming the existing chain needs the rejected work back in place, either the saved patch applied or the kept worktree; rewriting the brief starts a new chain with a fresh count; or the driver takes the task over.
 
@@ -426,6 +427,11 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 | `--backend` contradicting a role | script (refused) | none available |
 | Effort enum per backend | script (refused) | none available |
 | Copilot model and effort pair | script + catalogue (the wizard refuses a model its served catalogue does not list, and an effort that model does not accept) | a config written by hand or by the terminal `--role-model` path reaches its first job unchecked; the smoke test and `/agent-handoff tryout` are where it surfaces |
+| Cursor effort must be `model` | script (`validate_effort`, `validate_backend_efforts`) | none available |
+| `auto` on cursor | script, at submit and setup | none available |
+| Binary is `cursor-agent`, never the IDE | script (`resolve_worker_bin`, `cli_available`) | none available |
+| Cursor posture narrower than `--force` | nothing; only the user's Cursor deny rules | a worker reads outside the repo, reaches the network, and commits | <!-- risk-ok: Cursor CLI flag name -->
+| A base name resolved to an unchosen variant | wizard offers catalogue slugs only | a hand-written config runs whatever Cursor picks; `init` records it |
 | Worktree base pinning | script (`rev-parse` before the job dir exists) | none available |
 | Dirty worktree cleanup | script (refuses, reports) | none available |
 | Concurrent `goal.md` writes | script (compare-and-set) | none available |
@@ -449,7 +455,12 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 - **An approval overrules the driver.** Before v3.8.0 the driver had the last word on a contested diff. Now an arbiter approval accepts a diff with the driver's findings still open. The `## Arbitration` line keeps the overruled findings visible, and the ruling is informed rather than blind, so it inherits both parties' framing and is weaker evidence than a blind solve.
 - **The cap trusts the label.** `resume` applies the spec cap only to a chain whose root job is labelled `spec-review`. A spec review submitted under another label is capped as an implementation chain.
 - **No OS-level sandbox for claude `default`.** This release changes the permission-rule layer only; enforced sandboxing, workspace-only IO and denied network remain outside scope. Network denial interacts with installing and testing, and the Darwin ratchet permits one dimension per change.
-- **Codex denials are not counted.** The current scanner recognizes Claude and Copilot events, not Codex sandbox refusals. Result extraction discards command outcomes; denial detection is out of scope.
+- **Codex denials are not counted.** The current scanner recognizes Claude, Copilot, and Cursor events, not Codex sandbox refusals. Result extraction discards command outcomes; denial detection is out of scope.
+- **Cursor `default` equals `allow-all`.** Both use Cursor's force mode, so the posture setting does not narrow a cursor worker. Only the user's Cursor deny rules can restrict it; the worker can read outside the repo, reach the network, and commit.
+- **Cursor sandbox evidence is from one machine.** The shell failed under sandbox mode there; a later build may behave differently. No narrower mode that ran checks was observed.
+- **Cursor model slugs can fail after submit.** A rejected slug leaves a job directory and ends FAILED with Cursor's message in `stderr.log`; the web wizard restricts selection to catalogue slugs, and smoke checks typed slugs.
+- **Cursor commit attribution follows the user's setting.** Commits can carry `Co-authored-by: Cursor`, including e2e worker commits; Handoff does not strip it.
+- **Cursor `(NO ZDR)` models.** The catalogue marks models without zero data retention. A delegated job sends repository contents to its selected model.
 - **`permission_denied` is advisory, not enforced.** DONE follows the exit code and status warns but still succeeds. The driver must verify checks independently.
 - **The Copilot model catalogue is an undocumented endpoint.** The wizard reads the account's entitled models over HTTP with the token `gh auth token` returns. GitHub publishes no stable contract for that endpoint, and Enterprise Cloud data-residency tenants serve their catalogue from a per-tenant host where the request returns nothing usable. The wizard then offers no Copilot model and names the fix rather than guessing one, and a Copilot identity already in the config keeps its model. `docs/specs/design_agent-identities-and-config.md` holds the design.
 - **Nothing checks a Copilot pair before the config is written.** Until v3.8.1, apply ran each configured pair past the real CLI and refused to write a config the CLI rejected. The catalogue answers that question for anything chosen in the wizard, and claude and codex never had such a check, so the three backends are now equal here. The wizard's own API refuses a model its served catalogue does not list, so the remaining hole is narrow: a config written by hand, or by the terminal `--role-model` path, reaches its first job unchecked, and the smoke test and `/agent-handoff tryout` are the proof that the pair runs.

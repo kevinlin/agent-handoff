@@ -6,7 +6,7 @@
 
 Why any of this is a design and not a rendering detail: the flow's headline claim is that delegated work executed on another meter and stayed out of the driver's context. A driver can assert that in one sentence at the end of a run, and a summary is exactly what an unverified claim looks like. Everything here exists so the claim can be checked against files nobody typed.
 
-This document replaces two earlier ones: `design_transcript-viewer.md` (shipped 3.6.0) and `design_cost-receipt.md` (shipped 3.6.1). Each described half of one flow. Both predate the copilot backend and receipt schema v6.
+This document replaces two earlier ones: `design_transcript-viewer.md` (shipped 3.6.0) and `design_cost-receipt.md` (shipped 3.6.1). Each described half of one flow. Both predate the copilot and cursor backends and receipt schema v7.
 
 ### Scope
 
@@ -91,17 +91,20 @@ A role with `verified: false` is listed with the flag as it stands. Dropping it,
 
 The probe ends in a file rather than a message. The receipt is on disk under `.handoff/receipts/` before the session ends, which is what lets the three readers in the next flows find the run at all.
 
-### Three telemetry shapes under one layout
+### Four telemetry shapes under one layout
 
-All three backends produce the same job directory. What differs is the shape inside `log.jsonl`, and that difference is contained in the readers:
+All four backends produce the same job directory. What differs is the shape inside `log.jsonl`, and that difference is contained in the readers:
 
 | Backend | Terminal record | Tokens | Cost or credits | Denials |
 | --- | --- | --- | --- | --- |
 | codex | `turn.completed` / `turn.failed`, `usage` | five counters, summed across turns | none emitted; the work runs on a subscription | not reported |
 | claude | `type: result` | `usage`, plus `output_tokens_details.thinking_tokens` | `total_cost_usd`, `costBasis: list` | `permission_denials[]` |
 | copilot | `type: result` in the log; `usage.json` beside it | `tokenDetails` and `modelMetrics` in `usage.json` | premium requests and nano-AIU: AI credits, no currency | typed `tool.execution_complete` with `error.code == "denied"` |
+| cursor | last `type: result` with `usage`; `session_id` starts on line one | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`; no reasoning count | no cost figure or credits | completed `tool_call` with a typed `result.rejected` |
 
 Copilot's file carries two meters with two different scopes. `tokenDetails` and `modelMetrics` are per invocation, so a parent job and its fix round add up. `totalPremiumRequestCost` and `totalNanoAiu` at the top level are cumulative for the whole Copilot session, so summing those across a resume double-counts the parent. The per-invocation figures under `modelMetrics` are the ones read. An absent `usage.json` is `unknown`; a file of zeros is a measured zero.
+
+Cursor's `result.usage` is per invocation, so a parent and its fix round add up. The last `assistant` event supplies the agent message; `result.result` repeats the whole narration. `shellToolCall.args.command` supplies commands, and `system/init` supplies the display model name. A job without `result` has unknown usage.
 
 ### There is no per-event clock, and only two formats pretend otherwise
 
@@ -136,25 +139,26 @@ Every row keeps the **source position** of the line that first produced it, and 
 - codex `item.*` events correlate on `item.id`, folding 111 `started`/`completed` pairs into 111 rows and rendering an in-flight job whose last item has a start and no completion. Events with no item id — `thread.started`, `turn.*`, the top-level `error` — each keep their own position.
 - claude content blocks are separate rows inside their event, joined on `tool_use_id`. A `tool_result` arrives inside a `user` event; joining fills in the row's output and keeps the call's name and input. A result never replaces a call.
 - copilot folds `tool.execution_start` and `tool.execution_complete` on `toolCallId`, and drops `ephemeral: true` deltas: one small job produced 82 of them.
+- cursor folds `tool_call` `started` and `completed` on `call_id`; typed `rejected` results mark denials. `thinking` events are skipped.
 
-| Normalized kind | codex `exec --json` | claude `stream-json` | copilot JSON |
-| --- | --- | --- | --- |
-| `user` | — | — | `user.message` |
-| `agent` | `agent_message` | `assistant` text blocks | `assistant.message` with `phase: final_answer` |
-| `reasoning` | `reasoning` | `thinking` blocks | — |
-| `command` | `command_execution` | `tool_use` on a shell tool | `tool.execution_start` for `bash`/`shell` |
-| `tool` | — | any other `tool_use` | any other tool call |
-| `file_change` | `file_change` | a *successful* edit or write tool | a *successful* `create`/`edit`/`str_replace`/`write` |
-| `mcp` | `mcp_tool_call` | `mcp__*` tool names | — |
-| `web_search` | `action.queries` where present, else the truncated `query` | — | — |
-| `error` | `error` items and the top-level `error` | `is_error` on a result | `session.error`, a failed call, `error.code == "denied"` |
-| `lifecycle` | `thread.started`, `turn.*` | `system` init, `result` | `assistant.turn_start`/`turn_end`, `result` |
+| Normalized kind | codex `exec --json` | claude `stream-json` | copilot JSON | cursor `stream-json` |
+| --- | --- | --- | --- | --- |
+| `user` | — | — | `user.message` | `user` text blocks |
+| `agent` | `agent_message` | `assistant` text blocks | `assistant.message` with `phase: final_answer` | `assistant` text blocks |
+| `reasoning` | `reasoning` | `thinking` blocks | — | — (`thinking` skipped) |
+| `command` | `command_execution` | `tool_use` on a shell tool | `tool.execution_start` for `bash`/`shell` | `shellToolCall` started |
+| `tool` | — | any other `tool_use` | any other tool call | other `tool_call` kinds |
+| `file_change` | `file_change` | a *successful* edit or write tool | a *successful* `create`/`edit`/`str_replace`/`write` | a successful `editToolCall` |
+| `mcp` | `mcp_tool_call` | `mcp__*` tool names | — | — |
+| `web_search` | `action.queries` where present, else the truncated `query` | — | — | — |
+| `error` | `error` items and the top-level `error` | `is_error` on a result | `session.error`, a failed call, `error.code == "denied"` | failed edit; unmatched completion (other failed calls retain their tool kind) |
+| `lifecycle` | `thread.started`, `turn.*` | `system` init, `result` | `assistant.turn_start`/`turn_end`, `result` | `system/init`, `result` |
 
-Two rules in that table earned their place. A file-change row from claude or copilot is **provisional** until its result arrives: a failed Edit or a refused write is demoted to an error row, because a refused write rendering as a completed file change is the viewer lying about the repository. And copilot's denial is read from the typed `error.code`, never pattern-matched out of a message string.
+Two rules in that table earned their place. A file-change row from claude, copilot, or cursor is **provisional** until its result arrives: a failed Edit or a refused write is demoted to an error row, because a refused write rendering as a completed file change is the viewer lying about the repository. Copilot's denial is read from the typed `error.code`, and cursor's from `result.rejected`, never pattern-matched out of a message string.
 
 ### The backend is declared, or inferred from a type unique to one format
 
-Copilot's terminal event is `type: "result"`, the same type name claude `stream-json` uses with a different payload. So the branch is chosen by the declared `meta.backend` on a generated page, and on a dropped log by scanning for a type only one format emits (`assistant.turn_start` or `tool.execution_start` for copilot, an `item.` prefix for codex). `result` never seeds the guess. A test asserts that one `result` line parses differently under each declared backend.
+Copilot's terminal event is `type: "result"`, the same type name claude and cursor `stream-json` use with different payloads. So the branch is chosen by the declared `meta.backend` on a generated page, and on a dropped log by scanning for a type only one format emits (`assistant.turn_start` or `tool.execution_start` for copilot, an `item.` prefix for codex, `tool_call` or `thinking` for cursor). Shared types do not seed the guess, and a test asserts that one `result` line parses differently under each declared backend. A metadata-free cursor log containing only shared types cannot be identified and reaches the shared parser.
 
 ### The prompt row
 
@@ -190,15 +194,15 @@ The argument is optional. Resolution stops at the first match: a path or existin
 
 ### It indexes the run; it does not summarize it
 
-The Handoff Session Receipt (`docs/receipt-schema.json`, schema v6) records phase, session id, wall-clock duration, checks, anomalies, three job counts with three matching duration lists, config scope and source, and `roles_used`. Those fields settle *which* jobs belong to the run and *what* executed them. No token or cost figure appears in the receipt at all. That omission is deliberate, and Flow 4 is what fills it.
+The Handoff Session Receipt (`docs/receipt-schema.json`, schema v7) records phase, session id, wall-clock duration, checks, anomalies, four job counts with four matching duration lists, config scope and source, and `roles_used`. Those fields settle *which* jobs belong to the run and *what* executed them. No token or cost figure appears in the receipt at all. That omission is deliberate, and Flow 4 is what fills it.
 
 ### One count per backend, read from the job's own meta
 
-`codex_jobs`, `cc_jobs` and `copilot_jobs`, each with `*_job_durations` keyed by jobId, fix rounds included. `make-receipt.py` partitions the job directories by each `meta`'s `backend=` line: a directory with no such line predates backend dispatch and is codex by construction, and so is one naming a backend this version does not know. A copilot job is never folded into another count. In `roles_used`, `host` is the CLI that executed the role, unrelated to the runtime that loaded `SKILL.md`.
+The four pairs are `codex_jobs` / `codex_job_durations`, `cc_jobs` / `cc_job_durations`, `copilot_jobs` / `copilot_job_durations`, and `cursor_jobs` / `cursor_job_durations`, with durations keyed by jobId and fix rounds included. `make-receipt.py` partitions the job directories by each `meta`'s `backend=` line: a directory with no such line predates backend dispatch and is codex by construction, and so is one naming a backend this version does not know. A cursor job is never folded into another count. In `roles_used`, `host` is the CLI that executed the role, unrelated to the runtime that loaded `SKILL.md`.
 
 ### Validated before it is written
 
-`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `6`; a v5 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
+`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `7`; a v6 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
 
 ### The save is the default, because the readers were already promised it
 
@@ -257,6 +261,7 @@ Each backend's counters go into the five shared columns: input, cache read, cach
 - `usage` supplies every token figure and `total_cost_usd` supplies the cost. `modelUsage` is read only for model names; adding its per-model entries on top of the aggregate would double every number.
 - Codex usage is summed across turns, over `turn.completed` and `turn.failed` alike.
 - For claude, only the last `result` is authoritative; an earlier one is a repeat, taken once and flagged in the row.
+- For cursor, only the last `result.usage` in an invocation is read. Its four camelCase counters map to input, output, cache read, and cache write; reasoning stays unknown. The job row uses the `system/init` display model when present, otherwise the configured slug.
 - A resumed job writes `model=inherit`, so its model is resolved by walking `parent=` to the originating job, and reads `inherit (unresolved)` when that walk fails rather than naming a guessed model.
 
 ### Degraded states are named
@@ -267,9 +272,10 @@ Each backend's counters go into the five shared columns: input, cache read, cach
 | log truncated, unparseable, or carrying no terminal usage record | `unknown` |
 | one counter absent from an otherwise valid record | `unknown` for that cell only |
 | copilot job with no `usage.json` | `unknown` tokens and credits; denials still counted from the log |
+| cursor job with no `result` | `unknown` usage; typed denials still counted from the log |
 | driver transcript not found | `unavailable` |
 | driver interval not derivable | `unscoped` |
-| codex or copilot cost column | `n/a - subscription`, `n/a - AI credits`; there is nothing there to read |
+| codex, copilot, or cursor cost column | `n/a - subscription`, `n/a - AI credits`, or `n/a - no cost figure`; there is nothing there to read |
 
 A partial total is never presented as a total: when any row in a column is unmeasured, the column reads `≥ <subtotal> (n of m jobs measured)`. A run with no claude-backed job says so, rather than reporting `unknown`, because `unknown` claims a reading was attempted and failed.
 
@@ -281,13 +287,14 @@ Three claims are unsupportable by these measurements, and are recorded here so t
 - **Not billed spend.** `modelUsage.costBasis` reads `list`. The figure is what the CLI reported, and is labelled *CLI-reported cost* in the table, the summary, and the example.
 - **Not a saving.** A claude-backed delegated job bills the same vendor as the driver, so no difference between any two figures here is a saving, and none is computed.
 
-What the summary reports instead is two figures whose populations overlap by design, plus a third reading that belongs to neither:
+What the summary reports instead is two figures whose populations overlap by design, plus separate Copilot and Cursor meter lines:
 
 - **Ran on a Codex subscription** — token counters for codex-backed jobs, no cost figure, because the CLI emits none.
 - **Ran outside the driver session** — token counters for all delegated jobs on any backend, plus the summed CLI-reported cost of the claude-backed ones.
 - **Ran on the Copilot AI-credit meter** — premium requests and nano-AIU for copilot-backed jobs, stated as AI credits and never as currency.
+- **Ran on the Cursor meter** — token counters for cursor-backed jobs and no cost figure.
 
-Codex jobs appear in both of the first two. Both outputs say the figures are not addends, and tests assert that no line equals their sum. A further line reports permission denials across claude-backed and copilot-backed jobs, because a denied tool call does not move a job's exit code: a job can report success on checks it was refused.
+Codex jobs appear in both of the first two. Both outputs say the figures are not addends, and tests assert that no line equals their sum. A further line reports permission denials across claude-backed, copilot-backed, and cursor-backed jobs, because a denied tool call does not move a job's exit code: a job can report success on checks it was refused.
 
 ### The export boundary is enumerated
 
@@ -335,7 +342,7 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 - **Diff bodies for file changes.** `file_change` events carry paths and kind, no content. A diff would make the page depend on repo state instead of the log.
 - **A nested view of subagent threads.** `parent_tool_use_id` is retained and labelled; a tree UI on top of it is speculative until a real log needs one.
 - **Search, export, or a two-pane outline in the viewer.** Browser find covers search at this page size.
-- **A price table, or any cost figure for the driver, codex, or copilot.** A repriced token is the fabrication the repo rules out, and a checked-in rate card would go stale silently.
+- **A price table, or any cost figure for the driver, codex, copilot, or cursor.** A repriced token is the fabrication the repo rules out, and a checked-in rate card would go stale silently.
 - **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-codex.sh` were needed to add it.
 - **Aggregation across runs.** One receipt in, one cost receipt out.
 - **A `references/*.md` flow document for either command.** Each is one command with one optional argument; `SKILL.md` carries both directly.

@@ -242,7 +242,7 @@ Every value reaches the DOM through `textContent`.
 
 ## The denials and anomalies tab
 
-Denials are read per indexed job: claude's `permission_denials[]` on the last `result`, copilot's typed `tool.execution_complete` carrying `error.code == "denied"`. Codex reports none, and the tab says so rather than printing a zero — the evidence design's rule that a gap is named and never zeroed.
+Denials are read per indexed job: claude's `permission_denials[]` on the last `result`, copilot's typed `tool.execution_complete` carrying `error.code == "denied"`, and cursor's completed `tool_call` carrying a typed `result.rejected`. The cursor branch uses `cursor_rejections()` from the cost module and shows the tool kind and rejected command. Codex reports none, and an unknown backend reads `not reported (<backend>)`; the tab names those gaps rather than printing a zero, which is the evidence design's rule that a gap is named and never zeroed.
 
 A copilot denial event carries the call id and the error, and nothing else. The tool name and its arguments are on the matching `tool.execution_start`, so the command column exists only if the two are joined on `toolCallId` — the join `assets/transcript-viewer.html` already performs for its own rows. A denial whose start event is absent is kept with its details reported unavailable, never dropped for being incomplete.
 
@@ -332,6 +332,7 @@ New coverage in `tests/test_session_ui.py`:
 - SVG root parsing with valid, absent, and malformed attributes
 - goal-to-receipt intersection: matched, unmatched, and an unparseable task table
 - denial extraction per backend: the copilot `toolCallId` join, a denial whose start event is missing, a claude job with no terminal result reading `not yet available`, and codex reporting none rather than zero
+- `tests/test_session_ui.py` checks that cursor rejections are reported and an unknown backend is not read as copilot
 - a malformed `roles_used` reading `not recorded`
 
 The existing suites are not modified. If the imports are faithful they pass untouched, which is the same proof the cost receipt plan's first task used for its helper move.
