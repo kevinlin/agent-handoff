@@ -161,6 +161,7 @@ Handoff's refusals happen before a job directory exists. Cursor's model check ha
 | Session id | `session_id` on every event from `system/init` | probed |
 | Fix round on the same session | `--resume <id>`, cwd from the shell | probed, context intact |
 | Resume after a crash | kill during the first tool call, then `--resume` | probed, context intact; a kill between `init` and the first tool call is open |
+| Resume of an id Cursor never saw | `--resume <uuid>` | probed in plan Task 8: exit 0, a new empty session under that id, no error |
 | Working directory | `cd` plus `--workspace` fresh; `cd` on resume | probed |
 | Effort as a routing field | none; the slug carries it | probed; decision 1 |
 | Read-only job | `--mode plan` | probed: no writes, honest report |

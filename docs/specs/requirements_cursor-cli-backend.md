@@ -70,7 +70,7 @@ Acceptance: a fake `cursor-agent` that prints `Cannot use this model: …` to st
 
 **R4.2** `resume` continues the parent's session on the parent's backend, worktree, posture, and `read_only`, and the review-round caps apply unchanged.
 
-**R4.3** A cursor job killed after its first tool call can be resumed with its context: probe G established this. For a job killed between `system/init` and its first tool call, `resume` uses the logged id, and if Cursor has no such session, its own error reaches `stderr.log`. A job killed before any event is refused with the existing "no session id" error.
+**R4.3** A cursor job killed after its first tool call can be resumed with its context: probe G established this. For a job killed between `system/init` and its first tool call, `resume` uses the logged id. If Cursor never persisted that session, it does not report an error: the live run in Task 8 showed that `--resume` with an id Cursor has never seen exits 0 and starts a new, empty session under that id. The round then runs without the parent's context, and the flow prose tells the driver how to recognise that. A job killed before any event is refused with the existing "no session id" error.
 Acceptance: a fixture log ending mid-run with no `result` event produces a resume command on the logged session id. This proves the wiring only; Cursor's side is the probe evidence.
 
 ### R5. Monitoring and result
@@ -205,5 +205,5 @@ The run records the helper paths it used and the installed revision, because the
 
 - **Mid-run API failure shape.** Not provoked in probing. Implementation should provoke one (an exhausted quota or a revoked login) or record it as unknown, and the monitor keeps reading both `log.jsonl` and `stderr.log`.
 - **Running without `--trust`.** Not probed. `--trust` is always passed, so this only matters if a later Cursor build changes what it does.
-- **Resume of a session that never existed**, and of a job killed between `init` and its first tool call. Both are open in the research. R4.3 reports Cursor's own error for them.
+- **Resume of a session that never existed**: closed by Task 8. Cursor exits 0 and starts a new, empty session under the given id (`docs/research/cursor-cli-specification.md` section 12). A job killed between `init` and its first tool call is still not probed; if Cursor had not persisted its session, the same behaviour follows.
 - **A `-p` run while logged out.** Only the `models` error is probed. The job is expected to fail with Cursor's authentication message on stderr; implementation records the real text.
