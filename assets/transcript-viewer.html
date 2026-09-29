@@ -353,10 +353,28 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     return { ...base, kind: 'tool' };
   }
 
+  // The tool kind is the one key under tool_call holding an object.
+  function cursorCall(event) {
+    const call = event.tool_call && typeof event.tool_call === 'object' ? event.tool_call : {};
+    const kind = Object.keys(call).find(k => call[k] && typeof call[k] === 'object') || '';
+    return { kind, body: kind ? call[kind] : {} };
+  }
+
+  function mapCursorTool(kind, args) {
+    const base = { tool: kind, args };
+    if (kind === 'shellToolCall')
+      return { ...base, kind: 'command', command: args.command || '', output: '' };
+    if (kind === 'editToolCall')
+      // Provisional, as in the other branches: a refused edit is not a change.
+      return { ...base, kind: 'file_change', pending_edit: true,
+               changes: args.path ? [{ path: args.path, kind: 'update' }] : [] };
+    return { ...base, kind: 'tool' };
+  }
+
   // Copilot's terminal event is `type: "result"`, the same type name claude
-  // stream-json uses with a different payload, so the branch is chosen by the
-  // declared backend and never by the event shape. Only types unique to one
-  // format may seed the guess a metadata-free dropped log needs.
+  // stream-json uses with a different payload. Cursor's `system`, `user`,
+  // `assistant`, and `result` also collide with claude's. Only unique types,
+  // including Cursor's `tool_call` and `thinking`, identify a dropped log.
   HV.inferBackend = function inferBackend(logText) {
     const lines = String(logText == null ? '' : logText).split('\n');
     for (const line of lines) {
@@ -367,6 +385,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
       if (type === 'assistant.turn_start' || type === 'tool.execution_start')
         return 'copilot';
       if (type.indexOf('item.') === 0) return 'codex';
+      if (type === 'tool_call' || type === 'thinking') return 'cursor';
     }
     return null;
   };
@@ -464,6 +483,63 @@ if(__exports != exports)module.exports = exports;return module.exports}));
           return add({ kind: 'lifecycle', pos: index, label: 'result',
                        detail: `exit ${event.exitCode}`, usage: event.usage,
                        raw: event });
+        add({ kind: 'unknown', pos: index, type, raw: event });
+        return;
+      }
+
+      // --- Cursor stream-json ---------------------------------------------
+      // system, user, assistant, and result share claude's type names, so the
+      // branch is chosen by the declared or inferred backend, never by them.
+      if (format === 'cursor') {
+        if (type === 'thinking') return;   // a reasoning stream, hundreds per job
+        if (type === 'tool_call') {
+          const { kind, body } = cursorCall(event);
+          if (event.subtype === 'started') {
+            const row = add({ pos: index, raw: event,
+                              ...mapCursorTool(kind, (body && body.args) || {}) });
+            // The id embeds a newline; as a map key that is harmless, and it is
+            // only ever displayed through JSON.stringify and textContent.
+            if (event.call_id) byToolCallId.set(event.call_id, row);
+            return;
+          }
+          const target = byToolCallId.get(event.call_id);
+          if (!target) {
+            add({ kind: 'error', pos: index, raw: event,
+                  text: 'tool result with no matching tool call' });
+            return;
+          }
+          const result = (body && body.result) || {};
+          const outcome = Object.keys(result)[0] || '';
+          const detail = (outcome && result[outcome]) || {};
+          // renderRow prints JSON.stringify(row.raw), so keep both halves: a
+          // non-shell success (a read, an edit) has no output text of its own.
+          target.raw = { started: target.raw, completed: event };
+          target.outcome = outcome;
+          target.is_error = outcome !== 'success';
+          if (outcome === 'rejected') target.denied = true;   // typed, never pattern-matched
+          if (typeof detail.exitCode === 'number') target.exit_code = detail.exitCode;
+          target.output = outcome === 'success'
+            ? [detail.stdout, detail.stderr].filter(Boolean).join('\n')
+            : (detail.error || detail.reason || outcome);
+          if (target.pending_edit && target.is_error) {
+            target.kind = 'error';
+            target.text = target.output;
+          }
+          delete target.pending_edit;
+          return;
+        }
+        if (type === 'assistant' || type === 'user') {
+          const blocks = (event.message && event.message.content) || [];
+          const text = (Array.isArray(blocks) ? blocks : [])
+            .filter(b => b && b.type === 'text').map(b => b.text || '').join('');
+          return add({ kind: type === 'user' ? 'user' : 'agent', pos: index, text, raw: event });
+        }
+        if (type === 'system' && event.subtype === 'init')
+          return add({ kind: 'lifecycle', pos: index, label: 'session start',
+                       detail: event.model, raw: event });
+        if (type === 'result')
+          return add({ kind: 'lifecycle', pos: index, label: 'result',
+                       usage: event.usage, raw: event });
         add({ kind: 'unknown', pos: index, type, raw: event });
         return;
       }

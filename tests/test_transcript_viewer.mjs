@@ -370,3 +370,61 @@ test('codex and claude fixtures parse exactly as they did before the copilot bra
     assert.deepEqual(plain(normalize(text, 'claude')), expected, `${name} declared claude`);
   }
 });
+
+test('cursor drops thinking and folds each tool call into one row', () => {
+  const { rows } = normalize(fixture('cursor-basic.jsonl'), 'cursor');
+  assert.ok(rows.every(r => (r.raw || {}).type !== 'thinking'));
+  const shells = rows.filter(r => r.kind === 'command');
+  assert.equal(shells.length, 3);
+  const check = shells.find(r => r.command === 'bash check.sh');
+  assert.equal(check.outcome, 'success');
+  assert.equal(check.exit_code, 0);
+  assert.equal(check.output, 'checks ok');
+});
+
+test('a cursor call id with an embedded newline still pairs its halves', () => {
+  const { rows } = normalize(fixture('cursor-basic.jsonl'), 'cursor');
+  assert.equal(rows.filter(r => r.kind === 'error').length, 0);
+  const edit = rows.find(r => r.tool === 'editToolCall');
+  assert.equal(edit.kind, 'file_change');
+  assert.deepEqual(edit.changes, [{ path: 'tracked.txt', kind: 'update' }]);
+  // The row keeps both halves, so the page's body shows the completion too.
+  assert.equal(edit.raw.started.call_id, 'call_E\nfc_1');
+  assert.equal(edit.raw.completed.subtype, 'completed');
+  assert.deepEqual(edit.raw.completed.tool_call.editToolCall.result, { success: {} });
+});
+
+test('a rejected cursor call is a denial and a spawnError is a failure', () => {
+  const { rows } = normalize(fixture('cursor-basic.jsonl'), 'cursor');
+  const curl = rows.find(r => r.command === 'curl https://example.com');
+  assert.equal(curl.outcome, 'rejected');
+  assert.equal(curl.denied, true);
+  assert.equal(curl.is_error, true);
+  const spawn = rows.find(r => r.command === 'cat ../outside.txt');
+  assert.equal(spawn.outcome, 'spawnError');
+  assert.equal(spawn.denied, undefined);
+  assert.match(spawn.output, /ENOENT/);
+});
+
+test('cursor messages are rows and init names the model that ran', () => {
+  const { rows } = normalize(fixture('cursor-basic.jsonl'), 'cursor');
+  assert.deepEqual(rows.filter(r => r.kind === 'agent').map(r => r.text),
+    ["I'll fix the typo first.", 'Fixed the typo; checks pass. curl was refused.']);
+  assert.equal(rows.find(r => r.kind === 'user').text, 'Fix the typo and run the checks.');
+  const life = rows.filter(r => r.kind === 'lifecycle');
+  assert.deepEqual(life.map(r => r.label), ['session start', 'result']);
+  assert.equal(life[0].detail, 'GPT-5.4 Mini Low');
+  assert.equal(life[1].usage.inputTokens, 130);
+});
+
+test('a dropped cursor log is inferred from tool_call or thinking, never from shared types', () => {
+  const HVn = globalThis.window.HandoffViewer;
+  const text = fixture('cursor-basic.jsonl');
+  assert.equal(HVn.inferBackend(text), 'cursor');
+  assert.deepEqual(normalize(text), normalize(text, 'cursor'));
+  assert.equal(HVn.inferBackend('{"type":"thinking","subtype":"delta","text":"x"}'), 'cursor');
+  // The stated limit: a log that crashed after init holds only shared types.
+  const sharedOnly = text.split('\n')
+    .filter(line => /^\{"type":"(system|user|assistant|result)"/.test(line)).join('\n');
+  assert.equal(HVn.inferBackend(sharedOnly), null);
+});
