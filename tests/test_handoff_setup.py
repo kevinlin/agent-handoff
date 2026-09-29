@@ -51,6 +51,7 @@ class SetupTests(unittest.TestCase):
         codex.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         codex.chmod(0o755)
         self.env = os.environ.copy()
+        self.env.pop("HANDOFF_CURSOR_BIN", None)
         self.env.update(
             {
                 "HOME": str(self.home),
@@ -1034,6 +1035,208 @@ class CopilotSetupTests(SetupTests):
         self.assertFalse(identities["fast_worker"]["verified"])
         self.assertTrue(identities["arbiter"]["verified"])
 
+
+# `cursor-agent models` on build 2026.09.28-64d2043, trimmed to four entries.
+CURSOR_MODELS_OUTPUT = (
+    "Available models\n\n"
+    "auto - Auto (default)\n"
+    "gpt-5.4-mini-low - GPT-5.4 Mini Low\n"
+    "claude-opus-5-5-high - Claude Opus 5.5 1M High\n"
+    "composer-2.5 - Composer 2.5\n\n"
+    "Tip: use --model <id> (or /model <id> in interactive mode) to switch. "
+    "Parameterized models also accept quoted overrides, e.g. --model "
+    "'claude-opus-4-8[context=1m,effort=high,fast=false]'.\n"
+)
+
+CURSOR_FAKE = """#!__PYTHON__
+import json, os, sys
+log = os.environ.get("HANDOFF_TEST_CURSOR_ARGS")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write(" ".join(sys.argv[1:]) + "\\n")
+if sys.argv[1:2] == ["--version"]:
+    print("2026.09.28-64d2043")
+    sys.exit(0)
+if sys.argv[1:2] == ["models"]:
+    if os.environ.get("HANDOFF_TEST_CURSOR_MODELS_ERROR"):
+        sys.stderr.write(os.environ["HANDOFF_TEST_CURSOR_MODELS_ERROR"] + "\\n")
+        sys.exit(1)
+    sys.stdout.write(__MODELS__)
+    sys.exit(0)
+if os.environ.get("HANDOFF_TEST_CURSOR_STDERR"):
+    sys.stderr.write(os.environ["HANDOFF_TEST_CURSOR_STDERR"] + "\\n")
+    sys.exit(1)
+# Cursor emits one assistant event per message, and result.result runs them together.
+narration = os.environ.get("HANDOFF_TEST_CURSOR_NARRATION", "Checking.")
+reply = os.environ.get("HANDOFF_TEST_CURSOR_REPLY", "HANDOFF_SMOKE_OK")
+for event in (
+    {"type": "system", "subtype": "init", "session_id": "s", "model": "GPT-5.4 Mini Low"},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": narration}]}},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": reply}]}},
+    {"type": "result", "subtype": "success", "result": narration + reply,
+     "usage": {"inputTokens": 1}},
+):
+    print(json.dumps(event))
+""".replace("__PYTHON__", sys.executable).replace("__MODELS__", repr(CURSOR_MODELS_OUTPUT))
+
+
+class CursorSetupTests(SetupTests):
+    """The cursor backend in the setup engine, the terminal wizard, and smoke."""
+
+    def setUp(self):
+        super().setUp()
+        self.cursor_args_log = self.root / "cursor-args.txt"
+        cursor = self.bin / "cursor-agent"
+        cursor.write_text(CURSOR_FAKE, encoding="utf-8")
+        cursor.chmod(0o755)
+        self.env["HANDOFF_TEST_CURSOR_ARGS"] = str(self.cursor_args_log)
+
+    def cursor_choices(self, model="gpt-5.4-mini-low", effort="model"):
+        return {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("cursor", model, effort),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+        }
+
+    def cursor_calls(self):
+        """Invocations other than delegate-codex.sh's --version probe."""
+
+        if not self.cursor_args_log.exists():
+            return []
+        return [line for line in self.cursor_args_log.read_text(encoding="utf-8").splitlines()
+                if line != "--version"]
+
+    def smoke(self):
+        return self.run_cli("--smoke", "--repo", str(self.repo), "--timestamp", "2026-09-30T01:02:03Z")
+
+    def test_effort_is_the_model_id_and_nothing_else(self):
+        self.assertEqual(("model",), handoff_setup.BACKEND_EFFORTS["cursor"])
+        status, _, error = self.run_cli(*self.custom_args(self.cursor_choices(), action="--preview"))
+        self.assertEqual((0, ""), (status, error))
+        status, _, error = self.run_cli(
+            *self.custom_args(self.cursor_choices(effort="high"), action="--preview"))
+        self.assertEqual(2, status)
+        self.assertIn("with backend=cursor must be one of model", error)
+        self.assertIn("Cursor carries effort in the model id", error)
+
+    def test_a_preset_override_onto_cursor_fills_the_effort(self):
+        status, _, error = self.run_cli(*self.claude_args(
+            "--apply", "--role-backend", "fast_worker=cursor",
+            "--role-model", "fast_worker=gpt-5.4-mini-low"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual("model", self.configured()["fast_worker"]["effort"])
+
+    def test_auto_is_refused_and_the_fix_is_named(self):
+        status, _, error = self.run_cli(
+            *self.custom_args(self.cursor_choices(model="auto"), action="--preview"))
+        self.assertEqual(2, status)
+        self.assertIn("'auto', which is refused on cursor", error)
+        self.assertIn("handoff-config.py set", error)
+        self.assertEqual([], self.cursor_calls())
+
+    def test_no_preset_names_cursor(self):
+        self.assertNotIn("cursor", {
+            backend for preset in handoff_setup.PRESETS.values()
+            for backend, _, _ in preset.values()})
+
+    def test_availability_is_cursor_agent_never_the_ide_or_agent(self):
+        self.assertTrue(handoff_setup.cli_available("cursor", self.env))
+        elsewhere = self.root / "ide-only"
+        elsewhere.mkdir()
+        for name in ("cursor", "agent"):
+            (elsewhere / name).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (elsewhere / name).chmod(0o755)
+        self.env["PATH"] = f"{elsewhere}:/usr/bin:/bin"
+        self.assertIsNone(handoff_setup.cursor_bin(self.env))
+        self.assertFalse(handoff_setup.cli_available("cursor", self.env))
+        self.env["HANDOFF_CURSOR_BIN"] = str(self.bin / "cursor-agent")
+        self.assertEqual(str(self.bin / "cursor-agent"), handoff_setup.cursor_bin(self.env))
+
+    def test_the_catalogue_reader_keeps_only_real_slugs(self):
+        models, error = handoff_setup.cursor_catalogue(str(self.bin / "cursor-agent"), self.env)
+        self.assertEqual("", error)
+        self.assertEqual(
+            [("gpt-5.4-mini-low", "GPT-5.4 Mini Low"),
+             ("claude-opus-5-5-high", "Claude Opus 5.5 1M High"),
+             ("composer-2.5", "Composer 2.5")],
+            models,
+        )
+
+    def test_an_unreadable_catalogue_names_the_login_fix(self):
+        self.env["HANDOFF_TEST_CURSOR_MODELS_ERROR"] = (
+            "Error: Authentication required. Run 'agent login', pass --api-key/--auth-token, "
+            "or set CURSOR_API_KEY/CURSOR_AUTH_TOKEN.")
+        models, error = handoff_setup.cursor_catalogue(str(self.bin / "cursor-agent"), self.env)
+        self.assertEqual([], models)
+        self.assertIn("Authentication required", error)
+        self.assertIn("cursor-agent login", error)
+
+    def test_smoke_checks_membership_then_runs_one_read_only_request(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.cursor_choices()))[0])
+        status, output, error = self.smoke()
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("fast_worker: PASS", output)
+        calls = self.cursor_calls()
+        self.assertEqual("models", calls[0])
+        self.assertEqual(2, len(calls))
+        self.assertIn("--output-format stream-json --trust --model gpt-5.4-mini-low --mode ask", calls[1])
+        self.assertNotIn("--force", calls[1])  # risk-ok: Cursor CLI flag name
+        self.assertTrue(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_refuses_a_base_name_before_the_paid_run(self):
+        # Cursor would run `gpt-5.4-mini` as a variant it picks itself.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.cursor_choices(model="gpt-5.4-mini")))[0])
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("gpt-5.4-mini is not in `cursor-agent models`", error)
+        self.assertEqual(["models"], self.cursor_calls())
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_quotes_cursors_refusal_verbatim(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.cursor_choices()))[0])
+        refusal = "Cannot use this model: gpt-5.4-mini-low. Available models: auto, composer-2.5"
+        self.env["HANDOFF_TEST_CURSOR_STDERR"] = refusal
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn(refusal, error)
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_reads_the_sentinel_from_the_last_assistant_message_only(self):
+        # The sentinel sits in an earlier message and in result.result, not in
+        # the last assistant event, so a pass here would mean the wrong event.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.cursor_choices()))[0])
+        self.env["HANDOFF_TEST_CURSOR_NARRATION"] = "HANDOFF_SMOKE_OK"
+        self.env["HANDOFF_TEST_CURSOR_REPLY"] = "Sure, happy to help."
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("unexpected response", error)
+
+    def test_smoke_names_the_login_when_the_catalogue_is_unreadable(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.cursor_choices()))[0])
+        self.env["HANDOFF_TEST_CURSOR_MODELS_ERROR"] = "Error: Authentication required."
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("cursor-agent login", error)
+        self.assertEqual(["models"], self.cursor_calls())
+
+    def test_terminal_wizard_names_four_backends_and_fills_cursor_effort(self):
+        from unittest.mock import call, patch
+        answers = ["4", "1", "n", "n", "", "", "n"]
+        for identity in handoff_setup.CORE_IDENTITIES:
+            if identity == "fast_worker":
+                answers.extend(["cursor", "gpt-5.4-mini-low", ""])  # no effort question
+            else:
+                answers.extend(["claude", "opus", "high", ""])
+        answers.append("n")
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=answers) as prompt:
+            status, output, error = self.run_cli("--interactive", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertIn(call("fast_worker backend [claude/codex/copilot/cursor]: "),
+                      prompt.call_args_list)
+        self.assertNotIn(call("fast_worker effort: "), prompt.call_args_list)
+        self.assertIn("fast_worker: backend=cursor [custom], model=gpt-5.4-mini-low [custom], "
+                      "effort=model [custom]", output)
 
 if __name__ == "__main__":
     unittest.main()

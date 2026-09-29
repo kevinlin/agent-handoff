@@ -46,10 +46,17 @@ CODEX_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # accepts is decided per model, and that rejection surfaces as Copilot's own
 # error rather than being downgraded here.
 COPILOT_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+# Cursor carries effort inside the model slug (claude-opus-5-5-high), so the
+# one value means "set by the model id" and never reaches the command line.
+CURSOR_EFFORTS = ("model",)
+CURSOR_LOGIN_FIX = (
+    "run `cursor-agent login`, or set HANDOFF_CURSOR_BIN to the Cursor CLI, then try again"
+)
 BACKEND_EFFORTS = {
     "claude": CLAUDE_EFFORTS,
     "codex": CODEX_EFFORTS,
     "copilot": COPILOT_EFFORTS,
+    "cursor": CURSOR_EFFORTS,
 }
 BEGIN_MARKER = "<!-- BEGIN HANDOFF MANAGED ROUTING (do not edit; managed by agent-handoff) -->"
 END_MARKER = "<!-- END HANDOFF MANAGED ROUTING -->"
@@ -105,11 +112,12 @@ def validate_backend_efforts(identities: Mapping[str, Mapping[str, Any]]) -> Non
             raise SetupError(
                 f"--role-effort for {identity} with backend={backend} must be one of "
                 f"{', '.join(supported)}"
+                + ("; Cursor carries effort in the model id" if backend == "cursor" else "")
             )
 
 
 def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None:
-    """Refuse ``model = "auto"`` on a copilot identity, at setup time.
+    """Refuse ``model = "auto"`` on a copilot or cursor identity, at setup time.
 
     ``delegate-codex.sh`` refuses it at submit too, but that is the first real
     job - late enough that a config naming ``auto`` applies cleanly and then
@@ -120,21 +128,23 @@ def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None
     """
 
     for identity, values in identities.items():
-        if values["backend"] != "copilot":
+        backend = values["backend"]
+        if backend not in ("copilot", "cursor"):
             continue
         model = str(values.get("model") or "").strip()
         if model == "auto":
             raise SetupError(
-                f"--role-model for {identity} is 'auto', which is refused on copilot: "
+                f"--role-model for {identity} is 'auto', which is refused on {backend}: "
                 "an identity is a deliberate backend+model+effort choice and 'auto' "
-                "resolves per request. Change the config to name a concrete model."
+                "resolves per request. Name a concrete model, for example with "
+                f"'handoff-config.py set --role {identity} --backend {backend} --model <model>'."
             )
         if not model:
             raise SetupError(
-                f"--role-model for {identity} with backend=copilot must name a model; "
-                "no model name is guessed. (A role-less ad-hoc copilot job passes no "
-                "--model at all and runs on Copilot's own default; a configured "
-                "identity does not get that latitude.)"
+                f"--role-model for {identity} with backend={backend} must name a model; "
+                "no model name is guessed. (A role-less ad-hoc job passes no --model "
+                "and runs on the CLI's own default; a configured identity does not get "
+                "that latitude.)"
             )
 
 
@@ -189,15 +199,66 @@ def copilot_bin(env: Mapping[str, str]) -> Optional[str]:
     return None
 
 
+def cursor_bin(env: Mapping[str, str]) -> Optional[str]:
+    """Resolve Cursor's agent CLI with delegate-codex.sh's precedence.
+
+    ``HANDOFF_CURSOR_BIN`` first, then ``cursor-agent`` on PATH. Never
+    ``cursor``, which is the Cursor IDE launcher, and never ``agent``.
+    """
+
+    configured = env.get("HANDOFF_CURSOR_BIN", "")
+    if configured:
+        candidate = (
+            configured if "/" in configured
+            else shutil.which(configured, path=env.get("PATH"))
+        )
+        return candidate if candidate and os.access(candidate, os.X_OK) else None
+    return shutil.which("cursor-agent", path=env.get("PATH"))
+
+
+def cursor_catalogue(binary: str, env: Mapping[str, str]) -> Tuple[List[Tuple[str, str]], str]:
+    """Read ``cursor-agent models``: (slug, display name) pairs and an error.
+
+    Free, and text only: a header, one ``slug - Display name`` line per model,
+    then a tip line. ``auto`` is dropped because an identity never names it.
+    The error is empty on success and otherwise ends with the fix.
+    """
+
+    try:
+        result = subprocess.run(
+            [binary, "models"], env=dict(env), text=True,
+            capture_output=True, check=False, timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        return [], f"cursor-agent models timed out after 15 seconds; {CURSOR_LOGIN_FIX}"
+    except OSError as error:
+        return [], f"cursor-agent models could not start: {error}; {CURSOR_LOGIN_FIX}"
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"cursor-agent models exited {result.returncode}"
+        return [], f"{detail}; {CURSOR_LOGIN_FIX}"
+    models = []
+    for line in result.stdout.splitlines():
+        slug, separator, name = line.strip().partition(" - ")
+        if separator and slug != "auto" and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", slug):
+            models.append((slug, name.strip()))
+    if not models:
+        return [], f"cursor-agent models listed no models; {CURSOR_LOGIN_FIX}"
+    return models, ""
+
+
 def cli_available(backend: str, env: Mapping[str, str]) -> bool:
     """True when the backend's CLI resolves the way a job would resolve it.
 
     ``shutil.which`` is enough for codex and claude, which have no name
-    collision, but it cannot tell the two ``copilot`` binaries apart.
+    collision, but it cannot tell the two ``copilot`` binaries apart, and
+    for cursor the backend name is the Cursor IDE launcher's, so the agent
+    is looked up as ``cursor-agent``.
     """
 
     if backend == "copilot":
         return copilot_bin(env) is not None
+    if backend == "cursor":
+        return cursor_bin(env) is not None
     return shutil.which(backend, path=env.get("PATH")) is not None
 
 
@@ -438,7 +499,7 @@ def choose_identities(
         identities[identity] = {
             "backend": backend,
             "model": model,
-            "effort": efforts.get(identity, preset_effort),
+            "effort": efforts.get(identity, "model" if backend == "cursor" else preset_effort),
             "permission_mode": permissions.get(identity, "default"),
             "verified": False,
         }
@@ -922,6 +983,70 @@ def _copilot_stream_error(stdout: str) -> str:
     return ""
 
 
+def validate_cursor_model(
+    binary: str,
+    model: str,
+    env: Mapping[str, str],
+    *,
+    cwd: Path,
+) -> Tuple[bool, str]:
+    """Smoke one cursor slug: catalogue membership, then one real run.
+
+    Membership is free and comes first: Cursor accepts a base name outside the
+    catalogue and quietly runs a variant it picks. The run costs one small
+    request when the slug is usable; Cursor refuses an unusable one before any
+    session, at no cost, and its stderr is returned verbatim because it lists
+    the models the account can use. ``--mode ask`` makes the run read-only; it
+    does not make it tool-free. The pass rule is Claude smoke's: exit 0 and the
+    sentinel in the last assistant message.
+    """
+
+    catalogue, error = cursor_catalogue(binary, env)
+    if error:
+        return False, error
+    if model not in {slug for slug, _ in catalogue}:
+        return False, (
+            f"{model} is not in `cursor-agent models`; name a slug the catalogue "
+            "lists (Cursor resolves a base name to a variant without saying so)"
+        )
+    command = [
+        binary, "-p",
+        "This is a configuration smoke test. Reply with exactly "
+        "HANDOFF_SMOKE_OK and nothing else. Do not use tools.",
+        "--output-format", "stream-json", "--trust", "--model", model, "--mode", "ask",
+    ]
+    try:
+        result = subprocess.run(
+            command, cwd=cwd, env=dict(env), text=True,
+            capture_output=True, check=False, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "cursor smoke run timed out after 120 seconds"
+    except OSError as error:
+        return False, f"cursor smoke run could not start: {error}"
+    if result.returncode != 0:
+        return False, (result.stderr or "").strip() or f"cursor-agent exited {result.returncode}"
+    if "HANDOFF_SMOKE_OK" not in _cursor_last_assistant_text(result.stdout):
+        return False, "cursor smoke run returned an unexpected response"
+    return True, ""
+
+
+def _cursor_last_assistant_text(stdout: str) -> str:
+    """The text of the last ``assistant`` event. Never ``result.result``,
+    which runs every assistant message together."""
+
+    text = ""
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "assistant":
+            blocks = (event.get("message") or {}).get("content") or []
+            text = "".join(block.get("text") or "" for block in blocks if isinstance(block, dict))
+    return text
+
+
 def apply_plan(
     args: argparse.Namespace,
     env: Mapping[str, str],
@@ -1119,6 +1244,22 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 successes.append(identity)
                 print(f"{identity}: PASS (model and effort accepted by Copilot)")
                 continue
+            if configured[identity]["backend"] == "cursor":
+                binary = cursor_bin(env)
+                if not binary:
+                    failures = True
+                    print(f"{identity}: FAIL\ncursor-agent not found; install Cursor CLI "
+                          "or set HANDOFF_CURSOR_BIN", file=sys.stderr)
+                    continue
+                passed, detail = validate_cursor_model(
+                    binary, str(configured[identity]["model"]), env, cwd=args.repo)
+                if not passed:
+                    failures = True
+                    print(f"{identity}: FAIL\n{detail}", file=sys.stderr)
+                    continue
+                successes.append(identity)
+                print(f"{identity}: PASS (slug in cursor-agent models, run accepted by Cursor)")
+                continue
             successes.append(identity)
             print(f"{identity}: PASS")
     if successes:
@@ -1246,15 +1387,16 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         answer = input("Also configure the optional e2e identities? [y/N]: ").strip().lower()
         with_e2e = answer in ("y", "yes")
         for identity in identities_for(with_e2e):
-            identity_backends.append(
-                f"{identity}={input(f'{identity} backend [claude/codex]: ').strip()}"
-            )
-            identity_models.append(
-                f"{identity}={input(f'{identity} model: ').strip()}"
-            )
-            identity_efforts.append(
-                f"{identity}={input(f'{identity} effort: ').strip()}"
-            )
+            backend = input(f"{identity} backend [claude/codex/copilot/cursor]: ").strip()
+            identity_backends.append(f"{identity}={backend}")
+            identity_models.append(f"{identity}={input(f'{identity} model: ').strip()}")
+            if backend == "cursor":
+                # Cursor carries effort in the model slug; there is nothing to ask.
+                print(f"{identity} effort: model (set by the Cursor model id)")
+                effort = "model"
+            else:
+                effort = input(f"{identity} effort: ").strip()
+            identity_efforts.append(f"{identity}={effort}")
             permission = input(f"{identity} permission [default/allow-all] (default): ").strip() or "default"
             identity_permissions.append(f"{identity}={permission}")
     selected = argparse.Namespace(**vars(args))

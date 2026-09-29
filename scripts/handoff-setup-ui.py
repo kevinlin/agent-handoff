@@ -465,6 +465,33 @@ def _copilot_model_options(env: Mapping[str, str]) -> Tuple[List[Dict[str, Any]]
     return options, "Read from your Copilot entitlement"
 
 
+def _cursor_model_options(env: Mapping[str, str]) -> Tuple[List[Dict[str, Any]], str]:
+    """Offer the slugs ``cursor-agent models`` lists, read at page load.
+
+    The call is free and takes about a second, the same cost profile as
+    codex's ``model/list``. Nothing is guessed when it fails.
+    """
+
+    binary = engine.cursor_bin(env)
+    if not binary:
+        return [], ("Cursor CLI not found. Install it, or set HANDOFF_CURSOR_BIN, "
+                    "then start the wizard again")
+    catalogue, error = engine.cursor_catalogue(binary, env)
+    if error:
+        return [], error
+    return [
+        {
+            "value": slug,
+            "label": name or slug,
+            "description": "",
+            "source": "cursor-agent models",
+            "efforts": list(engine.CURSOR_EFFORTS),
+            "is_default": False,
+        }
+        for slug, name in catalogue
+    ], "Read from cursor-agent models"
+
+
 def _ensure_model_option(
     options: List[Dict[str, Any]],
     value: str,
@@ -486,10 +513,13 @@ def _ensure_model_option(
     efforts = list(engine.BACKEND_EFFORTS[backend])
     if backend == "copilot":
         efforts = [effort] if effort in engine.BACKEND_EFFORTS[backend] else []
+    # Slugs leave the catalogue between Cursor releases. Keep the configured
+    # one and say so, rather than replace it.
+    label = "Not in the current catalogue" if backend == "cursor" else value
     options.append(
         {
             "value": value,
-            "label": value,
+            "label": label,
             "description": "Already used in the current config",
             "source": source,
             "efforts": efforts,
@@ -547,11 +577,16 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         claude_cli["path"], env, claude_detected
     )
     copilot_options, copilot_discovery = _copilot_model_options(env)
+    cursor_options, cursor_discovery = _cursor_model_options(env)
     option_sets = {
         "claude": claude_options,
         "codex": codex_options,
         "copilot": copilot_options,
+        "cursor": cursor_options,
     }
+    # Taken before configured values are added back: a retained model fills
+    # the list, and the page must still say that discovery failed.
+    discovery_failed = {backend: not options for backend, options in option_sets.items()}
     for matrix in (*presets.values(), current):
         for values in matrix.values():
             backend = values.get("backend")
@@ -584,7 +619,9 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
             "claude": claude_discovery,
             "codex": codex_discovery,
             "copilot": copilot_discovery,
+            "cursor": cursor_discovery,
         },
+        "model_discovery_failed": discovery_failed,
         "presets": presets,
         "initial_mode": initial_mode,
         "initial_matrix": initial_matrix,
@@ -665,10 +702,16 @@ def normalize_payload(
             # that is not in it is refused here rather than at the first job.
             # `auto` is exempt only so the engine's own reasoned refusal is
             # what the user reads; it is rejected either way.
-            if option is None and backend == "copilot" and model != "auto":
+            if option is None and backend in ("copilot", "cursor") and model != "auto":
+                if backend == "copilot":
+                    raise UIError(
+                        f"model {model} for {identity} is not in your Copilot model list; "
+                        "pick one the list offers, or fix the login it names and start "
+                        "the wizard again"
+                    )
                 raise UIError(
-                    f"model {model} for {identity} is not in your Copilot model list; "
-                    "pick one the list offers, or fix the login it names and start "
+                    f"model {model} for {identity} is not in `cursor-agent models`; "
+                    "pick one the list offers, or fix what the page names and start "
                     "the wizard again"
                 )
         if effort not in supported_efforts:
@@ -1257,7 +1300,7 @@ HTML = r'''<!doctype html>
       <div class="config-grid">
         <section class="matrix-panel" aria-labelledby="matrixTitle">
           <div class="main-heading">
-            <div><h2 id="matrixTitle">The three Agent Handoff roles</h2><p>Codex models are read from your local account and Claude models use the official CLI aliases. Copilot exposes no model catalog, so you type its model name and the CLI checks it when you install.</p></div>
+            <div><h2 id="matrixTitle">The three Agent Handoff roles</h2><p>Codex models are read from your local account, Claude models use the official CLI aliases, Copilot models come from your entitlement, and Cursor models from <code>cursor-agent models</code>. A Cursor model carries its own effort.</p></div>
             <span class="current-mode" id="currentMode">Current mode: loading</span>
           </div>
           <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
@@ -1332,8 +1375,8 @@ HTML = r'''<!doctype html>
       cost:'Codex runs most of it, Claude backs it up',
       custom:'Set each role by hand',
     };
-    const BACKEND_LABELS = {claude:'Claude Code', codex:'Codex', copilot:'GitHub Copilot'};
-    const BACKEND_LABELS_ORDER = ['claude','codex','copilot'];
+    const BACKEND_LABELS = {claude:'Claude Code', codex:'Codex', copilot:'GitHub Copilot', cursor:'Cursor'};
+    const BACKEND_LABELS_ORDER = ['claude','codex','copilot','cursor'];
     const EFFORT_LABELS = {
       none:'None',
       minimal:'Minimal',
@@ -1342,6 +1385,7 @@ HTML = r'''<!doctype html>
       high:'High',
       xhigh:'Extra high',
       max:'Max',
+      model:'Set by the model id',
     };
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1379,9 +1423,16 @@ HTML = r'''<!doctype html>
         'claude --help':'Official Claude CLI aliases',
         'local claude config':'Local Claude config',
         'copilot models':'Read from your Copilot entitlement',
+        'cursor-agent models':'Read from cursor-agent models',
         'custom (required)':'Not detected yet',
         'built-in':'Built-in value',
       })[source] || source;
+    }
+    // A retained model fills the list, so a failed discovery is named beside
+    // the source rather than only on an empty list.
+    function sourceText(backend, source) {
+      return `Source: ${sourceLabel(source)}`
+        + (state.model_discovery_failed[backend] ? ` · ${state.model_discovery[backend] || ''}` : '');
     }
     function modelCatalog(backend, current, source) {
       const options = clone(state.model_options[backend] || []);
@@ -1485,13 +1536,13 @@ HTML = r'''<!doctype html>
           ? models.map(option => `<option value="${esc(option.value)}" ${values.model === option.value ? 'selected' : ''}>${esc(modelOptionLabel(option))}</option>`).join('')
           : '<option value="">No models available</option>';
         const sourceLine = models.length
-          ? `Source: ${esc(sourceLabel(source))}`
+          ? esc(sourceText(values.backend, source))
           : esc(state.model_discovery[values.backend] || 'No models available');
         return `<article class="identity" data-identity="${identity}">
           <div class="identity-head"><h3>${esc(meta.label)}</h3><small>${esc(meta.hint)}</small><code class="identity-code">${identity}</code></div>
           <div class="field"><label for="${identity}-backend">Runs on</label><select id="${identity}-backend" data-field="backend">${BACKEND_LABELS_ORDER.map(b => `<option value="${b}" ${values.backend === b ? 'selected' : ''}>${BACKEND_LABELS[b]}</option>`).join('')}</select></div>
           <div class="field model-field"><label for="${identity}-model">Model</label><select id="${identity}-model" data-field="model" aria-describedby="${identity}-source" ${models.length ? '' : 'disabled'}>${modelOptions}</select><div class="source" id="${identity}-source">${sourceLine}</div></div>
-          <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort" ${efforts.length ? '' : 'disabled'}>${effortOptionsHtml(efforts, values.effort)}</select></div>
+          <div class="field"><label for="${identity}-effort">Effort</label><select id="${identity}-effort" data-field="effort" ${efforts.length && values.backend !== 'cursor' ? '' : 'disabled'}>${effortOptionsHtml(efforts, values.effort)}</select></div>
           <div class="field"><label for="${identity}-permission">Permission</label><label class="perm-switch"><input type="checkbox" role="switch" id="${identity}-permission" data-field="permission_mode" ${(values.permission_mode || 'default') === 'allow-all' ? 'checked' : ''}><span class="perm-track">${state.permission_modes.map(p => `<span data-value="${p}">${esc(state.permission_labels[p])}</span>`).join('')}</span></label></div>
         </article>`;
       }).join('');
@@ -1521,7 +1572,7 @@ HTML = r'''<!doctype html>
         syncModeControls();
         if (field === 'backend') renderIdentities();
         syncHeroMap();
-        if (field === 'model') card.querySelector('.source').textContent = `Source: ${sourceLabel(matrix[identity].model_source)}`;
+        if (field === 'model') card.querySelector('.source').textContent = sourceText(matrix[identity].backend, matrix[identity].model_source);
         invalidate();
       }));
     }

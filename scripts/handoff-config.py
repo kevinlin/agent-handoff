@@ -59,7 +59,7 @@ RETIRED_IDENTITY_FIELDS = ("auto_review_spec",)
 # job is pass one and every `resume` adds one. `resume` enforces them.
 REVIEW_FIELDS = ("spec_max_rounds", "implementation_max_rounds")
 DEFAULT_REVIEW: Dict[str, int] = {"spec_max_rounds": 1, "implementation_max_rounds": 3}
-BACKENDS = ("claude", "codex", "copilot")
+BACKENDS = ("claude", "codex", "copilot", "cursor")
 # One abstraction over three CLIs: `default` is each CLI's own bounded posture and
 # `allow-all` its native unrestricted mode -- never one shared security posture.
 # Absent means `default`, which is what keeps a config written before 3.7.1
