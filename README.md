@@ -13,6 +13,12 @@
 
 [Install](#install) · [Showcase](#showcase) · [Use It](#use-it) · [How The Flow Runs](#how-the-flow-runs) · [User Guide](docs/user-guide/agent-handoff.html) · [Cost Pressure Model](#cost-pressure-model) · [What It Solves](#what-it-solves) · [Safety](#safety) · [Verify](#verify)
 
+<a href="assets/promo.mp4">
+<img src="assets/promo.gif" alt="Agent Handoff in 30 seconds: one driver session carrying every task on one meter; the logo; a goal file split into rows that become background jobs on Codex and Claude Code; the driver reading a whole diff against acceptance criteria, with one fix round; the session receipt; the install command" width="860" />
+</a>
+
+<sub><strong>Agent Handoff in 30 seconds.</strong> <a href="assets/promo.mp4">Watch the full-resolution MP4</a>. The tasks, diff and receipt shown are illustrative.</sub>
+
 </div>
 
 ---

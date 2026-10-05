@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Handoff — 30 second promo</title>
+<!--
+  Source of assets/promo.mp4. A 1920x1080 stage driven only by CSS animations, 30 seconds long.
+  Open it over http to watch it play (file:// blocks the canvas read that splits the logo into
+  its three parts, so the logo then appears whole instead of assembling).
+  To render, a headless browser calls window.seek(t) per frame and screenshots the page.
+-->
+<style>
+  :root {
+    --ink: #1b2233; --soft: #5b6478; --faint: #8a93a6; --line: #e3e8f0; --bg: #fbfcfe;
+    --green: #0fb98a; --purple: #6a3dff; --lilac: #a99bff; --orange: #ff9a3c; --yellow: #ffc93c;
+    --red: #e11d48; --navy: #131a2b;
+    --ease: cubic-bezier(.16, 1, .3, 1);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { background: var(--bg); }
+  body {
+    position: relative; width: 1920px; height: 1080px; overflow: hidden;
+    font: 500 30px/1.3 system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    color: var(--ink); -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .abs { position: absolute; }
+
+  /* Every animated element carries its absolute start time in --d (seconds). */
+  @keyframes up    { from { opacity: 0; transform: translateY(34px); } }
+  @keyframes left  { from { opacity: 0; transform: translateX(-260px); } }
+  @keyframes right { from { opacity: 0; transform: translateX(260px); } }
+  @keyframes shoot { from { opacity: 0; transform: translateX(-170px); } }
+  @keyframes pop   { from { opacity: 0; transform: scale(.6); } }
+  @keyframes fade  { from { opacity: 0; } }
+  @keyframes gone  { to { opacity: 0; } }
+  @keyframes wipe  { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  @keyframes grow  { from { transform: scaleX(0); } }
+  .a { animation: up calc(var(--t, .7) * 1s) var(--ease) calc(var(--d) * 1s) both; }
+  .a.left { animation-name: left; }   .a.right { animation-name: right; }
+  .a.pop { animation-name: pop; }     .a.fade { animation-name: fade; }
+  .a.wipe { animation-name: wipe; }   .a.grow { animation-name: grow; transform-origin: 0 50%; animation-timing-function: cubic-bezier(.4, 0, .4, 1); }
+  .a.shoot { animation-name: shoot; animation-timing-function: cubic-bezier(.34, 1.56, .64, 1); }
+  /* .o adds a fade-out at --o */
+  .a.o { animation: up calc(var(--t, .7) * 1s) var(--ease) calc(var(--d) * 1s) both, gone .25s linear calc(var(--o) * 1s) forwards; }
+  .a.o.pop { animation-name: pop, gone; }  .a.o.fade { animation-name: fade, gone; }
+
+  .scene {
+    position: absolute; inset: 0;
+    animation: fade .45s linear calc(var(--at) * 1s) both, gone .4s linear calc(var(--end) * 1s) forwards;
+  }
+
+  /* drifting colour wash behind everything */
+  .wash { position: absolute; width: 1500px; height: 1500px; border-radius: 50%; }
+  .wash.g { left: -600px; top: -700px; background: radial-gradient(closest-side, rgba(15,185,138,.20), transparent); animation: driftg 30s linear both; }
+  .wash.p { right: -600px; bottom: -800px; background: radial-gradient(closest-side, rgba(106,61,255,.18), transparent); animation: driftp 30s linear both; }
+  @keyframes driftg { to { transform: translate(260px, 160px); } }
+  @keyframes driftp { to { transform: translate(-260px, -140px); } }
+
+  /* shared pieces */
+  .eyebrow { left: 120px; top: 84px; font-size: 22px; font-weight: 600; letter-spacing: .24em; color: var(--faint); }
+  h1 { position: absolute; left: 120px; top: 118px; font-size: 76px; font-weight: 800; letter-spacing: -.028em; word-spacing: .06em; line-height: 1.05; }
+  .sub { position: absolute; left: 120px; top: 218px; font-size: 32px; color: var(--soft); }
+  .card { position: absolute; background: #fff; border: 1px solid var(--line); border-radius: 26px; box-shadow: 0 30px 70px -30px rgba(27,34,51,.25); overflow: hidden; }
+  .card > header { height: 66px; padding: 0 30px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); font-size: 22px; color: var(--soft); }
+  .card > header::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--dot, var(--purple)); }
+  .pill { display: inline-block; padding: 6px 16px; border-radius: 99px; font-size: 21px; font-weight: 600; }
+  .pill.dr { background: #efeaff; color: #5a2ee0; }
+  .pill.fw { background: #e1f8f0; color: #0a7d5f; }
+  .pill.me { border: 2px dashed var(--lilac); color: #5a2ee0; }
+  .tick { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--green); }
+  .tick::after { content: ""; width: 9px; height: 17px; margin-top: -4px; border: solid #fff; border-width: 0 4px 4px 0; transform: rotate(45deg); }
+
+  /* canvases with data-crop are cut from design-concept.png, white knocked out */
+  .logo { position: relative; aspect-ratio: 696 / 602; }
+  .logo canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* scene 1 */
+  .big { position: absolute; left: 120px; font-size: 118px; font-weight: 800; letter-spacing: -.04em; line-height: 1; }
+  .meter { height: 22px; border-radius: 11px; background: #eef1f6; overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 11px; transform-origin: 0 50%; animation: fill 3.1s cubic-bezier(.3, 0, .6, 1) .6s both; }
+  @keyframes fill { 0% { transform: scaleX(.06); background: var(--green); } 55% { background: var(--orange); } 100% { transform: scaleX(.97); background: var(--red); } }
+  .chip { display: flex; align-items: center; gap: 16px; height: 62px; padding: 0 24px; margin-top: 14px; border: 2px solid var(--line); border-radius: 16px; background: #fff; font-size: 27px; }
+  .chip::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--purple); }
+  .chip.m::before { background: var(--orange); }
+  .chip.m { animation: up .7s var(--ease) calc(var(--d) * 1s) both, mark .4s linear 3.3s forwards; }
+  @keyframes mark { to { border-color: var(--orange); background: #fff6ea; } }
+
+  /* scene 3 */
+  .row { display: grid; grid-template-columns: 70px 250px 1fr; align-items: center; height: 96px; padding: 0 30px; border-bottom: 1px solid var(--line); font-size: 27px; }
+  .row b { font-weight: 600; color: var(--faint); }
+  .lane { position: absolute; left: 1080px; width: 720px; height: 116px; padding: 0 28px; display: flex; align-items: center; gap: 18px; border-radius: 22px; background: rgba(255,255,255,.75); border: 1px solid var(--line); }
+  .lane .name { width: 150px; flex: none; font-size: 30px; font-weight: 700; line-height: 1.15; }
+  .lane .name small { display: block; font-size: 17px; font-weight: 500; color: var(--faint); }
+  .job { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-radius: 13px; background: #fff; border: 1px solid var(--line); font-size: 19px; white-space: nowrap; box-shadow: 0 10px 24px -14px rgba(27,34,51,.35); }
+  .job::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--green); animation: pulse .9s ease-in-out infinite alternate; }
+  @keyframes pulse { to { opacity: .25; } }
+  .pkt { position: absolute; left: 940px; top: calc(var(--y) * 1px - 20px); width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 24px; font-weight: 800; background: linear-gradient(90deg, var(--yellow), var(--orange)); box-shadow: 0 8px 20px -6px rgba(255,154,60,.8); animation: fly .75s cubic-bezier(.5, 0, .2, 1) calc(var(--d) * 1s) both; }
+  @keyframes fly { 0% { opacity: 0; transform: translate(-50px, 0); } 18%, 82% { opacity: 1; } 100% { opacity: 0; transform: translate(120px, calc(var(--dy) * 1px)); } }
+
+  /* scene 4 */
+  .mon { display: grid; grid-template-columns: 300px 1fr 150px; align-items: center; gap: 22px; height: 88px; padding: 0 30px; border-bottom: 1px solid var(--line); font-size: 22px; }
+  .bar { height: 14px; border-radius: 7px; background: #eef1f6; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 7px; background: var(--c, var(--green)); }
+  .state { display: grid; justify-items: end; font-weight: 600; }
+  .state > * { grid-area: 1 / 1; }
+  .diff { padding: 14px 0; font-size: 22px; line-height: 36px; white-space: pre; position: relative; }
+  .diff div { padding: 0 30px; }
+  .diff .del { background: #ffeef1; color: #b3123a; }
+  .diff .add { background: #e7f9f2; color: #0a6b52; }
+  .scan { position: absolute; left: 0; right: 0; top: 14px; height: 36px; background: linear-gradient(90deg, rgba(106,61,255,.22), rgba(106,61,255,0)); border-left: 5px solid var(--purple); animation: scan 1.7s cubic-bezier(.4, 0, .4, 1) 16.4s both, gone .3s linear 18.1s forwards; }
+  @keyframes scan { from { opacity: 0; } 12% { opacity: 1; } to { transform: translateY(288px); } }
+  .check { display: flex; align-items: center; gap: 18px; margin-top: 16px; font-size: 29px; }
+
+  /* scene 5 */
+  .receipt { position: absolute; left: 120px; top: 150px; width: 900px; height: 780px; padding: 46px 50px; border-radius: 30px; background: var(--navy); color: #eef1f8; font-size: 27px; line-height: 58px; box-shadow: 0 40px 90px -30px rgba(19,26,43,.6); }
+  .receipt k { color: var(--lilac); }
+  .receipt .head { color: var(--yellow); }
+  .cmd { display: block; width: max-content; margin-top: 16px; padding: 12px 22px; border-radius: 14px; background: #fff; border: 1px solid var(--line); font-size: 25px; }
+
+  /* scene 6 */
+  .install { padding: 26px 44px; border-radius: 22px; background: var(--navy); color: #fff; font-size: 36px; box-shadow: 0 30px 70px -30px rgba(19,26,43,.7); }
+  .install s { text-decoration: none; color: var(--green); }
+</style>
+</head>
+<body>
+<div class="wash g"></div><div class="wash p"></div>
+
+<!-- 1 · the problem -->
+<section class="scene" style="--at:0; --end:4.3">
+  <div class="big a" style="top:250px; --d:.2">One session.</div>
+  <div class="big a" style="top:390px; --d:.7">Every task.</div>
+  <div class="big a" style="top:530px; --d:1.2; color:var(--red)">One meter.</div>
+  <p class="abs a" style="left:124px; top:700px; width:760px; font-size:34px; color:var(--soft); --d:1.9">Planning, refactors, tests and review all draw on the same quota and the same context window.</p>
+
+  <div class="card a" style="left:1040px; top:140px; width:760px; height:800px; --d:.3">
+    <header class="mono">claude code · driver session</header>
+    <div style="padding:30px 34px">
+      <div class="mono" style="display:flex; justify-content:space-between; font-size:21px; color:var(--faint); margin-bottom:12px"><span>quota + context</span><span>filling</span></div>
+      <div class="meter"><i></i></div>
+      <div style="margin-top:22px">
+        <div class="chip a" style="--d:.7">architecture decision</div>
+        <div class="chip m a" style="--d:1.0">refactor the call sites</div>
+        <div class="chip m a" style="--d:1.3">write the tests</div>
+        <div class="chip m a" style="--d:1.6">batch migration</div>
+        <div class="chip m a" style="--d:1.9">generate the docs</div>
+        <div class="chip m a" style="--d:2.2">wide read-only scan</div>
+        <div class="chip a" style="--d:2.5">final review</div>
+      </div>
+      <div class="a" style="margin-top:22px; font-size:24px; color:#b8650f; font-weight:600; --d:3.4">Mechanical work a worker CLI could run instead</div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · the logo -->
+<section class="scene" style="--at:4.3; --end:8.5">
+  <div class="abs" style="left:282px; top:330px; display:flex; align-items:center; gap:56px">
+    <div class="logo" style="width:300px">
+      <canvas class="g a left" style="--d:4.6; --t:.9"></canvas>
+      <canvas class="p a right" style="--d:4.6; --t:.9"></canvas>
+      <canvas class="o a shoot" style="--d:5.2; --t:.7"></canvas>
+    </div>
+    <canvas data-crop="364,272,826,160" class="a wipe" style="width:992px; --d:5.6; --t:.9"></canvas>
+  </div>
+  <p class="abs a" style="left:0; right:0; top:650px; text-align:center; font-size:56px; font-weight:700; letter-spacing:-.025em; --d:6.4">Claude Code decides. A worker CLI executes.</p>
+  <p class="abs a" style="left:0; right:0; top:740px; text-align:center; font-size:40px; color:var(--soft); --d:7.0">Every handoff leaves a receipt.</p>
+</section>
+
+<!-- 3 · plan, split, delegate -->
+<section class="scene" style="--at:8.5; --end:14.5">
+  <div class="abs eyebrow a fade" style="--d:8.6">PLAN · SPLIT · DELEGATE</div>
+  <h1 class="a" style="--d:8.7">Split by capability. Route by config.</h1>
+  <p class="sub a" style="--d:9.0">Each row becomes a background job on its own meter.</p>
+
+  <div class="card a" style="left:120px; top:300px; width:820px; height:451px; --d:9.1">
+    <header class="mono">.handoff/goal.md</header>
+    <div class="row mono a" style="--d:9.4"><b>T1</b><span><i class="pill dr">deep_reasoner</i></span><span>design the retry policy</span></div>
+    <div class="row mono a" style="--d:9.65"><b>T2</b><span><i class="pill fw">fast_worker</i></span><span>refactor the call sites</span></div>
+    <div class="row mono a" style="--d:9.9"><b>T3</b><span><i class="pill fw">fast_worker</i></span><span>write the tests</span></div>
+    <div class="row mono a" style="--d:10.15; border:0"><b>T4</b><span><i class="pill me">the driver</i></span><span>final acceptance</span></div>
+  </div>
+  <p class="abs mono a" style="left:124px; top:776px; font-size:22px; color:var(--faint); --d:10.5">acceptance criteria are written here, before any code exists</p>
+
+  <div class="lane a" style="top:300px; --d:10.0"><div class="name mono">codex<small>own meter</small></div>
+    <div class="job mono a pop" style="--d:11.75; --t:.4">job-t2 · running</div><div class="job mono a pop" style="--d:12.15; --t:.4">job-t3 · running</div></div>
+  <div class="lane a" style="top:435px; --d:10.1"><div class="name mono">claude<small>own meter</small></div>
+    <div class="job mono a pop" style="--d:11.35; --t:.4">job-t1 · running</div></div>
+  <div class="lane a" style="top:570px; --d:10.2"><div class="name mono">copilot<small>own meter</small></div></div>
+  <div class="lane a" style="top:705px; --d:10.3"><div class="name mono">cursor<small>own meter</small></div></div>
+  <div class="pkt" style="--y:414; --dy:79; --d:10.7">→</div>
+  <div class="pkt" style="--y:510; --dy:-152; --d:11.1">→</div>
+  <div class="pkt" style="--y:606; --dy:-248; --d:11.5">→</div>
+
+  <p class="abs a" style="left:1084px; top:842px; width:720px; font-size:26px; color:var(--soft); --d:12.6">Config picks the CLI for each identity.</p>
+  <p class="abs a" style="left:0; right:0; top:946px; text-align:center; font-size:36px; font-weight:650; --d:13.0">Codex, Claude Code, GitHub Copilot or Cursor.</p>
+</section>
+
+<!-- 4 · monitor and full review -->
+<section class="scene" style="--at:14.5; --end:19.7">
+  <div class="abs eyebrow a fade" style="--d:14.6">MONITOR · FULL REVIEW</div>
+  <h1 class="a" style="--d:14.7">The driver reads every diff.</h1>
+  <p class="sub a" style="--d:15.0">Against acceptance criteria written before the work started.</p>
+
+  <div class="card a" style="left:120px; top:300px; width:780px; height:420px; --d:15.0; --dot:var(--green)">
+    <header class="mono">monitor · job state read from disk</header>
+    <div class="mon mono"><span>job-t1 · claude</span><div class="bar"><i class="a grow" style="--c:var(--purple); --d:15.2; --t:1.5"></i></div>
+      <div class="state"><span class="a o fade" style="color:var(--faint); --d:15.1; --o:16.7">running</span><span class="a pop" style="color:#0a7d5f; --d:16.7; --t:.35">done</span></div></div>
+    <div class="mon mono"><span>job-t2 · codex</span><div class="bar"><i class="a grow" style="--d:15.2; --t:1.1"></i></div>
+      <div class="state"><span class="a o fade" style="color:var(--faint); --d:15.1; --o:16.3">running</span><span class="a pop" style="color:#0a7d5f; --d:16.3; --t:.35">done</span></div></div>
+    <div class="mon mono"><span>job-t3 · codex</span><div class="bar"><i class="a grow" style="--d:15.2; --t:1.8"></i></div>
+      <div class="state"><span class="a o fade" style="color:var(--faint); --d:15.1; --o:17.0">running</span><span class="a o pop" style="color:#0a7d5f; --d:17.0; --t:.35; --o:17.5">done</span><span class="a pop" style="color:#b8650f; --d:17.6; --t:.35">1 finding</span></div></div>
+    <div class="mon mono a" style="border:0; --d:17.7"><span>job-t3-r2 · fix round</span><div class="bar"><i class="a grow" style="--d:17.8; --t:.7"></i></div>
+      <div class="state"><span class="a pop" style="color:#0a7d5f; --d:18.5; --t:.35">done</span></div></div>
+  </div>
+  <p class="abs mono a" style="left:124px; top:746px; font-size:22px; color:var(--faint); --d:15.6">a failing diff goes back to the same worker session</p>
+
+  <div class="card a" style="left:960px; top:300px; width:840px; height:420px; --d:15.9">
+    <header class="mono">full review · the whole diff against goal.md</header>
+    <div class="diff mono"><div class="scan"></div><div class="del a fade" style="--d:16.1">- def fetch(url):</div><div class="del a fade" style="--d:16.15">-     return send(url)</div><div class="add a fade" style="--d:16.2">+ def fetch(url, policy=DEFAULT):</div><div class="add a fade" style="--d:16.25">+     for attempt in policy:</div><div class="add a fade" style="--d:16.3">+         try:</div><div class="add a fade" style="--d:16.35">+             return send(url)</div><div class="add a fade" style="--d:16.4">+         except Transient:</div><div class="add a fade" style="--d:16.45">+             policy.wait(attempt)</div><div class="add a fade" style="--d:16.5">+     raise RetryExhausted(url)</div></div>
+  </div>
+  <div class="abs" style="left:964px; top:730px">
+    <div class="check a" style="--d:17.2"><span class="tick"></span>unit suite passes</div>
+    <div class="check a" style="--d:17.6"><span class="tick"></span>no caller left on the old signature</div>
+    <div class="check a" style="--d:18.7"><span class="tick"></span>retries stop at the configured limit</div>
+  </div>
+</section>
+
+<!-- 5 · the receipt -->
+<section class="scene" style="--at:19.7; --end:25.3">
+  <div class="receipt mono a" style="--d:19.8">
+    <div class="head a fade" style="--d:20.1">[Handoff session receipt]</div>
+    <div class="a fade" style="--d:20.3"><k>phase:</k> final</div>
+    <div class="a fade" style="--d:20.5"><k>duration:</k> 74min 12sec</div>
+    <div class="a fade" style="--d:20.7"><k>codex_jobs:</k> 3</div>
+    <div class="a fade" style="--d:20.9"><k>cc_jobs:</k> 1</div>
+    <div class="a fade" style="--d:21.1"><k>copilot_jobs:</k> 0</div>
+    <div class="a fade" style="--d:21.3"><k>cursor_jobs:</k> 0</div>
+    <div class="a fade" style="--d:21.5"><k>checks:</k> unittest; git diff --check</div>
+    <div class="a fade" style="--d:21.7"><k>anomalies:</k> job-t3 took a fix round</div>
+    <div class="a fade" style="--d:21.9"><k>scope:</k> project</div>
+    <div class="a fade" style="--d:22.1"><k>receipt_schema_version:</k> 7</div>
+    <div class="abs a pop" style="right:40px; bottom:36px; display:flex; align-items:center; gap:14px; font-size:24px; line-height:1; --d:22.8; --t:.45"><span class="tick"></span>validated before it is saved</div>
+  </div>
+
+  <div class="abs" style="left:1100px; top:170px; width:720px">
+    <div class="a" style="font-size:84px; font-weight:800; letter-spacing:-.035em; line-height:1.04; --d:20.0">Every handoff leaves a receipt.</div>
+    <p class="a" style="margin-top:34px; font-size:34px; color:var(--soft); --d:21.2">Job counts and durations are measured from files on disk. Nobody types them in.</p>
+    <p class="a" style="margin-top:50px; font-size:22px; font-weight:600; letter-spacing:.24em; color:var(--faint); --d:22.9">READ A RUN BACK</p>
+    <span class="cmd mono a" style="--d:23.1">/agent-handoff visualise</span>
+    <span class="cmd mono a" style="--d:23.3">/agent-handoff transcript</span>
+    <span class="cmd mono a" style="--d:23.5">/agent-handoff cost-receipt</span>
+  </div>
+</section>
+
+<!-- 6 · end card -->
+<section class="scene" style="--at:25.3; --end:31">
+  <div class="abs a" style="left:402px; top:120px; display:flex; align-items:center; gap:44px; --d:25.5">
+    <div class="logo" style="width:240px"><canvas class="g"></canvas><canvas class="p"></canvas><canvas class="o"></canvas></div>
+    <canvas data-crop="364,272,826,160"></canvas>
+  </div>
+  <p class="abs a" style="left:0; right:0; top:360px; text-align:center; font-size:46px; font-weight:700; letter-spacing:-.02em; --d:25.9">Claude Code decides. A worker CLI executes.</p>
+  <canvas data-crop="40,985,1190,178" class="abs a wipe" style="left:365px; top:480px; --d:26.4; --t:1.1"></canvas>
+  <div class="abs a" style="left:0; right:0; top:740px; display:flex; justify-content:center; --d:27.1"><div class="install mono"><s>$</s> npx skills@1.5.21 add kevinlin/agent-handoff -g</div></div>
+  <p class="abs mono a" style="left:0; right:0; top:890px; text-align:center; font-size:32px; color:var(--soft); --d:27.6">github.com/kevinlin/agent-handoff</p>
+</section>
+
+<script>
+// Cut a region out of an image and turn its white background into transparency.
+async function knockout(url, [x, y, w, h]) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, -x, -y);
+  try {
+    const d = ctx.getImageData(0, 0, w, h), px = d.data;
+    for (let i = 0; i < px.length; i += 4) {
+      const alpha = Math.max(0, Math.min(1, (250 - Math.min(px[i], px[i + 1], px[i + 2])) / 36));
+      // undo the blend with white so edges stay clean
+      for (let k = 0; k < 3; k++) px[i + k] = alpha ? Math.max(0, (px[i + k] - 255 * (1 - alpha)) / alpha) : 0;
+      px[i + 3] = alpha * 255;
+    }
+    ctx.putImageData(d, 0, 0);
+  } catch (e) { c.whole = true; } // file:// taints the canvas; keep the white box
+  return c;
+}
+const paint = (target, source) => { target.width = source.width; target.height = source.height; target.getContext('2d').drawImage(source, 0, 0); };
+
+window.ready = (async () => {
+  for (const c of document.querySelectorAll('canvas[data-crop]')) paint(c, await knockout('design-concept.png', c.dataset.crop.split(',').map(Number)));
+
+  // Split the logo into its green, purple and orange parts by hue, so each can animate on its own.
+  const logo = await knockout('logo.png', [277, 316, 696, 602]);
+  const parts = { g: logo, p: null, o: null };
+  if (!logo.whole) {
+    const { width: w, height: h } = logo;
+    const src = logo.getContext('2d').getImageData(0, 0, w, h).data;
+    for (const key of 'gpo') {
+      const d = new ImageData(w, h);
+      for (let i = 0; i < src.length; i += 4) {
+        const r = src[i], g = src[i + 1], b = src[i + 2], max = Math.max(r, g, b), span = max - Math.min(r, g, b) || 1;
+        const hue = ((max === r ? (g - b) / span : max === g ? 2 + (b - r) / span : 4 + (r - g) / span) * 60 + 360) % 360;
+        if ((hue < 75 || hue > 330 ? 'o' : hue >= 228 ? 'p' : 'g') === key) d.data.set(src.subarray(i, i + 4), i);
+      }
+      parts[key] = document.createElement('canvas');
+      parts[key].width = w; parts[key].height = h;
+      parts[key].getContext('2d').putImageData(d, 0, 0);
+    }
+  }
+  for (const c of document.querySelectorAll('.logo canvas')) if (parts[c.classList[0]]) paint(c, parts[c.classList[0]]);
+})();
+window.seek = (t) => document.getAnimations().forEach((a) => { a.pause(); a.currentTime = t * 1000; });
+if (!location.search.includes('render')) document.documentElement.style.zoom = innerWidth / 1920;
+</script>
+</body>
+</html>
