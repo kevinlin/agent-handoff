@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -270,6 +271,46 @@ class SetupUITests(unittest.TestCase):
             "gpt-detected",
             status["hosts"]["claude_code"]["identities"]["fast_worker"]["model"],
         )
+
+    def test_parse_preview_files_stops_at_first_non_file_line(self):
+        output = (
+            "Selections:\n"
+            f"  [WRITE] {self.repo / '.handoff/config.toml'}\n"
+            "Files:\n"
+            f"  [WRITE] {self.repo / '.handoff/config.toml'}\n"
+            f"  [DELETE] {self.repo / '.claude/agents/handoff-fast_worker.md'}\n"
+            f"  [UNCHANGED] {self.home / '.config/handoff/config.toml'}\n"
+            "  [REFUSED] /outside/handoff.md\n"
+            "Diff: next file\n"
+            "  [WRITE] /outside/ignored.md\n"
+        )
+        with mock.patch.dict(os.environ, {"HOME": str(self.home)}):
+            files = handoff_setup_ui.parse_preview_files(output, self.repo)
+        self.assertEqual(["WRITE", "DELETE", "UNCHANGED", "REFUSED"], [f["state"] for f in files])
+        self.assertEqual([str(self.repo / '.handoff/config.toml'), str(self.repo / '.claude/agents/handoff-fast_worker.md'), str(self.home / '.config/handoff/config.toml'), '/outside/handoff.md'], [f["path"] for f in files])
+        self.assertEqual([".handoff/config.toml", ".claude/agents/handoff-fast_worker.md", "~/.config/handoff/config.toml", "/outside/handoff.md"], [f["display"] for f in files])
+        self.assertEqual([], handoff_setup_ui.parse_preview_files("Selections:\nDiff: no files\n", self.repo))
+
+    def test_preview_returns_engine_file_list(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        preview = controller.preview(self.payload(controller))
+        self.assertTrue(preview["ok"], preview)
+        self.assertTrue(preview["files"])
+        self.assertIn(".handoff/config.toml", [f["display"] for f in preview["files"]])
+
+    def test_preview_returns_refused_file_on_engine_failure(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        output = f"Files:\n  [REFUSED] {self.repo / '.handoff/config.toml'}\n\nDiff: blocked\n"
+        with mock.patch.object(controller, "_run", return_value=subprocess.CompletedProcess([], 1, output, "blocked")):
+            preview = controller.preview(self.payload(controller))
+        self.assertFalse(preview["ok"])
+        self.assertEqual("REFUSED", preview["files"][0]["state"])
+
+    def test_page_renders_engine_files_and_failure_title(self):
+        page = SCRIPT.read_text()
+        self.assertIn("data.files", page)
+        self.assertIn("Preview failed", page)
+        self.assertNotIn("Save the three roles", page)
 
     def test_manual_matrix_requires_custom_mode(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
@@ -795,13 +836,22 @@ class CopilotSetupUITests(SetupUITests):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("TYPED_MODEL_BACKENDS", source)
         self.assertNotIn("'typed'", source)
-        # no text field survives: every backend picks from its catalogue
-        self.assertNotIn('type="text" spellcheck="false"', source)
+        # a typed Cursor slug must match the catalogue; no other backend has a text field
+        self.assertIn('list="${identity}-models"', source)
+        self.assertIn('<datalist', source)
+        self.assertIn("values.backend === 'cursor'", source)
+        self.assertIn('Not in `cursor-agent models`. Pick a slug from the list.', source)
         self.assertIn("'copilot models':'Read from your Copilot entitlement',", source)
         self.assertIn("copilot:'GitHub Copilot'", source)
         self.assertNotIn("state.clis.copilot", source)
         # an empty list explains itself with the reason the server recorded
         self.assertIn("state.model_discovery[values.backend]", source)
+
+    def test_page_has_review_errors_custom_mode_and_preset_undo(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        for text in ('aria-invalid', 'specMaxRoundsError', 'implementationMaxRoundsError',
+                     "'cost','custom'", 'preset replaced your custom settings.', 'id="undoPreset"'):
+            self.assertIn(text, source)
 
     def test_preview_refuses_auto_with_the_engine_message_and_writes_nothing(self):
         with self.catalogue():

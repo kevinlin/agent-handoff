@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.9.1 (2026-10-09)
+
+### The setup wizard uses the session view's design
+
+- feat: the web wizard now follows `DESIGN.md`, like the session view. It has one serif heading, monospace capital labels, and flat cards with 1px borders. Cobalt marks focus and selection, and coral marks warnings. The hero map, the noise texture, the glow and the shadows are removed. The first work-mode tile is visible without scrolling at 1440×900 and 390×844.
+- feat: the environment strip shows all four backends, and each status pill holds a word. Claude Code and Codex show FOUND or MISSING from their version check. GitHub Copilot and Cursor show LISTED or NO MODELS from the model lists the page already reads, so opening the wizard runs no new command.
+- feat: the preview lists the files that the engine plans to write, with the state of each: WRITE, DELETE, UNCHANGED or REFUSED. One row per identity follows. A failed preview has the title "Preview failed" and shows the refusal. The page ignores a preview response for a selection that changed while the request ran.
+- feat: an identity with Allow all shows a coral "Allow all" pill. A hint under each permission switch says what the setting permits on that backend. The install panel names each identity that runs with Allow all. It also names each identity on Cursor, because Cursor runs writing jobs in force mode with either setting.
+- feat: a Cursor model is typed into a field with a `<datalist>` of the `cursor-agent models` slugs. A slug that is not in the list blocks the preview. Model options on all backends show the slug first.
+- feat: a Custom tile joins the three presets. When a preset replaces custom settings, the status line offers Undo.
+- fix: a review-pass field shows an inline error when its value is not a whole number of 1 or more. The error links to the field through `aria-invalid` and `aria-describedby`. Focus moves to the preview heading when the preview renders, and to the result heading after install.
+- fix: the identity count follows the e2e toggle. Before, the page always said "three roles".
+- fix: the permission switch keeps one size when it flips, so the row no longer moves. The disabled Install button says why it is disabled. Only the capital labels and the status pills use 11px text.
+
 ## v3.9.0 (2026-09-30)
 
 ### Cursor CLI is the fourth backend
