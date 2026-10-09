@@ -19,87 +19,80 @@
   })();
 </script>
 <style>
-  /* light-dark() resolves against the used color-scheme, so the toggle only
-     has to set color-scheme — one token set covers both themes. */
+  /* DESIGN.md's token set, the same light-dark() names and values as the
+     session view, so the transcript reads as part of that page when it sits
+     in its iframe. light-dark() resolves against the used color-scheme, so the
+     toggle only has to set color-scheme — one token set covers both themes. */
   :root {
     color-scheme: light dark;
-    --bg:     light-dark(#fbfbfa, #16161a);
-    --fg:     light-dark(#1a1a19, #e8e8e6);
-    --muted:  light-dark(#6b6b68, #9a9a96);
-    --line:   light-dark(#e3e3e0, #2c2c31);
-    --card:   light-dark(#ffffff, #1e1e23);
-    --accent: light-dark(#4a5cd6, #8b9aff);
-    --ok:     light-dark(#2f7d4f, #5fbe84);
-    --bad:    light-dark(#b3412e, #e2705a);
-    --hover:  light-dark(#f1f1ef, #23232a);
-    /* Segmented tray, matching the setup wizard's theme switch. */
-    --switch-bg:    light-dark(#ececea, #23232a);
-    --switch-hover: light-dark(#e3e3e0, #2c2c31);
-    --switch-fg:    light-dark(#3d3d3a, #c3c3bf);
-    --on-accent:    light-dark(#ffffff, #16161a);
-    /* Soft accent tint for the prompt bubble, as in the setup wizard. */
-    --accent-soft:     light-dark(#e7eaff, #232946);
-    --accent-soft-line:light-dark(#c9d0f7, #38406b);
-    --accent-soft-ink: light-dark(#41497f, #c3caf5);
-    /* Status tints, kept tonal so the ok/bad ink stays above 4.5:1 on them. */
-    --ok-soft:  light-dark(#e2f2e8, #1b2d22);
-    /* Darker than --ok, which only clears 4.5:1 against --card, not the tint. */
+    --paper:   light-dark(#f1f3f6, #141519);
+    --surface: light-dark(#fbfcfd, #1c1e24);
+    --ink:     light-dark(#171a20, #e8e9ec);
+    --muted:   light-dark(#59616d, #99a1ae);
+    --line:    light-dark(#cfd5de, #2d3038);
+    --hover:   light-dark(#eef1f5, #23262e);
+    --cobalt:      light-dark(#1748d2, #93a9ff);
+    --cobalt-soft: light-dark(#e9efff, #1e2540);
+    --cobalt-line: light-dark(#c6d3fb, #33406c);
+    --ok-soft:  light-dark(#e4f1e8, #1b2d22);
     --ok-ink:   light-dark(#256240, #5fbe84);
     --ok-line:  light-dark(#bcdfc8, #2f5a3f);
-    --bad-soft: light-dark(#fbe6e0, #32201c);
+    --bad-soft: light-dark(#fff0ed, #32201c);
+    --bad-ink:  light-dark(#8d3227, #e88b74);
     --bad-line: light-dark(#f0c5b8, #5e3229);
-    --shadow-card: 0 1px 2px rgb(0 0 0 / .04), 0 6px 18px rgb(0 0 0 / .05);
     --radius-card: 16px;
-    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --gutter: clamp(1rem, 3vw, 2.5rem);
   }
   :root[data-theme="light"] { color-scheme: light; }
   :root[data-theme="dark"]  { color-scheme: dark; }
   * { box-sizing: border-box; }
-  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6
-    ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  ::selection { background:var(--cobalt-soft); color:var(--ink); }
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    background:var(--paper); }
+  body { margin:0; min-width:320px; background:var(--paper); color:var(--ink);
+    font:14px/1.6 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+  a { color:var(--cobalt); text-underline-offset:2px; }
+  :focus-visible { outline:3px solid var(--cobalt); outline-offset:3px;
+    border-radius:4px; }
   /* A wide window spends its width on the things that were being truncated:
      trace rows, shell output, message bubbles, and the header grid. */
   main { max-width:90rem; margin:0 auto; padding:1.5rem var(--gutter) 6rem; }
 
+  /* The setup wizard's theme switch: label type, cobalt tint when pressed. */
   #topbar { display:flex; justify-content:flex-end; margin-bottom:.5rem; }
   .segmented { display:flex; gap:2px; padding:3px; border:1px solid var(--line);
-    border-radius:12px; background:var(--switch-bg); }
-  .segmented button { position:relative; min-height:36px; padding:8px 12px;
-    border:0; border-radius:9px; background:transparent; color:var(--switch-fg);
-    font:12px var(--mono); cursor:pointer; }
-  .segmented button::before { content:""; position:absolute; inset:-4px 0; }
-  .segmented button[aria-pressed="true"] { background:var(--accent);
-    color:var(--on-accent); }
-  .segmented button:focus-visible { outline:2px solid var(--accent);
-    outline-offset:2px; }
+    border-radius:8px; background:var(--surface); }
+  .segmented button { min-height:44px; padding:0 10px; border:1px solid transparent;
+    border-radius:8px; background:transparent; color:var(--muted); cursor:pointer;
+    font:750 11px/1.3 var(--mono); letter-spacing:.09em; text-transform:uppercase; }
+  .segmented button[aria-pressed="true"] { background:var(--cobalt-soft);
+    color:var(--cobalt); border-color:var(--cobalt-line); }
 
+  /* Flat, like every Handoff surface: tone and a hairline, no shadow. */
   #header { border:1px solid var(--line); border-radius:var(--radius-card);
-    background:var(--card); padding:.9rem 1rem; margin-bottom:1.25rem;
-    box-shadow:var(--shadow-card); }
+    background:var(--surface); padding:.9rem 1rem; margin-bottom:1.25rem; }
   #header dl { display:grid; grid-template-columns:auto minmax(0,1fr);
     gap:.15rem .75rem; margin:0; font-size:.85rem; }
   /* Field labels share the bubble role-label treatment, so a label never
      competes with the value beside it. */
-  #header dt { color:var(--muted); font:11px/1.6 var(--mono);
-    text-transform:uppercase; letter-spacing:.06em; }
+  #header dt { color:var(--muted); font:750 11px/1.9 var(--mono);
+    text-transform:uppercase; letter-spacing:.09em; }
   #header dd { margin:0; padding-inline-end:1.5rem; overflow-wrap:anywhere;
     font-variant-numeric:tabular-nums; }
   /* Values are styled by nature: machine strings in mono, clock values in the
      body face, unknowns in muted italic, and flags as pills. */
-  #header dd.mono { font-family:var(--mono); font-size:.8rem; }
+  #header dd.mono { font-family:var(--mono); font-size:13px; }
   #header dd.absent { color:var(--muted); font-style:italic; }
   .pill { display:inline-flex; align-items:center; padding:.05rem .5rem;
-    border:1px solid var(--line); border-radius:999px; background:var(--bg);
-    font:11px var(--mono); text-transform:uppercase; letter-spacing:.06em; }
+    border:1px solid var(--line); border-radius:999px; background:var(--paper);
+    font:600 11px/1.5 var(--mono); text-transform:uppercase; letter-spacing:.06em; }
   /* The state word is inside the pill, so colour is reinforcement, never the
      only carrier. */
   .pill.ok   { color:var(--ok-ink); background:var(--ok-soft); border-color:var(--ok-line); }
-  .pill.bad  { color:var(--bad); background:var(--bad-soft); border-color:var(--bad-line); }
-  .pill.live { color:var(--accent-soft-ink); background:var(--accent-soft);
-    border-color:var(--accent-soft-line); }
+  .pill.bad  { color:var(--bad-ink); background:var(--bad-soft); border-color:var(--bad-line); }
+  .pill.live { color:var(--cobalt); background:var(--cobalt-soft);
+    border-color:var(--cobalt-line); }
   .pill.off  { color:var(--muted); }
   /* Twelve stacked pairs is a tall ribbon on a wide screen. Pairs flow
      left-to-right, so the same grid just gains columns. */
@@ -116,81 +109,95 @@
      leave a stray checkbox on the empty drop page. */
   #controls[hidden] { display:none; }
   #controls label { display:inline-flex; align-items:center; gap:.45rem;
-    cursor:pointer; padding:.45rem .5rem; margin-inline:-.5rem;
-    border-radius:.35rem; user-select:none; }
+    min-height:44px; cursor:pointer; padding:0 .5rem; margin-inline:-.5rem;
+    border-radius:8px; user-select:none; color:var(--muted);
+    font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+  #controls input { accent-color:var(--cobalt); }
+  /* Counted from the log, so a reading: plain mono, not the muted italic that
+     marks an unknown. */
+  #counts { color:var(--muted); font:13px/1.55 var(--mono);
+    font-variant-numeric:tabular-nums; }
 
   .row { border-bottom:1px solid var(--line); }
   .row summary { cursor:pointer; display:flex; gap:.6rem; align-items:baseline;
-    font-family:var(--mono); font-size:.82rem;
-    padding:.4rem .5rem; margin-inline:-.5rem; border-radius:.35rem; }
+    font-family:var(--mono); font-size:13px;
+    padding:.4rem .5rem; margin-inline:-.5rem; border-radius:8px; }
   @media (hover:hover) and (pointer:fine) {
     .row summary:hover { background:var(--hover); }
-    .segmented button:hover { background:var(--switch-hover); color:var(--fg); }
-    .segmented button[aria-pressed="true"]:hover { background:var(--accent);
-      color:var(--on-accent); }
+    .segmented button:not([aria-pressed="true"]):hover { background:var(--hover);
+      color:var(--ink); }
   }
-  .row summary:focus-visible { outline:2px solid var(--accent);
-    outline-offset:1px; }
+  /* A 13px row is 34px tall; a finger needs the 44px floor. */
+  @media (pointer:coarse) {
+    .row summary { min-height:44px; align-items:center; }
+  }
+  /* Inset, so the ring is not clipped by the row above and below. */
+  .row summary:focus-visible { outline-offset:-3px; }
   .row .glyph { flex:none; width:1.4rem; text-align:center; color:var(--muted); }
-  .row .glyph.ok { color:var(--ok); }
-  .row .glyph.bad { color:var(--bad); }
+  .row .glyph.ok { color:var(--ok-ink); }
+  .row .glyph.bad { color:var(--bad-ink); font-weight:750; }
   .row .label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
     white-space:nowrap; }
-  .row .size { flex:none; color:var(--muted); font-size:.78rem;
+  .row .size { flex:none; color:var(--muted); font-size:12px;
     font-variant-numeric:tabular-nums; }
   /* A 100 KB shell output would otherwise bury the rest of the transcript
      the moment its row is opened. */
-  .row pre { overflow:auto; max-height:min(60vh, 40rem); background:var(--card);
-    border:1px solid var(--line); border-radius:.4rem; padding:.6rem .75rem;
-    font-size:.8rem; margin:.5rem 0; }
+  .row pre { overflow:auto; max-height:min(60vh, 40rem); background:var(--surface);
+    border:1px solid var(--line); border-radius:8px; padding:.6rem .75rem;
+    font:13px/1.55 var(--mono); margin:.5rem 0; }
 
   /* Agent prose quotes absolute paths, which have no break opportunity and
      would otherwise push the page wider than a narrow window. */
   .agent { position:relative; margin:.75rem 0; padding:1rem 1.15rem;
     border:1px solid var(--line); border-radius:var(--radius-card);
-    background:var(--card); box-shadow:var(--shadow-card);
-    overflow-wrap:break-word; }
+    background:var(--surface); overflow-wrap:break-word; }
   /* The prompt bubble is the job's own input: tinted and labelled, so it does
      not read as something the worker said. */
-  .agent.user { background:var(--accent-soft);
-    border-color:var(--accent-soft-line); }
-  .agent.user .msg-role { color:var(--accent-soft-ink); }
+  .agent.user { background:var(--cobalt-soft); border-color:var(--cobalt-line); }
+  .agent.user .msg-role { color:var(--cobalt); }
   .msg-role { display:block; margin-bottom:.35rem; color:var(--muted);
-    font:11px/1.4 var(--mono); text-transform:uppercase;
-    letter-spacing:.06em; }
+    font:750 11px/1.4 var(--mono); text-transform:uppercase;
+    letter-spacing:.09em; }
   /* Prose fills the bubble instead of wrapping at a narrower measure. */
   .agent > * { text-wrap:pretty; }
   .agent > :first-child { margin-top:0; }
   .agent > :last-child { margin-bottom:0; }
-  .agent > :is(h1,h2,h3,h4) { font-size:1.05rem; margin:1rem 0 .4rem;
+  .agent > :is(h1,h2,h3,h4) { font-size:1.05rem; margin:1.25rem 0 .4rem;
     text-wrap:balance; }
-  .agent > pre { max-width:none; overflow-x:auto; background:var(--bg);
-    border:1px solid var(--line); border-radius:8px; padding:.6rem .75rem; }
-  .agent code { font-size:.85em; }
+  .agent > pre { max-width:none; overflow-x:auto; background:var(--paper);
+    border:1px solid var(--line); border-radius:8px; padding:.6rem .75rem;
+    font:13px/1.55 var(--mono); }
+  .agent code { font-family:var(--mono); font-size:.85em; }
+  .agent pre code { font-size:inherit; }
   /* Translucent, so a code chip sits correctly on the plain and the tinted
      bubble alike. */
   .agent :not(pre) > code { background:light-dark(rgb(0 0 0 / .05),
     rgb(255 255 255 / .08)); border:1px solid var(--line);
-    border-radius:.25rem; padding:.05em .3em; }
+    border-radius:4px; padding:.05em .3em; }
   .agent > table { max-width:100%; width:max-content; display:block;
-    overflow-x:auto; border-collapse:collapse; font-size:.9em; margin:.75rem 0; }
+    overflow-x:auto; border-collapse:collapse; font-size:.9em; margin:.75rem 0;
+    font-variant-numeric:tabular-nums; }
   .agent :is(th,td) { border:1px solid var(--line); padding:.3rem .6rem;
     text-align:left; vertical-align:top; }
+  .agent th { color:var(--muted); font:750 10px/1.4 var(--mono);
+    letter-spacing:.09em; text-transform:uppercase; }
   .agent > blockquote { margin:.75rem 0; padding-left:.9rem;
-    border-left:3px solid var(--line); color:var(--muted); }
+    border-left:1px solid var(--line); color:var(--muted); }
 
   .muted { color:var(--muted); font-style:italic; }
-  .bad { color:var(--bad); }
-  .ok { color:var(--ok); }
-  #dropzone { border:2px dashed var(--line); border-radius:.6rem;
-    padding:3rem 1rem; margin-top:1.5rem; text-align:center; color:var(--muted); }
-  #dropzone.over { border-color:var(--accent); color:var(--fg); }
+  .bad { color:var(--bad-ink); }
+  .ok { color:var(--ok-ink); }
+  #dropzone { border:2px dashed var(--line); border-radius:var(--radius-card);
+    padding:3rem 1rem; margin-top:1.5rem; text-align:center; color:var(--muted);
+    font:13px/1.55 var(--mono); }
+  #dropzone.over { border-color:var(--cobalt); background:var(--cobalt-soft);
+    color:var(--cobalt); }
 
   @media (prefers-reduced-motion:no-preference) {
     .row summary, .segmented button, #dropzone {
       transition:background-color .16s ease, border-color .16s ease,
-                 color .16s ease, transform .1s var(--ease-out); }
-    .segmented button:active { transform:scale(.98); }
+                 color .16s ease, transform .1s cubic-bezier(.16, 1, .3, 1); }
+    .segmented button:active { transform:scale(.97); }
   }
 </style>
 </head>
@@ -817,8 +824,9 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     const summary = document.createElement('summary');
 
     const glyph = document.createElement('span');
+    // An error row is a failure too, so it gets the failed tint, not muted.
     glyph.className = 'glyph ' + (glyphFor(row) === 'ok' ? 'ok'
-                                : glyphFor(row) === 'x' ? 'bad' : '');
+                                : ['x', '!'].includes(glyphFor(row)) ? 'bad' : '');
     glyph.textContent = glyphFor(row);
 
     const label = document.createElement('span');

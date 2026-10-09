@@ -128,7 +128,7 @@ A Handoff page is opened after the run has finished. The reader is inspecting a 
 
 The pages are dense but legible. Tables with nine to twelve columns are normal, so sticky headers and sticky first columns let a wide job row scroll inside its own container instead of pushing the page sideways. Tap targets stay at 44px even when the type is 11px. Colour always backs up a word and never replaces it. Light and dark are a single token set written with `light-dark()`.
 
-Known drift: the setup wizard (`scripts/handoff-setup-ui.py`) runs a separate warm system with Avenir, an `#e75b38` accent, dark slab panels, brown-tinted shadows, a noise texture and staggered entrance motion. The transcript viewer is a near-variant with its own accent (`#4a5cd6`), and the user guide uses a slate palette. This document is the target those surfaces converge toward. It does not describe them.
+Known drift: the setup wizard (`scripts/handoff-setup-ui.py`) runs a separate warm system with Avenir, an `#e75b38` accent, dark slab panels, brown-tinted shadows, a noise texture and staggered entrance motion. The user guide uses a slate palette. This document is the target those surfaces converge toward. It does not describe them.
 
 **Key Characteristics:**
 - One serif moment (the run's title), then mono capitals for every label, heading and tab.
