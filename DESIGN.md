@@ -128,7 +128,7 @@ A Handoff page is opened after the run has finished. The reader is inspecting a 
 
 The pages are dense but legible. Tables with nine to twelve columns are normal, so sticky headers and sticky first columns let a wide job row scroll inside its own container instead of pushing the page sideways. Tap targets stay at 44px even when the type is 11px. Colour always backs up a word and never replaces it. Light and dark are a single token set written with `light-dark()`.
 
-Known drift: the setup wizard (`scripts/handoff-setup-ui.py`) runs a separate warm system with Avenir, an `#e75b38` accent, dark slab panels, brown-tinted shadows, a noise texture and staggered entrance motion. The user guide uses a slate palette. This document is the target those surfaces converge toward. It does not describe them.
+Known drift: the user guide uses a slate palette. This document is the target it converges toward. It does not describe it. (The setup wizard converged in v3.9.1.)
 
 **Key Characteristics:**
 - One serif moment (the run's title), then mono capitals for every label, heading and tab.
@@ -260,7 +260,7 @@ Instant, many-times-a-minute switches.
 - **Do** limit the one authored moment to the verdict stamp: the pill that closes a run (session view) or an install (setup wizard) lands once from scale 1.18 and -3deg, transform only, 380ms. It is off under `prefers-reduced-motion`.
 
 ### Don't:
-- **Don't** add shadows, gradients, glows or noise textures. Those belong to the setup wizard's drifted system.
+- **Don't** add shadows, gradients, glows or noise textures. The setup wizard dropped them in v3.9.1.
 - **Don't** use coral for anything that isn't a warning, a caveat or a hotspot outline.
 - **Don't** animate tab switches or panel reveals.
 - **Don't** put a hover lift or press transform on a hotspot.

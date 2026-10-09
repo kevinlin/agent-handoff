@@ -84,6 +84,8 @@ main { max-width:90rem; margin:0 auto;
    the reader must not over-read. */
 #warnings .banner { border-left-color:var(--coral); background:var(--bad-soft);
   color:var(--coral-ink); }
+/* An empty grid item still costs a row gap, which doubled the space above the tabs. */
+#warnings:empty { display:none; }
 
 /* Tabs. Switching views is a many-times-a-minute action, so it is instant:
    no transition, no reveal on the panel it shows. */
@@ -93,6 +95,12 @@ main { max-width:90rem; margin:0 auto;
   font:600 12px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase;
   white-space:nowrap; border-radius:8px 8px 0 0; }
 [role=tab][aria-selected=true] { color:var(--ink); border-bottom-color:var(--cobalt); }
+/* On a phone five tabs wrapped to two rows and the selected underline floated
+   between them. They stay on one ruled line and scroll in their own strip;
+   focusing a tab by arrow key scrolls it into view. */
+@media (max-width: 600px) {
+  [role=tablist] { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+}
 [role=tabpanel] { padding-top:4px; min-width:0; }
 [role=tabpanel] > h2:first-child { margin-top:0; }
 
@@ -124,6 +132,10 @@ pre { margin:.2rem 0 .8rem; padding:.6rem .7rem; background:var(--surface);
   outline:1px solid light-dark(rgba(0,0,0,.06), rgba(255,255,255,.08));
   outline-offset:-1px; }
 .diagram img { width:100%; height:auto; display:block; }
+/* Below 60rem the 1600-unit diagram's labels drop under legible size and its
+   hotspots shrink to a few pixels, so it holds that width and scrolls on its own. */
+.diagram-scroll { overflow-x:auto; border-radius:8px; }
+.diagram { min-width:60rem; }
 .overlay { position:absolute; inset:0; pointer-events:none; }
 .hotspot { position:absolute; background:transparent; border:0; padding:0;
   cursor:pointer; pointer-events:auto; border-radius:4px; }
@@ -150,6 +162,22 @@ tbody tr:last-child td { border-bottom:0; }
 td:first-child, th:first-child { position:sticky; left:0; z-index:1;
   background:var(--surface); }
 th:first-child { z-index:3; }
+/* Goal task cells are sentences; nowrap ran them past the right edge. */
+#goal td { white-space:normal; }
+/* Receipt facts: key and value pairs, two columns, four from 62rem. A long or
+   structured value takes the full row so a short one never sits beside a wall. */
+.facts { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.6rem 1.25rem;
+  margin:0; padding:.8rem .9rem; background:var(--surface); border:1px solid var(--line);
+  border-radius:8px; align-items:baseline; }
+.facts dt { font:750 11px/1.3 var(--mono); letter-spacing:.09em; text-transform:uppercase;
+  color:var(--muted); }
+.facts dd { margin:0; font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
+.facts dt.wide { grid-column:1 / -1; }
+.facts dd.wide { grid-column:1 / -1; }
+.facts dd.wide pre { margin:0; }
+@media (min-width: 62rem) {
+  .facts { grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr); }
+}
 /* A job id is ~40 characters. On a phone a nowrap sticky id column fills the
    viewport and pins itself over every column it should scroll past, so there it
    wraps inside a capped width instead. */
@@ -233,7 +261,7 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 <p id="verification" class="banner"></p>
 <div class="overview-layout"><div class="card">
 <label id="toggle-wrap" hidden><input id="toggle" type="checkbox"> Show hotspots</label>
-<div id="diagram" class="diagram" hidden><img id="timeline" alt="Hand-authored narrative session timeline"><div id="overlay" class="overlay"></div></div>
+<div class="diagram-scroll"><div id="diagram" class="diagram" hidden><img id="timeline" alt="Hand-authored narrative session timeline"><div id="overlay" class="overlay"></div></div></div>
 <div id="generation" hidden><h2>Generate the missing diagram</h2><button id="copy" class="action" type="button">Copy baoyu-diagram prompt</button><p id="copy-status" role="status"></p><pre id="prompt"></pre></div>
 </div><div class="card"><h2>Indexed jobs <span id="shown" aria-live="polite"></span></h2><div id="tally" class="tally" role="group" aria-label="Filter indexed jobs" hidden></div><div id="jobs" class="scroll" tabindex="0" aria-label="Indexed jobs table"></div></div></div>
 </section>
@@ -242,8 +270,8 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 <iframe id="transcript-frame" title="Delegated job transcript" hidden></iframe>
 </section>
 <section id="cost" role="tabpanel" aria-labelledby="tab-cost" tabindex="0" hidden><iframe id="cost-frame" title="Measured cost receipt"></iframe></section>
-<section id="facts" role="tabpanel" aria-labelledby="tab-facts" tabindex="0" hidden><h2>Receipt facts</h2><div id="receipt-facts"></div><div id="goal"></div></section>
-<section id="denials" role="tabpanel" aria-labelledby="tab-denials" tabindex="0" hidden><h2>Permission denials</h2><p>A denied tool call does not move a job's exit code.</p><div id="denial-list"></div><h2>Anomalies</h2><div id="anomaly-list"></div></section>
+<section id="facts" role="tabpanel" aria-labelledby="tab-facts" tabindex="0" hidden><h2>Receipt facts</h2><dl id="receipt-facts" class="facts"></dl><div id="goal"></div></section>
+<section id="denials" role="tabpanel" aria-labelledby="tab-denials" tabindex="0" hidden><h2>Permission denials</h2><p>A denied tool call does not move a job's exit code.</p><div id="denial-list"></div><h2>Anomalies</h2><h3>Recorded in the receipt</h3><pre id="receipt-anomalies"></pre><h3>Found in job files</h3><div id="anomaly-list"></div></section>
 </main>
 <script id="handoff-payload" type="application/json">{}</script>
 <script>
@@ -424,7 +452,24 @@ for (const job of data.jobs) { const option = add($('job-select'), 'option', job
 $('no-jobs').hidden = data.jobs.length !== 0;
 $('job-select').disabled = data.jobs.length === 0;
 $('job-select').addEventListener('change', () => showJob($('job-select').value));
-for (const [key, value] of Object.entries(data.facts)) { add($('receipt-facts'), 'h3', key); add($('receipt-facts'), 'pre', value); }
+const isRecords = value => Array.isArray(value) && value.length > 0 &&
+  value.every(item => item && typeof item === 'object' && !Array.isArray(item));
+for (const [key, value] of Object.entries(data.facts)) {
+  const term = add($('receipt-facts'), 'dt', key);
+  const text = display(value);
+  const wide = typeof value === 'object' && value !== null || text.length > 48 || text.includes('\n');
+  const detail = add($('receipt-facts'), 'dd');
+  if (wide) { term.className = 'wide'; detail.className = 'wide'; }
+  if (isRecords(value)) {
+    const headers = [...new Set(value.flatMap(Object.keys))];
+    const wrap = add(detail, 'div'); wrap.className = 'scroll'; wrap.tabIndex = 0;
+    table(wrap, headers, value.map(item => headers.map(header => item[header])), (cell, cellValue) => { cell.textContent = display(cellValue); });
+  } else if (wide) add(detail, 'pre', value);
+  else {
+    detail.textContent = text;
+    if (UNMEASURED.includes(text)) detail.className = 'unmeasured';
+  }
+}
 function goalContent(parent) {
   for (const name of ['Goal', 'Checkpoint Rule', 'Spec Review', 'Delivery']) {
     add(parent, 'h3', name); add(parent, 'pre', data.goal.sections[name] ?? 'not recorded');
@@ -443,13 +488,28 @@ else {
   add($('goal'), 'p', 'no goal file matches this receipt');
   if (data.goal.raw) { const details = add($('goal'), 'details'); add(details, 'summary', 'Current working-tree goal'); goalContent(details); }
 }
-for (const denial of data.denials) {
-  jobButton($('denial-list'), denial.job);
-  add($('denial-list'), 'p', denial.state === 'reported' && !denial.items.length ? 'No denials reported' : denial.state);
+function jobTable(parent, header, rows) {
+  if (!rows.length) return;
+  const wrap = add(parent, 'div'); wrap.className = 'scroll'; wrap.tabIndex = 0;
+  table(wrap, ['Job', header], rows, (cell, value, index) => {
+    if (index === 0) { jobButton(cell, value); return; }
+    cell.textContent = value;
+    if (value.startsWith('not ')) cell.className = 'unmeasured';
+  });
+}
+jobTable($('denial-list'), 'Denials', data.denials.map(denial => [denial.job,
+  denial.state !== 'reported' ? denial.state : denial.items.length ? denial.items.length + ' denied' : 'No denials reported']));
+for (const denial of data.denials.filter(denial => denial.items.length)) {
+  add($('denial-list'), 'h3', denial.job);
   for (const item of denial.items) { for (const [key, value] of Object.entries(item)) { add($('denial-list'), 'h4', key); add($('denial-list'), 'pre', value); } }
 }
-add($('anomaly-list'), 'pre', data.facts.anomalies);
-for (const anomaly of data.anomalies) add($('anomaly-list'), 'p', anomaly);
+$('receipt-anomalies').textContent = display(data.facts.anomalies);
+// Each server-side anomaly is "<job id>: <finding>"; a job id never contains ": ".
+jobTable($('anomaly-list'), 'Finding', data.anomalies.map(anomaly => {
+  const cut = anomaly.indexOf(': ');
+  return [anomaly.slice(0, cut), anomaly.slice(cut + 2)];
+}));
+if (!data.anomalies.length) add($('anomaly-list'), 'p', 'None found');
 </script>
 </body>
 </html>

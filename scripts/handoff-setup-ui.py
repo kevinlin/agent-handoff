@@ -1013,6 +1013,7 @@ HTML = r'''<!doctype html>
     .main-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
     .main-heading p,.settings-head p { max-width:68ch; margin-top:5px; color:var(--muted); }
     .main-heading code { font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
+    .identity-count { display:block; margin-top:2px; color:var(--muted); font:13px/1.55 var(--mono); }
     .current-mode { flex:0 0 auto; color:var(--cobalt); font:13px/1.55 var(--mono); }
     .matrix { padding:0 20px; }
     /* The backend column's floor holds "GitHub Copilot" and the effort column's floor holds "Set by
@@ -1073,6 +1074,7 @@ HTML = r'''<!doctype html>
     .warning-banner { margin:12px 20px; padding:10px 12px; border-left:3px solid var(--coral);
       background:var(--bad-soft); color:var(--coral-ink); font-size:13px; line-height:1.5; white-space:pre-line; }
     .warning-banner p + p { margin-top:6px; }
+    .output-section .warning-banner { margin:12px 0; }
     .setup-summary { list-style:none; margin:0; padding:0; }
     .setup-item { padding:12px 0; border-bottom:1px solid var(--line); }
     .setup-item:last-child { border-bottom:0; }
@@ -1150,9 +1152,10 @@ HTML = r'''<!doctype html>
     }
     @keyframes masthead-in { from { transform:translateY(10px); } to { transform:none; } }
     @keyframes stamp { from { transform:scale(1.18) rotate(-3deg); } to { transform:none; } }
+    /* Two columns pair runs-on with model and effort with permission, so no field sits beside an empty cell. */
     @media (max-width:1368px) {
       .identity { grid-template-columns:repeat(2,minmax(0,1fr)); }
-      .identity-head,.field.model-field { grid-column:1 / -1; }
+      .identity-head { grid-column:1 / -1; }
     }
     @media (max-width:1040px) {
       .config-grid { grid-template-columns:minmax(0,1fr); }
@@ -1187,7 +1190,7 @@ HTML = r'''<!doctype html>
       .identity-head,.field.model-field { grid-column:1; }
       .main-heading,.settings-head { padding:14px; }
       .matrix,.settings-body { padding-left:14px; padding-right:14px; }
-      .e2e-addon,.review-gates { margin-left:14px; margin-right:14px; }
+      .e2e-addon,.review-gates,.permission-note,.warning-banner { margin-left:14px; margin-right:14px; }
       .actions { margin-left:14px; margin-right:14px; }
       .output-section { padding:14px; }
       button.primary,button.apply { width:100%; }
@@ -1237,7 +1240,7 @@ HTML = r'''<!doctype html>
       <div class="config-grid">
         <section class="matrix-panel" aria-labelledby="matrixTitle">
           <div class="main-heading">
-            <div><h2 id="matrixTitle">Identities</h2><span id="identityCount">3 configured</span><p>Codex models are read from your local account, Claude models use the official CLI aliases, Copilot models come from your entitlement, and Cursor models from <code>cursor-agent models</code>. A Cursor model carries its own effort.</p></div>
+            <div><h2 id="matrixTitle">Identities</h2><span class="identity-count" id="identityCount">3 configured</span><p>Codex models are read from your local account, Claude models use the official CLI aliases, Copilot models come from your entitlement, and Cursor models from <code>cursor-agent models</code>. A Cursor model carries its own effort.</p></div>
             <span class="current-mode" id="currentMode">Current mode: loading</span>
           </div>
           <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
