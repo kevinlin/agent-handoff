@@ -53,9 +53,17 @@ main { max-width:90rem; margin:0 auto;
   letter-spacing:-.045em; text-wrap:balance; }
 .masthead .subtitle { margin:0; color:var(--cobalt); font-size:13px; font-weight:750;
   letter-spacing:.09em; text-transform:uppercase; font-family:var(--mono); }
+/* The verdict: one line under the subtitle that answers "did this run go
+   clean?" from the job rows and the anomalies the server found on disk. The
+   state word is a pill; the problem counts are buttons that filter to them. */
+.verdict { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:10px 0 0;
+  font:13px/1.5 var(--mono); color:var(--ink); }
+.verdict .pill { font-size:12px; font-weight:750; letter-spacing:.09em; padding:.2rem .65rem; }
+.verdict .pill.check { background:var(--bad-soft); color:var(--coral-ink); border-color:var(--bad-line); }
+.verdict button.link { font-size:13px; min-height:36px; }
 /* The readout: the job rows counted by state and backend, problem states first.
    Each count is a toggle that narrows the job table to the rows it counts. */
-.tally { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:12px 0 0; }
+.tally { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 8px; }
 .tally .sep { width:1px; height:20px; margin:0 4px; background:var(--line); }
 .tally button { appearance:none; display:inline-flex; align-items:center; gap:.45rem;
   min-height:36px; padding:0 .8rem; border:1px solid var(--line); border-radius:999px;
@@ -196,8 +204,12 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
   animation:reveal 460ms cubic-bezier(.2,.72,.2,1) both; }
 [role=tablist] { animation-delay:70ms; }
 @keyframes reveal { from { transform:translateY(10px); } to { transform:none; } }
+/* The one authored moment: the verdict pill lands like a rubber stamp once the
+   masthead settles. Transform only, so the word is readable from the first frame. */
+.verdict .pill { animation:stamp 380ms cubic-bezier(.2,.9,.25,1.25) 380ms both; }
+@keyframes stamp { from { transform:scale(1.18) rotate(-3deg); } to { transform:none; } }
 @media (prefers-reduced-motion: reduce) {
-  .masthead, [role=tablist] { animation:none; }
+  .masthead, [role=tablist], .verdict .pill { animation:none; }
   button.action:active { transform:none; }
 }
 </style>
@@ -207,7 +219,7 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 <header class="masthead">
 <h1>Handoff session</h1>
 <p class="subtitle" id="subtitle"></p>
-<div id="tally" class="tally" role="group" aria-label="Filter indexed jobs" hidden></div>
+<p class="verdict" id="verdict" hidden></p>
 </header>
 <div id="warnings"></div>
 <div role="tablist" aria-label="Session views">
@@ -223,7 +235,7 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 <label id="toggle-wrap" hidden><input id="toggle" type="checkbox"> Show hotspots</label>
 <div id="diagram" class="diagram" hidden><img id="timeline" alt="Hand-authored narrative session timeline"><div id="overlay" class="overlay"></div></div>
 <div id="generation" hidden><h2>Generate the missing diagram</h2><button id="copy" class="action" type="button">Copy baoyu-diagram prompt</button><p id="copy-status" role="status"></p><pre id="prompt"></pre></div>
-</div><div class="card"><h2>Indexed jobs <span id="shown" aria-live="polite"></span></h2><div id="jobs" class="scroll" tabindex="0" aria-label="Indexed jobs table"></div></div></div>
+</div><div class="card"><h2>Indexed jobs <span id="shown" aria-live="polite"></span></h2><div id="tally" class="tally" role="group" aria-label="Filter indexed jobs" hidden></div><div id="jobs" class="scroll" tabindex="0" aria-label="Indexed jobs table"></div></div></div>
 </section>
 <section id="transcript" role="tabpanel" aria-labelledby="tab-transcript" tabindex="0" hidden>
 <label for="job-select">Job transcript</label> <select id="job-select"></select><p id="no-jobs" hidden>No indexed jobs</p>
@@ -363,7 +375,6 @@ function applyFilter(entry) {
   let shown = 0;
   jobRows.forEach((tr, index) => { tr.hidden = !entry.match(data.jobs[index]); shown += !tr.hidden; });
   $('shown').textContent = entry === filters[0] ? '' : '· ' + entry.label + ', ' + shown + ' of ' + data.jobs.length;
-  activate('overview', false);
 }
 if (data.jobs.length) {
   $('tally').hidden = false;
@@ -374,6 +385,41 @@ if (data.jobs.length) {
   for (const [backend, count] of counts('backend')) filterChip(backend, count, job => display(job.backend) === backend);
   filters[0].button.setAttribute('aria-pressed', 'true');
 }
+// The verdict. A failure leads with its counts as buttons into the filtered
+// table; a clean run says so plainly, because nothing on disk contradicts it.
+function verdict() {
+  const total = data.jobs.length;
+  if (!total) return;
+  const line = $('verdict');
+  const of = ' of ' + total + (total === 1 ? ' job' : ' jobs');
+  const problems = filters.filter(entry => PROBLEM_STATES.includes(entry.label));
+  const running = data.jobs.filter(job => job.state === 'running').length;
+  line.hidden = false;
+  if (problems.length) {
+    add(line, 'span', 'Read first').className = 'pill failed';
+    for (const entry of problems) {
+      const button = add(line, 'button', entry.button.lastChild.textContent + ' ' + entry.label);
+      button.type = 'button';
+      button.className = 'link';
+      button.addEventListener('click', () => { applyFilter(entry); $('jobs').scrollIntoView({block:'nearest'}); $('jobs').focus({preventScroll:true}); });
+    }
+    add(line, 'span', of.trim());
+  } else if (running) {
+    add(line, 'span', 'Running').className = 'pill running';
+    add(line, 'span', running + of + ' still running');
+  } else if (data.anomalies.length) {
+    add(line, 'span', 'Check').className = 'pill check';
+    add(line, 'span', 'No job failed, but ' + data.anomalies.length + (data.anomalies.length === 1 ? ' anomaly was' : ' anomalies were') + ' recorded.');
+    const button = add(line, 'button', 'Read them');
+    button.type = 'button';
+    button.className = 'link';
+    button.addEventListener('click', () => activate('denials'));
+  } else {
+    add(line, 'span', 'Clean run').className = 'pill done';
+    add(line, 'span', total + of + ' done, no anomalies on disk');
+  }
+}
+verdict();
 for (const job of data.jobs) { const option = add($('job-select'), 'option', job.job_id); option.value = job.job_id; }
 $('no-jobs').hidden = data.jobs.length !== 0;
 $('job-select').disabled = data.jobs.length === 0;

@@ -1125,6 +1125,12 @@ HTML = r'''<!doctype html>
     .output-section.has-error pre { border:0; border-left:3px solid var(--coral);
       border-radius:0 8px 8px 0; background:var(--bad-soft); color:var(--coral-ink); }
     .loading-copy { padding:12px 0; color:var(--muted); }
+    /* The install verdict: two stamped words (written, checked), then how to undo it.
+       The session view closes a run with the same stamp. */
+    .verdict { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin:0 0 12px;
+      color:var(--ink); font:13px/1.5 var(--mono); }
+    .verdict .pill { padding:.2rem .65rem; font-size:12px; letter-spacing:.09em; text-transform:uppercase; }
+    .verdict code { font:inherit; color:var(--cobalt); overflow-wrap:anywhere; }
     @media (hover:hover) and (pointer:fine) {
       .mode:not(.active):hover,.segmented button:not([aria-pressed="true"]):hover { background:var(--hover); }
       select:hover,input[type=text]:hover,input[type=number]:hover { border-color:var(--muted); }
@@ -1137,10 +1143,13 @@ HTML = r'''<!doctype html>
       html { scroll-behavior:smooth; }
       .masthead { animation:masthead-in 460ms cubic-bezier(.2,.72,.2,1) both; }
       button:active:not(:disabled) { transform:scale(.97); }
+      .verdict .pill { animation:stamp 380ms cubic-bezier(.2,.9,.25,1.25) both; }
+      .verdict .pill + .pill { animation-delay:140ms; }
       .perm-track { transition:background-color 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out; }
       .perm-track::before { transition:transform 180ms ease-out, background-color 180ms ease-out; }
     }
     @keyframes masthead-in { from { transform:translateY(10px); } to { transform:none; } }
+    @keyframes stamp { from { transform:scale(1.18) rotate(-3deg); } to { transform:none; } }
     @media (max-width:1368px) {
       .identity { grid-template-columns:repeat(2,minmax(0,1fr)); }
       .identity-head,.field.model-field { grid-column:1 / -1; }
@@ -1288,6 +1297,7 @@ HTML = r'''<!doctype html>
 
       <div class="output-section result" id="resultWrap" aria-live="polite">
         <h2 id="resultTitle" tabindex="-1">Result</h2>
+        <p class="verdict" id="resultVerdict" hidden></p>
         <pre id="result"></pre>
       </div>
     </section>
@@ -1784,6 +1794,17 @@ HTML = r'''<!doctype html>
         $('configWorkspace').setAttribute('aria-busy', 'false');
       }
     });
+    // One pill per step that ran, each with its word, then the way back out. Rebuilt on
+    // every install so the stamp lands again for the result it describes.
+    function renderVerdict(written, checked) {
+      const line = $('resultVerdict');
+      line.hidden = !written;
+      if (!written) return;
+      const pills = [['Written', 'ok']];
+      if (checked !== null) pills.push(checked ? ['Checked', 'ok'] : ['Check failed', 'bad']);
+      line.innerHTML = pills.map(([word, tone]) => `<span class="pill ${tone}">${word}</span>`).join('') +
+        `<span>Changed files are backed up under <code>.handoff/backups/</code>; <code>handoff-setup.py --rollback</code> puts them back.</span>`;
+    }
     $('apply').addEventListener('click', async () => {
       setInstallEnabled(false);
       $('apply').textContent = 'Installing...';
@@ -1799,11 +1820,13 @@ HTML = r'''<!doctype html>
         $('resultWrap').classList.toggle('has-error', !data.ok || !checksOk);
         $('resultTitle').textContent = !data.ok ? 'Install failed' : (checksOk ? 'Installed' : 'Installed, but the check failed');
         $('status').textContent = !data.ok ? 'Install failed' : (checksOk ? 'Handoff installed' : 'Installed, but the automatic check did not pass');
+        renderVerdict(data.ok, data.smoke ? data.smoke.ok : null);
         previewValid = false;
         $('resultWrap').scrollIntoView({behavior:reduceMotion ? 'auto' : 'smooth',block:'start'});
         $('resultTitle').focus({preventScroll:true});
       } catch (error) {
         $('result').textContent = error.message;
+        $('resultVerdict').hidden = true;
         $('resultWrap').style.display = 'block';
         $('resultWrap').classList.add('has-error');
         $('resultTitle').textContent = 'Install failed';

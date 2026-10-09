@@ -257,6 +257,7 @@ Instant, many-times-a-minute switches.
 - **Do** give wide tables their own scroll container with a sticky header and a sticky first column.
 - **Do** render missing measurements as muted italic mono words, never as a figure or a dash.
 - **Do** keep the one-time reveal (460ms, `cubic-bezier(.2,.72,.2,1)`, 10px rise) to the masthead and the tablist, and collapse it under `prefers-reduced-motion`.
+- **Do** limit the one authored moment to the verdict stamp: the pill that closes a run (session view) or an install (setup wizard) lands once from scale 1.18 and -3deg, transform only, 380ms. It is off under `prefers-reduced-motion`.
 
 ### Don't:
 - **Don't** add shadows, gradients, glows or noise textures. Those belong to the setup wizard's drifted system.
