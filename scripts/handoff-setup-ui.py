@@ -988,10 +988,9 @@ HTML = r'''<!doctype html>
     .pill.ok { background:var(--ok-soft); color:var(--ok-ink); border-color:var(--ok-line); }
     .pill.bad { background:var(--bad-soft); color:var(--bad-ink); border-color:var(--bad-line); }
     .pill.cobalt { background:var(--cobalt-soft); color:var(--cobalt); border-color:var(--cobalt-line); }
-    .detail { min-width:0; margin-top:5px; color:var(--ink); font:13px/1.55 var(--mono);
-      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Wraps instead of truncating: the detail is what the probe found, so none of it is hidden. */
+    .detail { min-width:0; margin-top:5px; color:var(--ink); font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
     .detect .item.failed { grid-column:1 / -1; }
-    .detect .item.failed .detail { white-space:normal; overflow-wrap:anywhere; }
     .config-section { margin-top:16px; }
     h2 { color:var(--muted); font:600 15px/1.3 var(--mono); letter-spacing:.06em; text-transform:uppercase; }
     .config-heading { margin-bottom:10px; }
@@ -1004,7 +1003,7 @@ HTML = r'''<!doctype html>
       min-width:0; min-height:70px; padding:10px 12px;
       border:1px solid transparent; border-radius:8px; background:transparent; color:var(--ink); text-align:left; }
     .mode strong { margin-bottom:4px; color:inherit; }
-    .mode small { display:block; color:inherit; font:13px/1.4 var(--mono); overflow-wrap:anywhere; }
+    .mode small { display:block; color:inherit; font-size:13px; line-height:1.4; overflow-wrap:anywhere; }
     .mode.active { border-color:var(--cobalt-line); background:var(--cobalt-soft); color:var(--cobalt); }
     .config-grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(300px,.7fr);
       gap:16px; align-items:start; margin-top:16px; }
@@ -1016,10 +1015,9 @@ HTML = r'''<!doctype html>
     .main-heading code { font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
     .current-mode { flex:0 0 auto; color:var(--cobalt); font:13px/1.55 var(--mono); }
     .matrix { padding:0 20px; }
-    /* The effort column's floor holds "Set by the model id" (19 characters of 13px mono plus the
-       select's padding, border and arrow) unclipped. The five floors and four gaps still fit the
-       matrix panel at 1369px; at 1368px and below the grid is two columns. */
-    .identity { display:grid; grid-template-columns:minmax(125px,.8fr) minmax(110px,.7fr)
+    /* The backend column's floor holds "GitHub Copilot" and the effort column's floor holds "Set by
+       the model id" (19 characters of 13px mono plus the select's padding, border and arrow) unclipped. */
+    .identity { display:grid; grid-template-columns:minmax(125px,.8fr) minmax(148px,.7fr)
       minmax(180px,1.2fr) minmax(190px,.6fr) minmax(127px,.6fr);
       gap:12px; align-items:start; min-width:0; padding:16px 0; border-bottom:1px solid var(--line); }
     .identity:last-child { border-bottom:0; }

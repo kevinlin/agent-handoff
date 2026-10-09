@@ -35,6 +35,7 @@
   --gutter: clamp(1rem, 3vw, 2.5rem);
 }
 * { box-sizing: border-box; }
+::selection { background:var(--cobalt-soft); color:var(--ink); }
 html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility; background: var(--paper); }
 body { margin:0; min-width:320px; background:var(--paper); color:var(--ink);
@@ -52,6 +53,21 @@ main { max-width:90rem; margin:0 auto;
   letter-spacing:-.045em; text-wrap:balance; }
 .masthead .subtitle { margin:0; color:var(--cobalt); font-size:13px; font-weight:750;
   letter-spacing:.09em; text-transform:uppercase; font-family:var(--mono); }
+/* The readout: the job rows counted by state and backend, problem states first.
+   Each count is a toggle that narrows the job table to the rows it counts. */
+.tally { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:12px 0 0; }
+.tally .sep { width:1px; height:20px; margin:0 4px; background:var(--line); }
+.tally button { appearance:none; display:inline-flex; align-items:center; gap:.45rem;
+  min-height:36px; padding:0 .8rem; border:1px solid var(--line); border-radius:999px;
+  background:var(--surface); color:var(--ink); cursor:pointer;
+  font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+.tally .n { font-variant-numeric:tabular-nums; font-weight:750; }
+.tally .problem { color:var(--bad-ink); border-color:var(--bad-line); }
+.tally button[aria-pressed=true] { background:var(--cobalt-soft); color:var(--cobalt);
+  border-color:var(--cobalt); }
+@media (hover: hover) and (pointer: fine) {
+  .tally button[aria-pressed=false]:hover { background:var(--hover); }
+}
 
 .banner { margin:0 0 12px; padding:.7rem .9rem; border-left:3px solid var(--cobalt);
   background:var(--cobalt-soft); border-radius:0 8px 8px 0; font-family:var(--mono);
@@ -107,6 +123,7 @@ pre { margin:.2rem 0 .8rem; padding:.6rem .7rem; background:var(--surface);
    positioned by percentage over a drawn bar, and any transform moves it off. */
 .show-hotspots .hotspot { outline:2px solid var(--coral);
   background:light-dark(rgba(181,61,52,.14), rgba(226,112,90,.2)); }
+#toggle { accent-color:var(--cobalt); }
 #toggle-wrap { display:inline-flex; align-items:center; gap:.5rem; min-height:44px;
   font:600 11px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase;
   color:var(--muted); cursor:pointer; }
@@ -125,9 +142,18 @@ tbody tr:last-child td { border-bottom:0; }
 td:first-child, th:first-child { position:sticky; left:0; z-index:1;
   background:var(--surface); }
 th:first-child { z-index:3; }
+/* A job id is ~40 characters. On a phone a nowrap sticky id column fills the
+   viewport and pins itself over every column it should scroll past, so there it
+   wraps inside a capped width instead. */
+@media (max-width: 600px) {
+  td:first-child { white-space:normal; min-width:min(12rem,45vw); max-width:45vw; }
+  td:first-child button.link { overflow-wrap:anywhere; }
+}
 @media (hover: hover) and (pointer: fine) {
   tbody tr:hover td { background:var(--hover); }
 }
+/* The job whose transcript was last opened, so coming back lands on it. */
+tbody tr.opened td { background:var(--cobalt-soft); }
 /* State as a tinted pill with the word inside it, never colour alone. */
 .pill { display:inline-block; padding:.1rem .5rem; border-radius:999px;
   border:1px solid var(--line); font:600 11px/1.5 var(--mono);
@@ -163,14 +189,15 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 :focus-visible { outline:3px solid var(--cobalt); outline-offset:3px;
   border-radius:4px; }
 
-/* The furniture reveals once on load. Panels never animate - see the tab note. */
+/* The furniture reveals once on load. Panels never animate - see the tab note.
+   Transform only, from an already-visible default: a stalled or skipped
+   animation must never leave the tabs invisible. */
 .masthead, [role=tablist] {
-  opacity:0; animation:reveal 460ms cubic-bezier(.2,.72,.2,1) forwards; }
+  animation:reveal 460ms cubic-bezier(.2,.72,.2,1) both; }
 [role=tablist] { animation-delay:70ms; }
-@keyframes reveal { from { opacity:0; transform:translateY(10px); }
-                    to   { opacity:1; transform:none; } }
+@keyframes reveal { from { transform:translateY(10px); } to { transform:none; } }
 @media (prefers-reduced-motion: reduce) {
-  .masthead, [role=tablist] { animation-duration:.01ms; animation-delay:0ms; }
+  .masthead, [role=tablist] { animation:none; }
   button.action:active { transform:none; }
 }
 </style>
@@ -180,6 +207,7 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 <header class="masthead">
 <h1>Handoff session</h1>
 <p class="subtitle" id="subtitle"></p>
+<div id="tally" class="tally" role="group" aria-label="Filter indexed jobs" hidden></div>
 </header>
 <div id="warnings"></div>
 <div role="tablist" aria-label="Session views">
@@ -195,7 +223,7 @@ summary { cursor:pointer; font:600 12px/1.4 var(--mono); letter-spacing:.06em;
 <label id="toggle-wrap" hidden><input id="toggle" type="checkbox"> Show hotspots</label>
 <div id="diagram" class="diagram" hidden><img id="timeline" alt="Hand-authored narrative session timeline"><div id="overlay" class="overlay"></div></div>
 <div id="generation" hidden><h2>Generate the missing diagram</h2><button id="copy" class="action" type="button">Copy baoyu-diagram prompt</button><p id="copy-status" role="status"></p><pre id="prompt"></pre></div>
-</div><div class="card"><h2>Indexed jobs</h2><div id="jobs" class="scroll" tabindex="0" aria-label="Indexed jobs table"></div></div></div>
+</div><div class="card"><h2>Indexed jobs <span id="shown" aria-live="polite"></span></h2><div id="jobs" class="scroll" tabindex="0" aria-label="Indexed jobs table"></div></div></div>
 </section>
 <section id="transcript" role="tabpanel" aria-labelledby="tab-transcript" tabindex="0" hidden>
 <label for="job-select">Job transcript</label> <select id="job-select"></select><p id="no-jobs" hidden>No indexed jobs</p>
@@ -235,6 +263,11 @@ function showJob(id, switchTab = true) {
   $('job-select').value = id;
   $('transcript-frame').src = job.url;
   $('transcript-frame').hidden = false;
+  jobRows.forEach((tr, index) => {
+    const opened = data.jobs[index].job_id === id;
+    tr.classList.toggle('opened', opened);
+    jobLinks[index].setAttribute('aria-current', String(opened));
+  });
   if (switchTab) activate('transcript');
 }
 for (const [index, tab] of tabs.entries()) {
@@ -249,16 +282,18 @@ function jobButton(parent, id) {
   button.type = 'button';
   button.className = 'link';
   button.addEventListener('click', () => showJob(id));
+  return button;
 }
 function table(parent, headers, rows, cellWriter) {
   const node = add(parent, 'table');
   const head = add(add(node, 'thead'), 'tr');
   for (const header of headers) { const cell = add(head, 'th', header); cell.scope = 'col'; }
   const body = add(node, 'tbody');
-  for (const row of rows) {
+  return rows.map(row => {
     const tr = add(body, 'tr');
     row.forEach((value, index) => cellWriter(add(tr, 'td'), value, index));
-  }
+    return tr;
+  });
 }
 $('subtitle').textContent = ['phase: ' + display(data.facts.phase), display(data.facts.duration),
   data.jobs.length + (data.jobs.length === 1 ? ' indexed job' : ' indexed jobs'),
@@ -288,10 +323,11 @@ $('copy').addEventListener('click', async () => {
 });
 const JOB_HEADERS = ['Job', 'Start', 'End', 'Role', 'Backend', 'Model', 'Effort', 'State', 'Duration'];
 const UNMEASURED = ['not recorded', 'unknown', 'not yet available'];
-table($('jobs'), JOB_HEADERS,
+const jobLinks = [];
+const jobRows = table($('jobs'), JOB_HEADERS,
   data.jobs.map(job => [job.job_id, job.start, job.end, job.role, job.backend, job.model, job.effort, job.state, job.duration]),
   (cell, value, index) => {
-    if (index === 0) { jobButton(cell, value); return; }
+    if (index === 0) { jobLinks.push(jobButton(cell, value)); return; }
     const text = display(value);
     if (JOB_HEADERS[index] === 'State') {
       const pill = add(cell, 'span', text);
@@ -301,6 +337,43 @@ table($('jobs'), JOB_HEADERS,
     cell.textContent = text;
     if (UNMEASURED.includes(text)) cell.className = 'unmeasured';
   });
+// The readout. Problem states lead so a failure is the first count read; the
+// rest follow by frequency. Every count is computed from the job rows above.
+const PROBLEM_STATES = ['failed', 'cancelled'];
+function counts(key) {
+  const tally = new Map();
+  for (const job of data.jobs) { const value = display(job[key]); tally.set(value, (tally.get(value) || 0) + 1); }
+  const rank = value => PROBLEM_STATES.includes(value) ? 0 : 1;
+  return [...tally].sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1]);
+}
+const filters = [];
+function filterChip(label, count, match, problem = false) {
+  const button = add($('tally'), 'button');
+  button.type = 'button';
+  if (problem) button.className = 'problem';
+  add(button, 'span', label);
+  add(button, 'span', count).className = 'n';
+  button.setAttribute('aria-pressed', 'false');
+  button.addEventListener('click', () => applyFilter(button.getAttribute('aria-pressed') === 'true' ? filters[0] : entry));
+  const entry = {button, match, label};
+  filters.push(entry);
+}
+function applyFilter(entry) {
+  for (const other of filters) other.button.setAttribute('aria-pressed', String(other === entry));
+  let shown = 0;
+  jobRows.forEach((tr, index) => { tr.hidden = !entry.match(data.jobs[index]); shown += !tr.hidden; });
+  $('shown').textContent = entry === filters[0] ? '' : '· ' + entry.label + ', ' + shown + ' of ' + data.jobs.length;
+  activate('overview', false);
+}
+if (data.jobs.length) {
+  $('tally').hidden = false;
+  filterChip('All jobs', data.jobs.length, () => true);
+  add($('tally'), 'span').className = 'sep';
+  for (const [state, count] of counts('state')) filterChip(state, count, job => display(job.state) === state, PROBLEM_STATES.includes(state));
+  add($('tally'), 'span').className = 'sep';
+  for (const [backend, count] of counts('backend')) filterChip(backend, count, job => display(job.backend) === backend);
+  filters[0].button.setAttribute('aria-pressed', 'true');
+}
 for (const job of data.jobs) { const option = add($('job-select'), 'option', job.job_id); option.value = job.job_id; }
 $('no-jobs').hidden = data.jobs.length !== 0;
 $('job-select').disabled = data.jobs.length === 0;
