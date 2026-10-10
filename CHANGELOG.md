@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.9.4 (2026-10-11)
+
+### The setup wizard shows each CLI's icon
+
+- feat: each identity's `Runs on` dropdown has the selected CLI's icon to its right: Claude Code, Codex, GitHub Copilot or Cursor. The icon changes with the selection. The Claude Code, Codex, GitHub Copilot and Cursor tiles in the environment strip show the same icons before their names. Claude, GitHub Copilot and Cursor marks come from simple-icons (CC0), and the Codex mark from lobe-icons (MIT). They are inline SVG, because the page's Content-Security-Policy loads no images, and screen readers skip them, since the dropdown already names the CLI.
+- refactor: the wizard page moved out of `scripts/handoff-setup-ui.py` into `assets/setup-ui.html`, the way the session view keeps `assets/session-view.html`. The served bytes are unchanged, apart from the icons. `check-skill-repo.sh` requires the new file.
+
 ## v3.9.3 (2026-10-10)
 
 ### The setup wizard says when a CLI is missing or out of date

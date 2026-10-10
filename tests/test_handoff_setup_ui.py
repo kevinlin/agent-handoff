@@ -21,6 +21,7 @@ from urllib.error import URLError
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "handoff-setup-ui.py"
+PAGE = ROOT / "assets" / "setup-ui.html"
 SPEC = importlib.util.spec_from_file_location("handoff_setup_ui", SCRIPT)
 handoff_setup_ui = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -188,7 +189,7 @@ class SetupUITests(unittest.TestCase):
         raw["identities"]["fast_worker"]["permission_mode"] = "unsafe"
         with self.assertRaisesRegex(handoff_setup_ui.UIError, "permission_mode"):
             handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        page = SCRIPT.read_text()
+        page = PAGE.read_text()
         self.assertIn('data-field="permission_mode"', page)
         self.assertIn("permission_mode: matrix[identity].permission_mode", page)
         self.assertIn("state.permission_labels[p]", page)
@@ -314,7 +315,7 @@ class SetupUITests(unittest.TestCase):
         self.assertEqual("REFUSED", preview["files"][0]["state"])
 
     def test_page_renders_engine_files_and_failure_title(self):
-        page = SCRIPT.read_text()
+        page = PAGE.read_text()
         self.assertIn("data.files", page)
         self.assertIn("Preview failed", page)
         self.assertNotIn("Save the three roles", page)
@@ -539,7 +540,7 @@ class SetupUITests(unittest.TestCase):
         self.assertEqual({"spec_max_rounds": 2, "implementation_max_rounds": 3}, seeded["initial_review"])
 
     def test_the_page_wires_the_caps(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = PAGE.read_text(encoding="utf-8")
         self.assertIn('id="specMaxRounds"', source)
         self.assertIn('id="implementationMaxRounds"', source)
         self.assertIn("spec_max_rounds: Number($('specMaxRounds').value)", source)
@@ -851,7 +852,7 @@ class CopilotSetupUITests(SetupUITests):
         self.assertEqual([], self.copilot_session_args())
 
     def test_the_page_picks_the_copilot_model_from_a_list(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = PAGE.read_text(encoding="utf-8")
         self.assertNotIn("TYPED_MODEL_BACKENDS", source)
         self.assertNotIn("'typed'", source)
         # a typed Cursor slug must match the catalogue; no other backend has a text field
@@ -867,7 +868,7 @@ class CopilotSetupUITests(SetupUITests):
         self.assertIn("state.model_discovery[values.backend]", source)
 
     def test_page_has_review_errors_custom_mode_and_preset_undo(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = PAGE.read_text(encoding="utf-8")
         for text in ('aria-invalid', 'specMaxRoundsError', 'implementationMaxRoundsError',
                      "'cost','custom'", 'preset replaced your custom settings.', 'id="undoPreset"'):
             self.assertIn(text, source)
@@ -1019,7 +1020,7 @@ class CursorSetupUITests(SetupUITests):
         self.assertIn("cursor-agent login", state["model_discovery"]["cursor"])
 
     def test_the_page_wires_the_cursor_backend(self):
-        source = SCRIPT.read_text(encoding="utf-8")
+        source = PAGE.read_text(encoding="utf-8")
         self.assertIn("cursor:'Cursor'", source)
         self.assertIn("'cursor-agent models':'Read from cursor-agent models',", source)
         self.assertIn("model:'Set by the model id'", source)
@@ -1348,7 +1349,7 @@ class CliHelpPageTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.source = SCRIPT.read_text(encoding="utf-8")
+        cls.source = PAGE.read_text(encoding="utf-8")
 
     def test_the_popover_is_native_and_its_link_is_safe(self):
         for text in (
