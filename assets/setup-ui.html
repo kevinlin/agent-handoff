@@ -117,16 +117,17 @@
       border-radius:16px; background:var(--surface); }
     .main-heading,.settings-head { padding:16px 20px; border-bottom:1px solid var(--line); }
     .main-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
-    .main-heading p,.settings-head p { max-width:68ch; margin-top:5px; color:var(--muted); }
+    .main-heading p,.settings-head p { margin-top:5px; color:var(--muted); }
+    .settings-head p { max-width:68ch; }
     .main-heading code { font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
     .identity-count { display:block; margin-top:2px; color:var(--muted); font:13px/1.55 var(--mono); }
     .current-mode { flex:0 0 auto; color:var(--cobalt); font:13px/1.55 var(--mono); }
     .matrix { padding:0 20px; }
-    /* The backend column's floor holds "GitHub Copilot" and the effort column's floor holds "Set by
-       the model id" (19 characters of 13px mono plus the select's padding, border and arrow) unclipped;
-       the backend floor also holds its 20px brand icon and 8px gap. */
-    .identity { display:grid; grid-template-columns:minmax(153px,.8fr) minmax(148px,.7fr)
-      minmax(180px,1.2fr) minmax(190px,.6fr) minmax(127px,.6fr);
+    /* The backend column's floor holds "GitHub Copilot" plus its 20px brand icon and 8px gap. The
+       effort column is fixed at what "Extra high" and "From model" need (10 characters of 13px mono
+       plus the select's padding, border and arrow), so the model column takes the spare width. */
+    .identity { display:grid; grid-template-columns:minmax(125px,.8fr) minmax(176px,.7fr)
+      minmax(180px,1.2fr) 128px minmax(127px,.6fr);
       gap:12px; align-items:start; min-width:0; padding:16px 0; border-bottom:1px solid var(--line); }
     .identity:last-child { border-bottom:0; }
     .backend-row { display:flex; align-items:center; gap:8px; }
@@ -173,7 +174,7 @@
     .e2e-addon,.review-gates { margin:0 20px; padding:16px 0; border-top:1px solid var(--line); }
     .e2e-addon > summary { width:max-content; max-width:100%; color:var(--ink);
       font:750 11px/1.3 var(--mono); letter-spacing:.09em; text-transform:uppercase; cursor:pointer; }
-    .e2e-addon > p,.review-gates > p { max-width:68ch; margin-top:6px; color:var(--muted); }
+    .e2e-addon > p,.review-gates > p { margin-top:6px; color:var(--muted); }
     .e2e-toggle { display:flex; align-items:center; gap:8px; width:max-content; max-width:100%;
       margin:12px 0 0; color:var(--ink); font:13px/1.55 var(--mono); cursor:pointer; }
     .e2e-addon .matrix { padding:8px 0 0; }
@@ -472,7 +473,7 @@
       high:'High',
       xhigh:'Extra high',
       max:'Max',
-      model:'Set by the model id',
+      model:'From model',
     };
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)');

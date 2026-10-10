@@ -1023,7 +1023,7 @@ class CursorSetupUITests(SetupUITests):
         source = PAGE.read_text(encoding="utf-8")
         self.assertIn("cursor:'Cursor'", source)
         self.assertIn("'cursor-agent models':'Read from cursor-agent models',", source)
-        self.assertIn("model:'Set by the model id'", source)
+        self.assertIn("model:'From model'", source)
         # The discovery failure shows beside a retained slug, not only on an
         # empty list, and survives a model change.
         self.assertIn("state.model_discovery_failed[backend]", source)
