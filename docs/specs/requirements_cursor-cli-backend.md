@@ -129,7 +129,7 @@ Acceptance: a job requested as `gpt-5.4-mini` whose init names "GPT-5.4 Mini Low
 **R7.4** **No cursor log is read by another backend's parser, and no other backend's log is read by cursor's.** The Claude branch of `fold_usage` and the Copilot branch of the session view's `denials()` become explicit, so a cursor job cannot reach either one. Codex and Claude keep the parsing they share on purpose in `cmd_result` and `HV.normalize`; a regression test in `tests/test_transcript_viewer.mjs` pins that each existing fixture parses the same under either name.
 Acceptance: a cursor job with two rejections reports 2 in the cost receipt and in the session view, not 0.
 
-**R7.5** The cost receipt's summary names jobs on the Cursor meter and says Cursor reports tokens but no cost figure. The denials sentence names claude, copilot, and cursor, in the Markdown and in `assets/cost-receipt.html`.
+**R7.5** The cost receipt's summary names jobs on the Cursor meter, shows their summed token counters, and says Cursor reports tokens but no cost figure. The outside-driver figure follows the Copilot and Cursor figures, and its caveat says Codex and Cursor jobs are counted twice. The denials sentence names claude, copilot, and cursor, in the Markdown and in `assets/cost-receipt.html`.
 
 **R7.6** The transcript viewer renders a cursor log:
 - the branch is chosen by `meta.backend`;

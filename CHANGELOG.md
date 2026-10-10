@@ -37,6 +37,14 @@
 - feat: the transcript viewer renders Cursor logs, drops `thinking` events, and pairs tool calls with their outcomes.
 - note: on Cursor, `default` and `allow-all` both run in Cursor's force mode. Deny rules in the user's or project's `.cursor/cli.json` are the only narrowing; Handoff does not write there and warns for each writing job. Read-only uses `--mode plan`.
 
+### The Cursor card shows its tokens
+
+- fix: the cost receipt's "Ran on the Cursor meter" card shows the cursor jobs' summed token counters. Before, it showed only the job count, and the tokens appeared only in the job table. There is still no cost figure, and reasoning reads `unknown` because Cursor emits no reasoning count.
+- feat: the Codex, Copilot and Cursor cards set their counters in small monospace type. Only the outside-driver figure and the driver session use large serif numbers. The outside-driver figure uses them for a partial total too, with the measured-job count underneath.
+- feat: "Ran outside the driver session" moves below the Copilot and Cursor cards, directly above the caveat card. The Markdown summary uses the same order.
+- fix: the caveat says Codex and Cursor jobs are each counted in their own figure and again in the outside-driver figure. Before, it named only Codex.
+- fix: the caveat card is renamed from "Reading the two figures" to "Reading the figures", since the summary can now show three token figures. Its two paragraphs use the full card width. Before, each wrapped onto three short lines.
+
 ## v3.8.1 (2026-09-12)
 
 ### Copilot models are picked, not typed

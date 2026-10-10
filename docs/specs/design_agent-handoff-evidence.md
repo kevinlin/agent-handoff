@@ -287,14 +287,14 @@ Three claims are unsupportable by these measurements, and are recorded here so t
 - **Not billed spend.** `modelUsage.costBasis` reads `list`. The figure is what the CLI reported, and is labelled *CLI-reported cost* in the table, the summary, and the example.
 - **Not a saving.** A claude-backed delegated job bills the same vendor as the driver, so no difference between any two figures here is a saving, and none is computed.
 
-What the summary reports instead is two figures whose populations overlap by design, plus separate Copilot and Cursor meter lines:
+What the summary reports instead is one figure per meter, then a total whose population overlaps them by design. In page order:
 
 - **Ran on a Codex subscription** — token counters for codex-backed jobs, no cost figure, because the CLI emits none.
-- **Ran outside the driver session** — token counters for all delegated jobs on any backend, plus the summed CLI-reported cost of the claude-backed ones.
 - **Ran on the Copilot AI-credit meter** — premium requests and nano-AIU for copilot-backed jobs, stated as AI credits and never as currency.
-- **Ran on the Cursor meter** — token counters for cursor-backed jobs and no cost figure.
+- **Ran on the Cursor meter** — token counters for cursor-backed jobs and no cost figure. Shown only when a cursor job ran.
+- **Ran outside the driver session** — token counters for all delegated jobs on any backend, plus the summed CLI-reported cost of the claude-backed ones.
 
-Codex jobs appear in both of the first two. Both outputs say the figures are not addends, and tests assert that no line equals their sum. A further line reports permission denials across claude-backed, copilot-backed, and cursor-backed jobs, because a denied tool call does not move a job's exit code: a job can report success on checks it was refused.
+The outside-driver figure comes last because it counts the codex and cursor jobs a second time. On the HTML page it is also the only summary card that sets its counters in the large serif face. A partial total keeps its `≥` there, with the measured-job count underneath. The per-meter cards use plain monospace. The caveat directly below it names that overlap and says the figures are not addends; tests assert that no line equals their sum. A further line reports permission denials across claude-backed, copilot-backed, and cursor-backed jobs, because a denied tool call does not move a job's exit code: a job can report success on checks it was refused.
 
 ### The export boundary is enumerated
 

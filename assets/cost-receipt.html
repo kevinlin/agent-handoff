@@ -86,6 +86,8 @@ p { text-wrap:pretty; }
   font-size:12px; line-height:1.5; }
 /* The caveat rule from the v2.0.1 page: what the numbers do not establish. */
 .caveat { padding-left:13px; color:var(--coral-ink); border-left:3px solid var(--coral); }
+/* Two short paragraphs: the 68ch measure folded each into three lines. */
+.reading .note { max-width:none; }
 
 /* Metric grid: a label over a serif figure, the v2.0.1 lead treatment applied
    to each counter, so five figures wrap instead of forcing a scroll. Each pair
@@ -97,6 +99,12 @@ p { text-wrap:pretty; }
   letter-spacing:.09em; text-transform:uppercase; }
 .metrics dd { margin:0; color:var(--cobalt); font:600 clamp(20px,2.1vw,30px)/1.05 var(--serif);
   letter-spacing:-.035em; font-variant-numeric:tabular-nums; }
+/* The per-meter cards are detail. Only the outside-driver total and the driver
+   session set their counters in the figure face. */
+.metrics.plain dd { color:var(--ink); font:400 14px/1.4 var(--mono); letter-spacing:0; }
+/* The measured-job count under a partial total set in the figure face. */
+.metrics dd .of { display:block; margin-top:4px; color:var(--muted);
+  font:italic 400 12px/1.3 var(--mono); letter-spacing:0; }
 /* An absent measurement is never set in the figure face: it is not a figure. */
 .metrics dd.absent { color:var(--muted); font:italic 400 14px/1.4 var(--mono);
   letter-spacing:0; overflow-wrap:anywhere; }
@@ -175,6 +183,11 @@ const num = (v) => v === null || v === undefined
 const figureCell = (c) => c.value === null ? absent("unknown")
   : (c.complete ? measured(c.value.toLocaleString())
      : absent("≥ " + c.value.toLocaleString() + ` (${c.measured} of ${c.total})`));
+// The outside-driver total is the headline figure, so a partial sum keeps the
+// figure face; the "≥" and the count under it still mark it as a lower bound.
+const leadCell = (c) => c.value === null || c.complete ? figureCell(c)
+  : {text: "≥ " + c.value.toLocaleString(), cls: "",
+     note: `${c.measured} of ${c.total} jobs measured`};
 const jobCount = (n) => `${n} ${n === 1 ? "job" : "jobs"}`;
 // The payload carries UTC, which is what the files record. A reader compares
 // these against their own clock, so they are shown in the system timezone,
@@ -198,12 +211,14 @@ const costNote = (fig) => !fig.cost_applicable
   : `CLI-reported cost of the claude-backed jobs: ${fig.cost_usd === null ? "unknown"
       : fig.cost_usd + (fig.cost_complete ? "" : " (partial)")}`;
 
-function metrics(counters, cells) {
-  const dl = el("dl", null, "metrics");
+function metrics(counters, cells, cls = "metrics") {
+  const dl = el("dl", null, cls);
   counters.forEach((c, i) => {
     const pair = el("div");
     pair.appendChild(el("dt", LABELS[c]));
-    pair.appendChild(el("dd", cells[i].text, cells[i].cls));
+    const dd = el("dd", cells[i].text, cells[i].cls);
+    if (cells[i].note) dd.appendChild(el("span", cells[i].note, "of"));
+    pair.appendChild(dd);
     dl.appendChild(pair);
   });
   return dl;
@@ -270,18 +285,19 @@ function render() {
   stamp.appendChild(stampEl(data.generated_at));
   head.appendChild(stamp);
 
-  [["Ran on a Codex subscription", data.summary.codex_subscription, false],
-   ["Ran outside the driver session", data.summary.outside_driver, true]
-  ].forEach(([heading, fig, withCost]) => {
+  const figureCard = (heading, fig, note, lead = false) => {
     const card = section("card lead");
     const h2 = el("h2", heading + " ");
     h2.appendChild(el("span", jobCount(fig.jobs), "count"));
     card.appendChild(h2);
-    card.appendChild(el("p", withCost
-      ? costNote(fig)
-      : "No cost figure: the Codex CLI emits none.", "note"));
-    card.appendChild(metrics(counters, counters.map(c => figureCell(fig.usage[c]))));
-  });
+    card.appendChild(el("p", note, "note"));
+    card.appendChild(metrics(counters,
+      counters.map(c => (lead ? leadCell : figureCell)(fig.usage[c])),
+      lead ? "metrics" : "metrics plain"));
+  };
+
+  figureCard("Ran on a Codex subscription", data.summary.codex_subscription,
+    "No cost figure: the Codex CLI emits none.");
 
   const credits = data.summary.copilot_credits;
   const creditCard = section("card lead");
@@ -293,7 +309,7 @@ function render() {
     : "No job ran on the Copilot AI-credit meter, so no premium requests or "
       + "nano-AIU were metered.", "note"));
   if (credits.jobs) {
-    const dl = el("dl", null, "metrics");
+    const dl = el("dl", null, "metrics plain");
     [["Premium requests", credits.premium_requests],
      ["Nano-AIU", credits.nano_aiu]].forEach(([label, col]) => {
       const pair = el("div");
@@ -305,19 +321,20 @@ function render() {
     creditCard.appendChild(dl);
   }
 
-  const cursorJobs = data.summary.cursor_meter.jobs;
-  if (cursorJobs) {
-    const cursorCard = section("card lead");
-    const cursorHead = el("h2", "Ran on the Cursor meter ");
-    cursorHead.appendChild(el("span", jobCount(cursorJobs), "count"));
-    cursorCard.appendChild(cursorHead);
-    cursorCard.appendChild(el("p", "Cursor reports tokens but no cost figure, so none is shown.", "note"));
-  }
+  const cursor = data.summary.cursor_meter;
+  if (cursor.jobs) figureCard("Ran on the Cursor meter", cursor,
+    "Cursor reports tokens but no cost figure, so none is shown.");
 
-  const overlap = section("card");
-  overlap.appendChild(el("h2", "Reading the two figures"));
-  overlap.appendChild(el("p", "Codex jobs are counted in both figures above. They are "
-    + "not addends, and no difference between them is a saving.", "note caveat"));
+  // Last of the figures: it holds the codex and cursor jobs again, and the
+  // caveat card right below it says so.
+  figureCard("Ran outside the driver session", data.summary.outside_driver,
+    costNote(data.summary.outside_driver), true);
+
+  const overlap = section("card reading");
+  overlap.appendChild(el("h2", "Reading the figures"));
+  overlap.appendChild(el("p", "Codex and Cursor jobs are counted in their own figure and "
+    + "again in the outside-driver figure. The figures are not addends, and no "
+    + "difference between them is a saving.", "note caveat"));
   if (data.summary.denials !== null) {
     overlap.appendChild(el("p", "Permission denials across claude-backed, copilot-backed, "
       + `and cursor-backed jobs: ${data.summary.denials}. A denied tool call does `

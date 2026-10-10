@@ -453,17 +453,18 @@ def _credit_figure(rows: list[dict]) -> dict:
 
 
 def summarize(rows: list[dict]) -> dict:
-    """Two figures whose populations overlap by design: codex jobs are in both.
-    They are never added together, and neither is a saving. The copilot credit
-    meter is a third kind of reading, in neither of them. The Cursor meter
-    reports tokens in the outside-driver figure, but no cost."""
+    """Token figures whose populations overlap by design: codex and cursor jobs
+    are each in their own figure and again in the outside-driver one. They are
+    never added together, and none is a saving. The copilot credit meter is a
+    different kind of reading, in none of them. Cursor reports no cost."""
     codex_rows = [r for r in rows if r["backend"] == "codex"]
+    cursor_rows = [r for r in rows if r["backend"] == "cursor"]
     denials = [r["denials"] for r in rows if r["denials"] is not None]
     return {
         "codex_subscription": _figure(codex_rows, with_cost=False),
         "outside_driver": _figure(rows, with_cost=True),
         "copilot_credits": _credit_figure(rows),
-        "cursor_meter": {"jobs": sum(1 for r in rows if r["backend"] == "cursor")},
+        "cursor_meter": _figure(cursor_rows, with_cost=False),
         "denials": sum(denials) if denials else None,
     }
 
@@ -496,6 +497,12 @@ def _figure_cell(column: dict) -> str:
     if column["complete"]:
         return body
     return f"≥ {body} ({column['measured']} of {column['total']} jobs measured)"
+
+
+def _figure_table(figure: dict) -> list[str]:
+    return ["| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |",
+            "|" + "---|" * len(COUNTERS),
+            "| " + " | ".join(_figure_cell(figure["usage"][c]) for c in COUNTERS) + " |"]
 
 
 def _job_count(count: int) -> str:
@@ -579,27 +586,24 @@ def render_markdown(payload: dict) -> str:
     out += ["", "## Summary", ""]
 
     codex, outside = summary["codex_subscription"], summary["outside_driver"]
-    out.append(f"**Ran on a Codex subscription** ({_job_count(codex['jobs'])}). "
-               "No cost figure: the Codex CLI emits none.")
-    out.append("")
-    out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")
-    out.append("|" + "---|" * len(COUNTERS))
-    out.append("| " + " | ".join(_figure_cell(codex["usage"][c]) for c in COUNTERS) + " |")
-    out.append("")
-    out.append(f"**Ran outside the driver session** ({_job_count(outside['jobs'])}). "
-               f"{_cost_sentence(outside)}")
-    out.append("")
-    out.append("| " + " | ".join(COUNTER_LABELS[c] for c in COUNTERS) + " |")
-    out.append("|" + "---|" * len(COUNTERS))
-    out.append("| " + " | ".join(_figure_cell(outside["usage"][c]) for c in COUNTERS) + " |")
-    out += ["",
-            "Codex jobs are counted in both figures. They are **not addends**, and "
-            "no difference between them is a saving.",
-            ""]
+    cursor = summary["cursor_meter"]
+    out += [f"**Ran on a Codex subscription** ({_job_count(codex['jobs'])}). "
+            "No cost figure: the Codex CLI emits none.",
+            "", *_figure_table(codex), ""]
     out += [_credit_sentence(summary["copilot_credits"]), ""]
-    if summary["cursor_meter"]["jobs"]:
-        out += [f"**Ran on the Cursor meter** ({_job_count(summary['cursor_meter']['jobs'])}). "
-                "Cursor reports tokens but no cost figure, so none is shown.", ""]
+    if cursor["jobs"]:
+        out += [f"**Ran on the Cursor meter** ({_job_count(cursor['jobs'])}). "
+                "Cursor reports tokens but no cost figure, so none is shown.",
+                "", *_figure_table(cursor), ""]
+    # The outside figure comes last because it holds the codex and cursor jobs
+    # again; the caveat right below it says so.
+    out += [f"**Ran outside the driver session** ({_job_count(outside['jobs'])}). "
+            f"{_cost_sentence(outside)}",
+            "", *_figure_table(outside), "",
+            "Codex and Cursor jobs are counted in their own figure and again in the "
+            "outside-driver figure. The figures are **not addends**, and no "
+            "difference between them is a saving.",
+            ""]
     if summary["denials"] is not None:
         out += ["Permission denials across claude-backed, copilot-backed, and cursor-backed jobs: "
                 f"**{summary['denials']}**. "

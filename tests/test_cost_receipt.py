@@ -308,7 +308,9 @@ class CursorJobRowTests(unittest.TestCase):
                        [CURSOR_INIT, CURSOR_RESULT])
         summary = rcr.summarize([self.row("job-k"), self.row("job-k-r2")])
         self.assertEqual(260, summary["outside_driver"]["usage"]["input"]["value"])
-        self.assertEqual({"jobs": 2}, summary["cursor_meter"])
+        self.assertEqual(2, summary["cursor_meter"]["jobs"])
+        self.assertEqual(260, summary["cursor_meter"]["usage"]["input"]["value"])
+        self.assertIsNone(summary["cursor_meter"]["cost_usd"])
         self.assertFalse(summary["outside_driver"]["cost_applicable"])
 
 
@@ -601,7 +603,12 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(6, summary["denials"])
 
     def test_a_run_without_cursor_has_no_cursor_jobs(self):
-        self.assertEqual({"jobs": 0}, rcr.summarize([row("a", "codex", 1)])["cursor_meter"])
+        self.assertEqual(0, rcr.summarize([row("a", "codex", 1)])["cursor_meter"]["jobs"])
+
+    def test_the_cursor_figure_counts_only_cursor_jobs(self):
+        summary = rcr.summarize([row("a", "codex", 100), row("c", "cursor", 130)])
+        self.assertEqual(130, summary["cursor_meter"]["usage"]["input"]["value"])
+        self.assertEqual(230, summary["outside_driver"]["usage"]["input"]["value"])
 
     def test_codex_jobs_appear_in_both_figures(self):
         summary = rcr.summarize([row("a", "codex", 100), row("b", "claude", 10, cost=2.5)])
@@ -701,6 +708,25 @@ class MarkdownTests(unittest.TestCase):
         self.assertIn("**Ran on the Cursor meter** (1 job). Cursor reports tokens but no "
                       "cost figure", out)
         self.assertNotIn("Cursor meter", rcr.render_markdown(self.payload()))
+
+    def test_the_cursor_meter_shows_its_tokens(self):
+        out = rcr.render_markdown(self.payload([row("job-a", "codex", 100),
+                                                row("job-cu", "cursor", 130)]))
+        summary = out.split("## Delegated jobs")[0]
+        cursor = summary.split("**Ran on the Cursor meter**")[1].split("**Ran outside")[0]
+        self.assertIn("| 130 | unknown | unknown | unknown | unknown |", cursor)
+
+    def test_the_outside_figure_follows_copilot_and_cursor(self):
+        out = rcr.render_markdown(self.payload([row("job-a", "codex", 100),
+                                                row("job-cu", "cursor", 130)]))
+        order = [out.index(s) for s in ("Ran on a Codex subscription", "Copilot AI-credit meter",
+                                        "Ran on the Cursor meter",
+                                        "Ran outside the driver session", "not addends")]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_caveat_names_both_double_counted_backends(self):
+        self.assertIn("Codex and Cursor jobs are counted in their own figure",
+                      rcr.render_markdown(self.payload()))
 
     def test_denials_name_every_reporting_backend(self):
         out = rcr.render_markdown(self.payload([row("c", "cursor", 1, denials=2)]))
@@ -819,6 +845,23 @@ class TemplateTests(unittest.TestCase):
         for needle in ("cursor_meter", "Ran on the Cursor meter", "n/a - no cost figure",
                        "and cursor-backed jobs"):
             self.assertIn(needle, self.html)
+
+    def test_the_outside_card_sits_above_the_reading_card(self):
+        order = [self.html.index(s) for s in (
+            '"Ran on a Codex subscription"', '"Ran on the Copilot AI-credit meter "',
+            '"Ran on the Cursor meter"', '"Ran outside the driver session"',
+            '"Reading the figures"')]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_cursor_card_renders_its_counters(self):
+        self.assertIn('figureCard("Ran on the Cursor meter", cursor,', self.html)
+
+    def test_only_the_outside_card_sets_counters_in_the_figure_face(self):
+        self.assertIn("costNote(data.summary.outside_driver), true);", self.html)
+        self.assertEqual(1, self.html.count("), true);"))
+
+    def test_a_partial_lead_figure_says_how_many_jobs_were_measured(self):
+        self.assertIn("${c.measured} of ${c.total} jobs measured", self.html)
 
     def setUp(self):
         self.html = TEMPLATE.read_text(encoding="utf-8")
