@@ -44,3 +44,6 @@ Thumbs.db
 # Skill Gantry workspace
 .skillgantry-workspace/
 .impeccable/
+
+# Promo video assets
+promo-video/
