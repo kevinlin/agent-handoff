@@ -471,7 +471,7 @@ cmd_submit() {
   fi
 
   if [ -n "$ROLE" ]; then
-    local IDENTITY="hosts.claude_code.identities.$ROLE" FIELDS CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
+    local IDENTITY="$ROLE" FIELDS CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
     if ! FIELDS="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve \
         source "$IDENTITY.backend" "$IDENTITY.model" "$IDENTITY.effort" "$IDENTITY.permission_mode")"; then
       die "failed to resolve Handoff identity '$ROLE'; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"

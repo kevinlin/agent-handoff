@@ -137,7 +137,7 @@ class DelegateRoleTests(unittest.TestCase):
         deep_reasoner = ""
         if include_deep_reasoner:
             deep_reasoner = (
-                "[hosts.claude_code.identities.deep_reasoner]\n"
+                "[deep_reasoner]\n"
                 f'backend = "{deep_reasoner_backend}"\n'
                 'model = "gpt-deep"\n'
                 f'effort = "{deep_reasoner_effort}"\n\n'
@@ -145,7 +145,7 @@ class DelegateRoleTests(unittest.TestCase):
         arbiter = ""
         if include_arbiter:
             arbiter = (
-                "\n[hosts.claude_code.identities.arbiter]\n"
+                "\n[arbiter]\n"
                 'backend = "codex"\n'
                 'model = "gpt-arbiter"\n'
                 'effort = "high"\n'
@@ -154,7 +154,7 @@ class DelegateRoleTests(unittest.TestCase):
             "schema_version = 2\n"
             "revision = 0\n\n"
             f"{deep_reasoner}"
-            "[hosts.claude_code.identities.fast_worker]\n"
+            "[fast_worker]\n"
             'backend = "codex"\n'
             'model = "gpt-fast"\n'
             'effort = "low"\n'
@@ -166,7 +166,7 @@ class DelegateRoleTests(unittest.TestCase):
         return (
             "schema_version = 2\n"
             "revision = 0\n\n"
-            f"[hosts.claude_code.identities.{identity}]\n"
+            f"[{identity}]\n"
             'backend = "codex"\n'
             'model = "gpt-e2e"\n'
             'effort = "high"\n'
@@ -198,6 +198,32 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("config:project", parsed["model_source"])
         self.assertEqual("xhigh", parsed["effort"])
         self.assertEqual("explicit", parsed["effort_source"])
+
+    def test_role_resolves_from_a_config_with_legacy_identity_headers(self):
+        # Releases before 3.9.2 wrote identity headers with a host prefix. The
+        # config is read as it stands; nothing rewrites it on a submit.
+        legacy = (
+            "schema_version = 2\n"
+            "revision = 0\n\n"
+            "[hosts.claude_code.identities.fast_worker]\n"
+            'backend = "claude"\n'
+            'model = "legacy-model"\n'
+            'effort = "medium"\n'
+        )
+        result, repo = self.run_submit(legacy, "--role", "fast_worker")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        parsed = self.parsed(result.stdout)
+        expected = {
+            "role": "fast_worker",
+            "backend": "claude",
+            "model": "legacy-model",
+            "effort": "medium",
+            "backend_source": "config:project",
+            "model_source": "config:project",
+            "effort_source": "config:project",
+        }
+        self.assertEqual(expected, {key: parsed[key] for key in expected})
+        self.assertEqual(legacy, (repo / ".handoff" / "config.toml").read_text(encoding="utf-8"))
 
     def test_missing_role_fails_with_setup_guidance(self):
         result, _ = self.run_submit(
@@ -610,7 +636,7 @@ class BackendLifecycle:
         path.parent.mkdir(exist_ok=True)
         path.write_text(
             'schema_version = 2\nrevision = 0\n'
-            '[hosts.claude_code.identities.fast_worker]\n'
+            '[fast_worker]\n'
             f'backend = "{self.BACKEND}"\nmodel = "fixture"\neffort = "{self.EFFORT}"\n'
             f'permission_mode = "{posture}"\n', encoding="utf-8"
         )
@@ -1432,7 +1458,7 @@ class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
         self.assertIn("contradicts identity fast_worker, configured as backend=cursor", result.stderr)
         (self.repo / ".handoff" / "config.toml").write_text(
             'schema_version = 2\nrevision = 0\n'
-            '[hosts.claude_code.identities.fast_worker]\n'
+            '[fast_worker]\n'
             'backend = "codex"\nmodel = "gpt-fast"\neffort = "high"\n',
             encoding="utf-8",
         )

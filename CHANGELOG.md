@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.9.2 (2026-10-09)
+
+### Identity sections drop the dual-host prefix
+
+- feat: identity sections are bare top-level tables: `[deep_reasoner]`, `[fast_worker]`, `[arbiter]`, `[e2e_specifier]` and `[e2e_verifier]`. `handoff-config.py get` and `resolve` keys drop the prefix too, so the key is `deep_reasoner.backend`. Fields, field order, `[review]` and `[routing]` are unchanged.
+- feat: a file with `[hosts.claude_code.identities.<identity>]` headers loads with the same values, and reading never rewrites it. The next write re-emits every identity section bare, in the place where the first one stood. The writes are `set`, `set-review`, setup apply, smoke's verification write and `--uninstall --remove-config`. Every other section keeps its bytes, including stale `hosts.codex.*` blocks.
+- **breaking**: the old key `hosts.claude_code.identities.deep_reasoner.backend` no longer resolves, and no alias exists. A file that defines one identity twice is refused whichever header form each section uses, and the error names both headers. Delete one of the two sections by hand.
+- note: a misspelt bare header such as `[deep_reasonr]` is an unknown section, so `validate` does not catch it. The file keeps it untouched, and resolution takes that identity from the next layer if one defines it. A misspelt legacy header is still refused.
+- note: an engine older than 3.9.2 reads only the prefixed headers, so the identities in a file with bare sections are invisible to it. If no other layer configures the role, `delegate-codex.sh` refuses it. If the global config still has a legacy-form identity, the old engine runs the global values, and `config_source` still says `project`. That case does not fail closed.
+- Config schema stays `2`.
+
 ## v3.9.1 (2026-10-09)
 
 ### The setup wizard uses the session view's design

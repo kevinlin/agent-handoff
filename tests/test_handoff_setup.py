@@ -321,10 +321,9 @@ class SetupTests(unittest.TestCase):
         status, _, error = self.run_cli(*self.claude_args())
         self.assertEqual((0, ""), (status, error))
         parsed = handoff_setup.handoff_config.validate_config(
-            handoff_setup.read_text(self.repo / ".handoff" / "config.toml"),
-            "claude_code",
+            handoff_setup.read_text(self.repo / ".handoff" / "config.toml")
         )
-        identities = parsed["hosts"]["claude_code"]["identities"]
+        identities = handoff_setup.handoff_config.identities_of(parsed)
         self.assertEqual(
             ("claude", "opus", "high"),
             tuple(identities["deep_reasoner"][field] for field in ("backend", "model", "effort")),
@@ -380,9 +379,9 @@ always_on_host_rules = false
         rewritten = config.read_text(encoding="utf-8")
         self.assertIn("schema_version = 2", rewritten)
         self.assertNotIn("roles", rewritten)
-        identities = handoff_setup.handoff_config.validate_config(
-            rewritten
-        )["hosts"]["claude_code"]["identities"]
+        identities = handoff_setup.handoff_config.identities_of(
+            handoff_setup.handoff_config.validate_config(rewritten)
+        )
         self.assertEqual("opus", identities["deep_reasoner"]["model"])
 
         backups = sorted((self.repo / ".handoff" / "backups").glob("*/files/*"))
@@ -455,7 +454,7 @@ always_on_host_rules = false
         parsed = handoff_setup.handoff_config.validate_config(
             handoff_setup.read_text(self.repo / ".handoff" / "config.toml")
         )
-        identities = parsed["hosts"]["claude_code"]["identities"]
+        identities = handoff_setup.handoff_config.identities_of(parsed)
         for identity in handoff_setup.ordered(identities):
             self.assertTrue(identities[identity]["verified"])
             self.assertEqual(timestamp, identities[identity]["verified_at"])
@@ -564,13 +563,44 @@ always_on_host_rules = false
         parsed = handoff_setup.handoff_config.validate_config(
             handoff_setup.read_text(config)
         )
-        self.assertEqual({}, parsed["hosts"]["claude_code"]["identities"])
+        self.assertEqual({}, handoff_setup.handoff_config.identities_of(parsed))
         codex_after = "".join(
             chunk.text
             for chunk in handoff_setup.handoff_config.split_sections(handoff_setup.read_text(config))
             if chunk.name and chunk.name.startswith("hosts.codex.identities.")
         )
         self.assertEqual(codex_before, codex_after)
+
+    def test_uninstall_remove_config_clears_legacy_and_bare_identities_alike(self):
+        config = self.repo / ".handoff" / "config.toml"
+        config.parent.mkdir(parents=True)
+        codex = (
+            "[hosts.codex.identities.deep_reasoner]\n"
+            'backend = "codex"\n'
+            'model = "stale-model" # keep this byte-for-byte\n'
+            'effort = "xhigh"\n'
+        )
+        config.write_text(
+            "schema_version = 2\nrevision = 0\n\n"
+            "[hosts.claude_code.identities.deep_reasoner]\n"
+            'backend = "claude"\nmodel = "opus"\neffort = "high"\n\n'
+            "[fast_worker]\n"
+            'backend = "codex"\nmodel = "gpt-test"\neffort = "high"\n\n'
+            + codex,
+            encoding="utf-8",
+        )
+        status, output, error = self.run_cli(
+            "--uninstall", "--repo", str(self.repo), "--remove-config"
+        )
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("identities cleared", output)
+        text = handoff_setup.read_text(config)
+        self.assertEqual(
+            {}, handoff_setup.handoff_config.identities_of(handoff_setup.handoff_config.validate_config(text))
+        )
+        self.assertNotIn("hosts.claude_code", text)
+        self.assertNotIn("[fast_worker]", text)
+        self.assertIn(codex, text)
 
     def test_claude_smoke_uses_fresh_session_and_records_verified(self):
         self.assertEqual(0, self.run_cli(*self.claude_args())[0])
@@ -592,10 +622,9 @@ always_on_host_rules = false
         self.assertIn("--agent", arguments)
         self.assertIn("handoff-deep-reasoner", arguments)
         parsed = handoff_setup.handoff_config.validate_config(
-            handoff_setup.read_text(self.repo / ".handoff" / "config.toml"),
-            "claude_code",
+            handoff_setup.read_text(self.repo / ".handoff" / "config.toml")
         )
-        identities = parsed["hosts"]["claude_code"]["identities"]
+        identities = handoff_setup.handoff_config.identities_of(parsed)
         for identity in handoff_setup.ordered(identities):
             self.assertTrue(identities[identity]["verified"])
             self.assertEqual(
@@ -668,7 +697,7 @@ always_on_host_rules = false
         parsed = handoff_setup.handoff_config.validate_config(
             handoff_setup.read_text(self.repo / ".handoff" / "config.toml")
         )
-        identities = parsed["hosts"]["claude_code"]["identities"]
+        identities = handoff_setup.handoff_config.identities_of(parsed)
         self.assertFalse(identities["deep_reasoner"]["verified"])
         self.assertTrue(identities["fast_worker"]["verified"])
         self.assertTrue(identities["arbiter"]["verified"])
@@ -678,7 +707,7 @@ always_on_host_rules = false
         parsed = handoff_setup.handoff_config.validate_config(
             config.read_text(encoding="utf-8")
         )
-        return parsed["hosts"]["claude_code"]["identities"]
+        return handoff_setup.handoff_config.identities_of(parsed)
 
     def test_default_apply_writes_core_identities_only(self):
         status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
@@ -780,7 +809,7 @@ class ReviewCapsSetupTests(SetupTests):
     def test_the_retired_toggle_is_dropped_on_the_next_apply(self):
         self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
         path = self.repo / ".handoff" / "config.toml"
-        header = "[hosts.claude_code.identities.deep_reasoner]\n"
+        header = "[deep_reasoner]\n"
         path.write_text(
             path.read_text(encoding="utf-8").replace(header, header + "auto_review_spec = true\n"),
             encoding="utf-8",

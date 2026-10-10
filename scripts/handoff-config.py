@@ -3,7 +3,8 @@
 
 This is deliberately a TOML subset implementation.  It splits the document
 into raw section chunks, then parses only top-level metadata, [routing], [review], and
-the identity sections under hosts.claude_code.  Every other chunk -- comments,
+the identity sections ([deep_reasoner], [fast_worker], [arbiter], and the optional
+[e2e_specifier] and [e2e_verifier]).  Every other chunk -- comments,
 [routing], unknown sections -- is preserved byte-for-byte, never reformatted.
 """
 
@@ -22,13 +23,16 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 
-HOST = "claude_code"
 CORE_IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
 # Optional add-on identities. Appended, never inserted: emit_host_sections
 # orders sections by IDENTITIES, so an existing three-identity document must
 # keep writing back byte-identically.
 OPTIONAL_IDENTITIES = ("e2e_specifier", "e2e_verifier")
 IDENTITIES = CORE_IDENTITIES + OPTIONAL_IDENTITIES
+# Releases before 3.9.2 wrote identity headers with this prefix (a leftover of
+# the dual-host layout). The engine still reads them so an older config loads
+# unchanged; the next write re-emits every identity section bare.
+LEGACY_IDENTITY_PREFIX = "hosts.claude_code.identities."
 
 
 def identities_for(with_e2e: bool) -> Tuple[str, ...]:
@@ -41,6 +45,16 @@ def ordered(names: Iterable[str]) -> List[str]:
     """``names`` in canonical identity order."""
 
     return [identity for identity in IDENTITIES if identity in set(names)]
+
+
+def identities_of(data: Mapping[str, Any]) -> Dict[str, Any]:
+    """The identity tables of a parsed or resolved document, in canonical order.
+
+    The values are the document's own dicts, not copies: resolve_config
+    materializes defaults into them.
+    """
+
+    return {identity: data[identity] for identity in IDENTITIES if identity in data}
 
 
 IDENTITY_FIELD_ORDER = (
@@ -83,7 +97,6 @@ DEFAULTS: Dict[str, Any] = {
     "revision": 0,
     "routing": {"always_on_host_rules": False},
     "review": dict(DEFAULT_REVIEW),
-    "hosts": {HOST: {"identities": {}}},
 }
 
 
@@ -130,6 +143,24 @@ def _legacy_v1_error(path: Optional[Path] = None) -> ConfigValidationError:
     return ConfigValidationError(f"{V1_UPGRADE_MESSAGE} File: {location}")
 
 
+def _identity_name(section: Optional[str]) -> Optional[str]:
+    """The identity a table header configures, or None when the engine does not own it.
+
+    None means the section is unowned and round-trips byte-for-byte: [routing],
+    [review], [hosts.codex.*], the bare legacy table without its trailing dot,
+    and any unknown section. A returned name is not yet checked against
+    IDENTITIES -- parse_config refuses a legacy header naming anything else.
+    """
+
+    if section is None:
+        return None
+    if section.startswith(LEGACY_IDENTITY_PREFIX):
+        return section[len(LEGACY_IDENTITY_PREFIX):]
+    if section.split(".", 1)[0] in IDENTITIES:
+        return section
+    return None
+
+
 def split_sections(text: str) -> List[SectionChunk]:
     """Split on standard table-header lines without interpreting body text."""
 
@@ -142,7 +173,7 @@ def split_sections(text: str) -> List[SectionChunk]:
     current_lines: List[str] = []
     start_line = 1
 
-    interpreted = ("routing", "review", f"hosts.{HOST}.identities")
+    interpreted = ("routing", "review", LEGACY_IDENTITY_PREFIX.rstrip("."), *IDENTITIES)
     for line_number, line in enumerate(lines, 1):
         stripped = line.lstrip(" \t")
         match = ARRAY_SECTION_RE.match(line) or SECTION_RE.match(line)
@@ -242,12 +273,16 @@ def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> M
     return base
 
 
-def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) -> Dict[str, Any]:
-    """Parse schema metadata, routing, review, and only ``host`` identity sections."""
+def parse_config(text: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
+    """Parse schema metadata, routing, review, and the identity sections.
 
-    result: Dict[str, Any] = {"hosts": {host: {"identities": {}}}}
+    The result mirrors the TOML: each identity is a top-level key, whichever
+    header form (bare or legacy) the file used.
+    """
+
+    result: Dict[str, Any] = {}
     seen_sections = set()
-    identity_prefix = f"hosts.{host}.identities."
+    seen_identities: Dict[str, str] = {}
     chunks = split_sections(text)
 
     if any(
@@ -257,6 +292,7 @@ def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) ->
         raise _legacy_v1_error(path)
 
     for chunk in chunks:
+        identity = _identity_name(chunk.name)
         if chunk.name is None:
             top = _parse_assignments(chunk)
             schema_version = top.get("schema_version")
@@ -275,23 +311,33 @@ def parse_config(text: str, host: str = HOST, *, path: Optional[Path] = None) ->
                 raise ConfigParseError(chunk.start_line, 1, "duplicate [review] section.")
             seen_sections.add(chunk.name)
             result["review"] = _parse_assignments(chunk)
-        elif chunk.name.startswith(identity_prefix):
-            identity = chunk.name[len(identity_prefix):]
+        elif identity is not None:
             if "." in identity or not identity:
                 raise ConfigParseError(chunk.start_line, 1, f"invalid owned identity section [{chunk.name}].")
-            if chunk.name in seen_sections:
-                raise ConfigParseError(chunk.start_line, 1, f"duplicate [{chunk.name}] section.")
-            seen_sections.add(chunk.name)
+            # Refused before anything is stored at result[identity]: a legacy
+            # header naming `review` must not overwrite result["review"], and
+            # _validate_data only sees names identities_of lets through.
+            if identity not in IDENTITIES:
+                raise ConfigValidationError(f"unsupported identity: {identity!r}")
+            # Same-form and mixed-form duplicates alike: two tables for one
+            # identity would let the later one silently win.
+            if identity in seen_identities:
+                raise ConfigParseError(
+                    chunk.start_line,
+                    1,
+                    f"identity {identity!r} is defined twice "
+                    f"([{seen_identities[identity]}] and [{chunk.name}]); keep one.",
+                )
+            seen_identities[identity] = chunk.name
             fields = _parse_assignments(chunk)
             for retired in RETIRED_IDENTITY_FIELDS:
                 fields.pop(retired, None)
-            result["hosts"][host]["identities"][identity] = fields
+            result[identity] = fields
     return result
 
 
 def _validate_data(
     data: Dict[str, Any],
-    host: str,
     *,
     path: Optional[Path] = None,
 ) -> Dict[str, Any]:
@@ -319,42 +365,34 @@ def _validate_data(
             )
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             raise ConfigValidationError(f"review.{key} must be an integer of at least 1")
-    try:
-        identities = data["hosts"][host]["identities"]
-    except (KeyError, TypeError):
-        raise ConfigValidationError(f"hosts.{host}.identities must be a table") from None
-    if not isinstance(identities, Mapping):
-        raise ConfigValidationError(f"hosts.{host}.identities must be a table")
-    for identity, fields in identities.items():
-        if identity not in IDENTITIES:
-            raise ConfigValidationError(f"unsupported identity in hosts.{host}: {identity!r}")
+    for identity, fields in identities_of(data).items():
         backend = fields.get("backend")
         if backend not in BACKENDS:
             raise ConfigValidationError(
-                f"hosts.{host}.identities.{identity}.backend must be one of {', '.join(BACKENDS)}"
+                f"{identity}.backend must be one of {', '.join(BACKENDS)}"
             )
         for required in ("model", "effort"):
             if required not in fields or not isinstance(fields[required], str) or not fields[required].strip():
                 raise ConfigValidationError(
-                    f"hosts.{host}.identities.{identity}.{required} must be a non-empty string"
+                    f"{identity}.{required} must be a non-empty string"
                 )
         permission_mode = fields.get("permission_mode", DEFAULT_PERMISSION_MODE)
         if permission_mode not in PERMISSION_MODES:
             raise ConfigValidationError(
-                f"hosts.{host}.identities.{identity}.permission_mode must be one of "
+                f"{identity}.permission_mode must be one of "
                 f"{', '.join(PERMISSION_MODES)}"
             )
         if "verified" in fields and not isinstance(fields["verified"], bool):
-            raise ConfigValidationError(f"hosts.{host}.identities.{identity}.verified must be a boolean")
+            raise ConfigValidationError(f"{identity}.verified must be a boolean")
         if "verified_at" in fields and not isinstance(fields["verified_at"], str):
-            raise ConfigValidationError(f"hosts.{host}.identities.{identity}.verified_at must be a string")
+            raise ConfigValidationError(f"{identity}.verified_at must be a string")
     return data
 
 
-def validate_config(text: str, host: str = HOST, *, path: Optional[Path] = None) -> Dict[str, Any]:
-    """Parse and validate the schema-v2 values visible to ``host``."""
+def validate_config(text: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
+    """Parse and validate the schema-v2 values."""
 
-    return _validate_data(parse_config(text, host, path=path), host, path=path)
+    return _validate_data(parse_config(text, path=path), path=path)
 
 
 def _format_value(value: Any) -> str:
@@ -367,13 +405,13 @@ def _format_value(value: Any) -> str:
     raise ConfigValidationError(f"cannot emit unsupported value {value!r}")
 
 
-def emit_host_sections(identities: Mapping[str, Mapping[str, Any]], host: str = HOST) -> str:
-    """Return canonical identity sections for one host."""
+def emit_host_sections(identities: Mapping[str, Mapping[str, Any]]) -> str:
+    """Return canonical identity sections."""
 
     blocks: List[str] = []
     for identity in ordered(identities):
         fields = {key: value for key, value in identities[identity].items() if key not in RETIRED_IDENTITY_FIELDS}
-        lines = [f"[hosts.{host}.identities.{identity}]"]
+        lines = [f"[{identity}]"]
         ordered_fields = [field for field in IDENTITY_FIELD_ORDER if field in fields]
         ordered_fields.extend(sorted(set(fields) - set(IDENTITY_FIELD_ORDER)))
         lines.extend(f"{field} = {_format_value(fields[field])}" for field in ordered_fields)
@@ -387,12 +425,15 @@ def _base_document() -> str:
 
 def update_host(
     text: str,
-    host: str = HOST,
     identities: Optional[Mapping[str, Mapping[str, Any]]] = None,
     *,
     path: Optional[Path] = None,
 ) -> str:
-    """Replace the identity chunks, preserving every other chunk byte-for-byte."""
+    """Replace the identity chunks, preserving every other chunk byte-for-byte.
+
+    Every owned chunk goes, in bare or legacy form, and the bare sections take
+    the place of the first one.
+    """
 
     if identities is None:
         identities = {}
@@ -401,11 +442,11 @@ def update_host(
     for identity in candidate_identities:
         if identity not in IDENTITIES:
             raise ConfigValidationError(f"unsupported identity: {identity!r}")
-    emitted = emit_host_sections(candidate_identities, host)
+    emitted = emit_host_sections(candidate_identities)
     if not text:
         routing = "[routing]\nalways_on_host_rules = false\n"
         candidate = _base_document() + "\n" + emitted + ("\n" if emitted else "") + routing
-        validate_config(candidate, host, path=path)
+        validate_config(candidate, path=path)
         return candidate
 
     chunks = split_sections(text)
@@ -414,8 +455,7 @@ def update_host(
         for chunk in chunks
     ):
         raise _legacy_v1_error(path)
-    prefix = f"hosts.{host}.identities."
-    indexes = [index for index, chunk in enumerate(chunks) if chunk.name and chunk.name.startswith(prefix)]
+    indexes = [index for index, chunk in enumerate(chunks) if _identity_name(chunk.name) is not None]
     insert_at = indexes[0] if indexes else len(chunks)
     kept = [chunk.text for index, chunk in enumerate(chunks) if index not in indexes]
     if emitted:
@@ -428,7 +468,7 @@ def update_host(
             insertion += "\n"
         kept.insert(insert_at, insertion)
     candidate = "".join(kept)
-    validate_config(candidate, host, path=path)
+    validate_config(candidate, path=path)
     return candidate
 
 
@@ -440,13 +480,13 @@ def emit_review_section(review: Mapping[str, int]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _has_retired_fields(text: str, host: str = HOST) -> bool:
-    """Whether any identity chunk still carries a retired key, read from the raw text."""
+def _needs_identity_rewrite(text: str) -> bool:
+    """Whether any identity chunk has a legacy header or a retired key, read from the raw text."""
 
-    prefix = f"hosts.{host}.identities."
     pattern = re.compile(r"^[ \t]*(?:%s)[ \t]*=" % "|".join(RETIRED_IDENTITY_FIELDS), re.MULTILINE)
     return any(
-        chunk.name and chunk.name.startswith(prefix) and pattern.search(chunk.text)
+        _identity_name(chunk.name) is not None
+        and (chunk.name.startswith(LEGACY_IDENTITY_PREFIX) or pattern.search(chunk.text))
         for chunk in split_sections(text)
     )
 
@@ -454,20 +494,20 @@ def _has_retired_fields(text: str, host: str = HOST) -> bool:
 def update_review(
     text: str,
     review: Mapping[str, int],
-    host: str = HOST,
     *,
     path: Optional[Path] = None,
 ) -> str:
     """Replace the [review] chunk in place, or append one, preserving every other chunk."""
 
     if not text:
-        text = update_host("", host, {}, path=path)
-    elif _has_retired_fields(text, host):
-        # Re-emit the identity sections so this write also drops the retired key.
+        text = update_host("", {}, path=path)
+    elif _needs_identity_rewrite(text):
+        # Re-emit the identity sections so this write also drops a retired key
+        # and rewrites a legacy header bare, as every identity write does.
         # Only then: update_host normalizes blank lines, which would otherwise
         # break byte preservation for files that need no cleanup.
-        identities = parse_config(text, host, path=path)["hosts"][host]["identities"]
-        text = update_host(text, host, identities, path=path)
+        identities = identities_of(parse_config(text, path=path))
+        text = update_host(text, identities, path=path)
     emitted = emit_review_section(review)
     kept: List[str] = []
     replaced = False
@@ -485,7 +525,7 @@ def update_review(
         if candidate and not candidate.endswith("\n"):
             candidate += "\n"
         candidate += ("\n" if candidate else "") + emitted
-    validate_config(candidate, host, path=path)
+    validate_config(candidate, path=path)
     return candidate
 
 
@@ -588,7 +628,6 @@ class ConfigLock:
 
 def write_host_config(
     path: Path,
-    host: str = HOST,
     identities: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> str:
     """Lock, read, replace the identity sections, and atomically persist."""
@@ -598,45 +637,23 @@ def write_host_config(
 
     with ConfigLock(path):
         current = _read_text(path) if Path(path).exists() else ""
-        updated = update_host(current, host, identities, path=Path(path))
+        updated = update_host(current, identities, path=Path(path))
         atomic_write(Path(path), updated)
     return updated
-
-
-def _host_overlay(data: Mapping[str, Any], host: str = HOST) -> Dict[str, Any]:
-    overlay: Dict[str, Any] = {}
-    for key in ("schema_version", "revision", "routing", "review"):
-        if key in data:
-            overlay[key] = _copy(data[key])
-    identities = data.get("hosts", {}).get(host, {}).get("identities", {})
-    if identities:
-        overlay["hosts"] = {host: {"identities": _copy(identities)}}
-    return overlay
 
 
 def _invalidate_inherited_verification(
     resolved: MutableMapping[str, Any],
     overlay: Mapping[str, Any],
-    host: str,
 ) -> None:
-    identities = (
-        overlay.get("hosts", {})
-        .get(host, {})
-        .get("identities", {})
-    )
-    resolved_identities = (
-        resolved.setdefault("hosts", {})
-        .setdefault(host, {})
-        .setdefault("identities", {})
-    )
-    for identity, fields in identities.items():
+    for identity, fields in identities_of(overlay).items():
         if not isinstance(fields, Mapping):
             continue
         identity_changed = any(
             field in fields for field in ("backend", "model", "effort")
         )
         if identity_changed:
-            current = resolved_identities.setdefault(identity, {})
+            current = resolved.setdefault(identity, {})
             if "verified" not in fields:
                 current["verified"] = False
             if "verified_at" not in fields:
@@ -645,7 +662,6 @@ def _invalidate_inherited_verification(
 
 def resolve_config(
     repo: Path,
-    host: str = HOST,
     session_override: Optional[Mapping[str, Any]] = None,
     *,
     env: Optional[Mapping[str, str]] = None,
@@ -658,10 +674,9 @@ def resolve_config(
     project_path = project_config_path(Path(repo))
     for label, path in (("global", global_path), ("project", project_path)):
         if path.is_file():
-            parsed = validate_config(_read_text(path), host, path=path)
-            overlay = _host_overlay(parsed, host)
-            _deep_merge(resolved, overlay)
-            _invalidate_inherited_verification(resolved, overlay, host)
+            parsed = validate_config(_read_text(path), path=path)
+            _deep_merge(resolved, parsed)
+            _invalidate_inherited_verification(resolved, parsed)
             source = label
     if session_override:
         if "review" in session_override:
@@ -669,13 +684,13 @@ def resolve_config(
                 "the review caps have no session override; set them with handoff-config.py set-review"
             )
         _deep_merge(resolved, session_override)
-        _invalidate_inherited_verification(resolved, session_override, host)
+        _invalidate_inherited_verification(resolved, session_override)
         source = "session"
-    _validate_data(resolved, host)
+    _validate_data(resolved)
     # Materialized once, here, so every consumer reads a value rather than an
     # absence. The merge above is per field, so a global `allow-all` survives a
     # project identity that omits the field.
-    for fields in resolved["hosts"][host]["identities"].values():
+    for fields in identities_of(resolved).values():
         fields.setdefault("permission_mode", DEFAULT_PERMISSION_MODE)
     resolved["source"] = source
     return resolved
@@ -703,7 +718,7 @@ def _print_value(value: Any) -> None:
         print(value)
 
 
-def _parse_override(items: Iterable[str], host: str = HOST) -> Dict[str, Any]:
+def _parse_override(items: Iterable[str]) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for item in items:
         if "=" not in item:
@@ -723,7 +738,7 @@ def _parse_override(items: Iterable[str], host: str = HOST) -> Dict[str, Any]:
             value = raw
         else:
             raise ConfigError(f"override value must not be empty: {dotted}")
-        result.setdefault("hosts", {}).setdefault(host, {}).setdefault("identities", {}).setdefault(parts[0], {})[parts[1]] = value
+        result.setdefault(parts[0], {})[parts[1]] = value
     return result
 
 
@@ -775,7 +790,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     path = _scope_path(args.scope, args.repo)
     try:
         if args.command == "resolve":
-            resolved = resolve_config(args.repo, HOST, _parse_override(args.override))
+            resolved = resolve_config(args.repo, _parse_override(args.override))
             # Look every key up before printing, so a missing key prints nothing.
             for value in [_get_nested(resolved, key) for key in args.keys] or [resolved]:
                 _print_value(value)
@@ -809,7 +824,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(path)
             return 0
         if args.command == "set":
-            identities = data["hosts"][HOST]["identities"]
+            identities = identities_of(data)
             current = dict(identities.get(args.role, {}))
             updates = {
                 "backend": args.backend,
@@ -839,7 +854,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if args.verified is False and args.verified_at is None:
                 current.pop("verified_at", None)
             identities[args.role] = current
-            write_host_config(path, HOST, identities)
+            write_host_config(path, identities)
             print(path)
             return 0
         parser.error(f"unknown command: {args.command}")

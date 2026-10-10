@@ -726,7 +726,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     else:
         if old_config:
             parsed = handoff_config.validate_config(old_config, path=path)
-            current_identities = parsed["hosts"][handoff_config.HOST]["identities"]
+            current_identities = handoff_config.identities_of(parsed)
             current_review = parsed.get("review", {})
         preserve_verification(current_identities, desired)
     review = desired_review(args, env, current_review)
@@ -1111,7 +1111,7 @@ def show_status(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         f"review: spec_max_rounds={review['spec_max_rounds']} "
         f"implementation_max_rounds={review['implementation_max_rounds']}"
     )
-    identities = resolved["hosts"][handoff_config.HOST]["identities"]
+    identities = handoff_config.identities_of(resolved)
     for identity in IDENTITIES:
         values = identities.get(identity, {})
         print(
@@ -1179,7 +1179,7 @@ def smoke_claude_identity(
 
 def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     resolved = handoff_config.resolve_config(args.repo, env=env)
-    configured = resolved["hosts"][handoff_config.HOST]["identities"]
+    configured = handoff_config.identities_of(resolved)
     missing = [identity for identity in CORE_IDENTITIES if identity not in configured]
     if missing:
         raise SetupError(
@@ -1268,7 +1268,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         with handoff_config.ConfigLock(path):
             old = read_text(path) if path.exists() else ""
             parsed_identities = (
-                handoff_config.validate_config(old)["hosts"][handoff_config.HOST]["identities"]
+                handoff_config.identities_of(handoff_config.validate_config(old))
                 if old else {}
             )
             identities = {
@@ -1338,7 +1338,7 @@ def uninstall(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 if cleared != old:
                     if not args.dry_run:
                         handoff_config.atomic_write(cpath, cleared)
-                    removed.append(f"{cpath} (hosts.{handoff_config.HOST}.identities cleared)")
+                    removed.append(f"{cpath} (identities cleared)")
 
     prefix = "WOULD_REMOVE" if args.dry_run else "REMOVED"
     for line in removed:

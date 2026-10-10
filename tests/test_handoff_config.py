@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "handoff-config.py"
@@ -54,6 +55,12 @@ def document(claude_model: str = "opus", codex_model: str = "gpt-test") -> str:
     )
 
 
+def bare_document(claude_model: str = "opus", codex_model: str = "gpt-test") -> str:
+    """The twin of document() with bare identity headers; everything else is identical."""
+
+    return document(claude_model, codex_model).replace("[hosts.claude_code.identities.", "[")
+
+
 def legacy_document() -> str:
     return (
         "schema_version = 1\n"
@@ -72,44 +79,46 @@ def legacy_document() -> str:
 
 class ConfigRoundTripTests(unittest.TestCase):
     def test_unowned_host_routing_and_comments_are_byte_preserved(self):
-        original = document()
-        before_chunks = {
-            chunk.name: chunk.text
-            for chunk in handoff_config.split_sections(original)
-            if chunk.name and not chunk.name.startswith("hosts.claude_code.identities.")
-        }
-        identities = {
-            "deep_reasoner": {"backend": "claude", "model": "new-opus", "effort": "high"},
-            "fast_worker": {"backend": "codex", "model": "new-sonnet", "effort": "low"},
-        }
-        updated = handoff_config.update_host(original, identities=identities)
-        after_chunks = {
-            chunk.name: chunk.text
-            for chunk in handoff_config.split_sections(updated)
-            if chunk.name and not chunk.name.startswith("hosts.claude_code.identities.")
-        }
-        self.assertEqual(before_chunks, after_chunks)
-        self.assertIn("# keep this top comment\r\n", updated)
+        for form, original in (("legacy", document()), ("bare", bare_document())):
+            with self.subTest(form=form):
+                before_chunks = {
+                    chunk.name: chunk.text
+                    for chunk in handoff_config.split_sections(original)
+                    if chunk.name and handoff_config._identity_name(chunk.name) is None
+                }
+                identities = {
+                    "deep_reasoner": {"backend": "claude", "model": "new-opus", "effort": "high"},
+                    "fast_worker": {"backend": "codex", "model": "new-sonnet", "effort": "low"},
+                }
+                updated = handoff_config.update_host(original, identities=identities)
+                after_chunks = {
+                    chunk.name: chunk.text
+                    for chunk in handoff_config.split_sections(updated)
+                    if chunk.name and handoff_config._identity_name(chunk.name) is None
+                }
+                self.assertEqual(before_chunks, after_chunks)
+                self.assertIn("# keep this top comment\r\n", updated)
 
     def test_stale_second_host_sections_survive_a_write(self):
         # Configs written by dual-host versions still carry hosts.codex.* blocks.
         # They are unowned now, so a write must leave them byte-identical.
-        original = document()
-        stale = "".join(
-            chunk.text for chunk in handoff_config.split_sections(original)
-            if chunk.name and chunk.name.startswith("hosts.codex.")
-        )
-        self.assertIn("gpt-test", stale)
-        parsed = handoff_config.validate_config(original)
-        identities = parsed["hosts"]["claude_code"]["identities"]
-        identities["fast_worker"]["effort"] = "low"
-        updated = handoff_config.update_host(original, identities=identities)
-        updated_stale = "".join(
-            chunk.text for chunk in handoff_config.split_sections(updated)
-            if chunk.name and chunk.name.startswith("hosts.codex.")
-        )
-        self.assertEqual(stale, updated_stale)
-        self.assertIn('effort = "low"', updated)
+        for form, original in (("legacy", document()), ("bare", bare_document())):
+            with self.subTest(form=form):
+                stale = "".join(
+                    chunk.text for chunk in handoff_config.split_sections(original)
+                    if chunk.name and chunk.name.startswith("hosts.codex.")
+                )
+                self.assertIn("gpt-test", stale)
+                parsed = handoff_config.validate_config(original)
+                identities = handoff_config.identities_of(parsed)
+                identities["fast_worker"]["effort"] = "low"
+                updated = handoff_config.update_host(original, identities=identities)
+                updated_stale = "".join(
+                    chunk.text for chunk in handoff_config.split_sections(updated)
+                    if chunk.name and chunk.name.startswith("hosts.codex.")
+                )
+                self.assertEqual(stale, updated_stale)
+                self.assertIn('effort = "low"', updated)
 
     def test_unknown_array_of_tables_section_is_preserved(self):
         original = document() + "\n[[future.plugins]]\nname = \"x\"\n"
@@ -119,7 +128,7 @@ class ConfigRoundTripTests(unittest.TestCase):
 
     def test_emitter_is_idempotent(self):
         parsed = handoff_config.validate_config(document())
-        identities = parsed["hosts"]["claude_code"]["identities"]
+        identities = handoff_config.identities_of(parsed)
         once = handoff_config.update_host(document(), identities=identities)
         twice = handoff_config.update_host(once, identities=identities)
         self.assertEqual(once, twice)
@@ -132,7 +141,7 @@ class UnsupportedSyntaxTests(unittest.TestCase):
         text = (
             "schema_version = 2\n"
             "revision = 0\n"
-            "[hosts.claude_code.identities.deep_reasoner]\n"
+            "[deep_reasoner]\n"
             'backend = "codex"\n'
             f"{assignment}\n"
             'effort = "high"\n'
@@ -167,7 +176,7 @@ class BackendValidationTests(unittest.TestCase):
         return (
             "schema_version = 2\n"
             "revision = 0\n"
-            "[hosts.claude_code.identities.deep_reasoner]\n"
+            "[deep_reasoner]\n"
             f"{backend}"
             'model = "gpt-test"\n'
             'effort = "high"\n'
@@ -283,19 +292,19 @@ class ResolveTests(unittest.TestCase):
             env = {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(xdg)}
             resolved = handoff_config.resolve_config(repo, env=env)
             self.assertEqual("project", resolved["source"])
-            self.assertEqual("project", resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]["model"])
-            self.assertEqual("codex", resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]["backend"])
-            override = {"hosts": {"claude_code": {"identities": {"deep_reasoner": {"model": "session"}}}}}
+            self.assertEqual("project", resolved["deep_reasoner"]["model"])
+            self.assertEqual("codex", resolved["deep_reasoner"]["backend"])
+            override = {"deep_reasoner": {"model": "session"}}
             resolved = handoff_config.resolve_config(repo, session_override=override, env=env)
             self.assertEqual("session", resolved["source"])
-            self.assertEqual("session", resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]["model"])
+            self.assertEqual("session", resolved["deep_reasoner"]["model"])
             project_path.unlink()
             resolved = handoff_config.resolve_config(repo, env=env)
             self.assertEqual("global", resolved["source"])
             global_path.unlink()
             resolved = handoff_config.resolve_config(repo, env=env)
             self.assertEqual("default", resolved["source"])
-            self.assertEqual({}, resolved["hosts"]["claude_code"]["identities"])
+            self.assertEqual({}, handoff_config.identities_of(resolved))
 
     def test_higher_layer_identity_change_invalidates_inherited_verification(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -336,24 +345,16 @@ class ResolveTests(unittest.TestCase):
             )
             env = {"HOME": str(root / "home"), "XDG_CONFIG_HOME": str(xdg)}
             resolved = handoff_config.resolve_config(repo, env=env)
-            identity = resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]
+            identity = resolved["deep_reasoner"]
             self.assertEqual("unverified-new", identity["model"])
             self.assertFalse(identity["verified"])
             self.assertNotIn("verified_at", identity)
 
-            override = {
-                "hosts": {
-                    "claude_code": {
-                        "identities": {
-                            "deep_reasoner": {"model": "session-model"}
-                        }
-                    }
-                }
-            }
+            override = {"deep_reasoner": {"model": "session-model"}}
             resolved = handoff_config.resolve_config(
                 repo, session_override=override, env=env
             )
-            identity = resolved["hosts"]["claude_code"]["identities"]["deep_reasoner"]
+            identity = resolved["deep_reasoner"]
             self.assertEqual("session-model", identity["model"])
             self.assertFalse(identity["verified"])
 
@@ -400,7 +401,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual((0, ""), (status, error))
             self.assertEqual(0, self.run_cli(*base, "validate")[0])
             status, output, error = self.run_cli(
-                *base, "get", "hosts.claude_code.identities.deep_reasoner.model"
+                *base, "get", "deep_reasoner.model"
             )
             self.assertEqual((0, "chosen-model\n", ""), (status, output, error))
             status, _, error = self.run_cli(
@@ -408,7 +409,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual((0, ""), (status, error))
             status, output, error = self.run_cli(
-                *base, "get", "hosts.claude_code.identities.deep_reasoner.backend"
+                *base, "get", "deep_reasoner.backend"
             )
             self.assertEqual((0, "codex\n", ""), (status, output, error))
             path = Path(directory) / ".handoff" / "config.toml"
@@ -455,7 +456,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual((0, ""), (status, error))
             status, output, error = self.run_cli(
-                *base, "get", "hosts.claude_code.identities.arbiter"
+                *base, "get", "arbiter"
             )
             self.assertEqual((0, ""), (status, error))
             self.assertEqual(
@@ -497,7 +498,7 @@ class CliTests(unittest.TestCase):
                 )[0],
             )
             status, output, error = self.run_cli(
-                *base, "get", "hosts.claude_code.identities.deep_reasoner"
+                *base, "get", "deep_reasoner"
             )
             self.assertEqual((0, ""), (status, error))
             identity = json.loads(output)
@@ -564,9 +565,9 @@ class OptionalIdentityTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "[hosts.claude_code.identities.deep_reasoner]",
-                "[hosts.claude_code.identities.fast_worker]",
-                "[hosts.claude_code.identities.arbiter]",
+                "[deep_reasoner]",
+                "[fast_worker]",
+                "[arbiter]",
             ],
             [line for line in text.splitlines() if line.startswith("[")],
         )
@@ -583,9 +584,9 @@ class OptionalIdentityTests(unittest.TestCase):
                 }
             },
         )
-        self.assertIn("[hosts.claude_code.identities.e2e_verifier]", text)
+        self.assertIn("[e2e_verifier]", text)
         parsed = handoff_config.parse_config(text)
-        identity = parsed["hosts"][handoff_config.HOST]["identities"]["e2e_verifier"]
+        identity = handoff_config.identities_of(parsed)["e2e_verifier"]
         self.assertEqual("codex", identity["backend"])
         self.assertEqual("gpt-test", identity["model"])
 
@@ -598,23 +599,22 @@ class OptionalIdentityTests(unittest.TestCase):
             }
         )
         positions = [
-            text.index("identities.deep_reasoner"),
-            text.index("identities.e2e_specifier"),
-            text.index("identities.e2e_verifier"),
+            text.index("[deep_reasoner]"),
+            text.index("[e2e_specifier]"),
+            text.index("[e2e_verifier]"),
         ]
         self.assertEqual(sorted(positions), positions)
 
     def test_override_accepts_optional_identity(self):
         override = handoff_config._parse_override(["e2e_verifier.effort=low"])
-        identities = override["hosts"][handoff_config.HOST]["identities"]
-        self.assertEqual("low", identities["e2e_verifier"]["effort"])
+        self.assertEqual({"e2e_verifier": {"effort": "low"}}, override)
 
 
 class RetiredSpecReviewFieldTests(unittest.TestCase):
     LEGACY = (
         "schema_version = 2\n"
         "revision = 0\n"
-        "[hosts.claude_code.identities.deep_reasoner]\n"
+        "[deep_reasoner]\n"
         'backend = "claude"\n'
         'model = "opus"\n'
         'effort = "high"\n'
@@ -623,7 +623,7 @@ class RetiredSpecReviewFieldTests(unittest.TestCase):
 
     def test_dropped_on_read(self):
         parsed = handoff_config.validate_config(self.LEGACY)
-        identity = parsed["hosts"][handoff_config.HOST]["identities"]["deep_reasoner"]
+        identity = parsed["deep_reasoner"]
         self.assertNotIn("auto_review_spec", identity)
 
     def test_dropped_even_where_it_used_to_be_invalid(self):
@@ -631,7 +631,7 @@ class RetiredSpecReviewFieldTests(unittest.TestCase):
             "auto_review_spec = true", 'auto_review_spec = "yes"'
         )
         parsed = handoff_config.validate_config(text)
-        identity = parsed["hosts"][handoff_config.HOST]["identities"]["fast_worker"]
+        identity = parsed["fast_worker"]
         self.assertNotIn("auto_review_spec", identity)
 
     def test_next_write_removes_it(self):
@@ -686,7 +686,7 @@ class ReviewSectionTests(unittest.TestCase):
         "schema_version = 2\n"
         "revision = 0\n"
         "\n"
-        "[hosts.claude_code.identities.fast_worker]\n"
+        "[fast_worker]\n"
         'backend = "codex"\n'
         'model = "gpt-test"\n'
         'effort = "medium"\n'
@@ -829,7 +829,7 @@ class PermissionModeTests(unittest.TestCase):
             def doc(values):
                 return handoff_config.update_host("", identities={"fast_worker": values})
             def resolved():
-                return handoff_config.resolve_config(repo, env=env)["hosts"]["claude_code"]["identities"]["fast_worker"]
+                return handoff_config.resolve_config(repo, env=env)["fast_worker"]
             project.write_text(doc(identity))
             self.assertEqual("default", resolved()["permission_mode"])
             for mode in handoff_config.PERMISSION_MODES:
@@ -856,9 +856,328 @@ class PermissionModeTests(unittest.TestCase):
                 self.assertEqual(0, handoff_config.main([
                     "--repo", str(repo), "resolve", "--override",
                     "fast_worker.permission_mode=allow-all"]))
-            fields = json.loads(output.getvalue())["hosts"]["claude_code"]["identities"]["fast_worker"]
+            fields = json.loads(output.getvalue())["fast_worker"]
             self.assertEqual("allow-all", fields["permission_mode"])
             self.assertTrue(fields["verified"])
+
+
+class IdentityHelperTests(unittest.TestCase):
+    def test_identity_name_owns_only_identity_headers(self):
+        legacy = handoff_config.LEGACY_IDENTITY_PREFIX
+        owned = {
+            f"{legacy}deep_reasoner": "deep_reasoner",
+            f"{legacy}deep_reasonr": "deep_reasonr",
+            f"{legacy}review": "review",
+            f"{legacy}deep_reasoner.x": "deep_reasoner.x",
+            "deep_reasoner": "deep_reasoner",
+            "e2e_verifier": "e2e_verifier",
+            "deep_reasoner.x": "deep_reasoner.x",
+        }
+        for header, name in owned.items():
+            with self.subTest(header=header):
+                self.assertEqual(name, handoff_config._identity_name(header))
+        for header in (
+            None,
+            "routing",
+            "review",
+            "notes",
+            "future.plugins",
+            legacy.rstrip("."),
+            "hosts.codex.identities.deep_reasoner",
+            "hosts.claude_code.roles.deep_reasoner",
+        ):
+            with self.subTest(header=header):
+                self.assertIsNone(handoff_config._identity_name(header))
+
+    def test_identities_of_returns_the_documents_own_tables_in_canonical_order(self):
+        data = {
+            "schema_version": 2,
+            "review": {"spec_max_rounds": 1},
+            "fast_worker": {"backend": "codex"},
+            "deep_reasoner": {"backend": "claude"},
+            "notes": {"x": 1},
+        }
+        identities = handoff_config.identities_of(data)
+        self.assertEqual(["deep_reasoner", "fast_worker"], list(identities))
+        self.assertIs(data["deep_reasoner"], identities["deep_reasoner"])
+        self.assertIs(data["fast_worker"], identities["fast_worker"])
+        self.assertEqual({}, handoff_config.identities_of({"schema_version": 2}))
+
+
+class IdentityLayoutTests(unittest.TestCase):
+    """Bare identity headers, and the legacy headers earlier releases wrote."""
+
+    HEAD = "schema_version = 2\nrevision = 0\n\n"
+    BODY = 'backend = "claude"\nmodel = "opus"\neffort = "high"\n'
+    PREAMBLE = "# preamble comment, kept as written\nschema_version = 2\nrevision = 3\n\n"
+    LEGACY_IDENTITIES = (
+        "[hosts.claude_code.identities.deep_reasoner]\n"
+        'backend = "claude"\n'
+        'model = "opus"\n'
+        'effort = "high"\n'
+        "\n"
+        "[hosts.claude_code.identities.fast_worker]\n"
+        'backend = "codex"\n'
+        'model = "gpt-fast"\n'
+        'effort = "medium"\n'
+        "\n"
+    )
+    CODEX_BLOCK = (
+        "[hosts.codex.identities.deep_reasoner]\n"
+        "# comment inside the codex block\n"
+        'backend = "codex"\n'
+        'model = "gpt-test" # untouched inline\n'
+        'effort = "xhigh"\n'
+        "\n"
+    )
+    TAIL = "[routing]\nalways_on_host_rules = false # routing comment\n"
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.repo = self.root / "repo"
+        self.path = handoff_config.project_config_path(self.repo)
+        # The CLI resolves the global file from os.environ; a real one on this
+        # machine must not be able to answer for the fixture.
+        self.env = {"HOME": str(self.root / "home"), "XDG_CONFIG_HOME": str(self.root / "xdg")}
+        patcher = patch.dict(os.environ, self.env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def legacy_file(self) -> str:
+        return self.PREAMBLE + self.LEGACY_IDENTITIES + self.CODEX_BLOCK + self.TAIL
+
+    def write_project(self, text: str) -> Path:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(text, encoding="utf-8", newline="")
+        return self.path
+
+    def run_cli(self, *arguments):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            status = handoff_config.main(["--repo", str(self.repo), *arguments])
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_legacy_document_and_its_bare_twin_validate_identically(self):
+        legacy = self.legacy_file()
+        pairs = (
+            (legacy, legacy.replace("[hosts.claude_code.identities.", "[")),
+            (document(), bare_document()),
+        )
+        for legacy_text, bare_text in pairs:
+            with self.subTest(text=legacy_text[:40]):
+                self.assertNotEqual(legacy_text, bare_text)
+                parsed = handoff_config.validate_config(legacy_text)
+                self.assertEqual(
+                    ["deep_reasoner", "fast_worker"], list(handoff_config.identities_of(parsed))
+                )
+                self.assertEqual(parsed, handoff_config.validate_config(bare_text))
+
+    def test_resolve_and_get_read_a_legacy_project_file_without_touching_it(self):
+        path = self.write_project(self.legacy_file())
+        before = path.read_bytes()
+        self.assertEqual((0, "claude\n", ""), self.run_cli("resolve", "deep_reasoner.backend"))
+        self.assertEqual((0, "claude\n", ""), self.run_cli("get", "deep_reasoner.backend"))
+        self.assertEqual(
+            (0, "gpt-fast\nmedium\n", ""),
+            self.run_cli("resolve", "fast_worker.model", "fast_worker.effort"),
+        )
+        self.assertEqual(0, self.run_cli("validate")[0])
+        self.assertEqual(before, path.read_bytes())
+
+    def test_set_on_a_legacy_file_rewrites_bare_and_keeps_everything_else(self):
+        path = self.write_project(self.legacy_file())
+        status, _, error = self.run_cli("set", "--role", "fast_worker", "--effort", "high")
+        self.assertEqual((0, ""), (status, error))
+        updated = path.read_text(encoding="utf-8")
+        self.assertNotIn("hosts.claude_code", updated)
+        self.assertTrue(updated.startswith(self.PREAMBLE))
+        self.assertIn(self.CODEX_BLOCK, updated)
+        self.assertIn(self.TAIL, updated)
+        # The bare sections stand where the first legacy section stood.
+        positions = [
+            updated.index(marker)
+            for marker in ("[deep_reasoner]\n", "[fast_worker]\n", self.CODEX_BLOCK, "[routing]\n")
+        ]
+        self.assertEqual(sorted(positions), positions)
+        parsed = handoff_config.validate_config(updated)
+        self.assertEqual("high", parsed["fast_worker"]["effort"])
+        self.assertEqual("gpt-fast", parsed["fast_worker"]["model"])
+        self.assertEqual(
+            handoff_config.identities_of(handoff_config.validate_config(self.legacy_file()))["deep_reasoner"],
+            parsed["deep_reasoner"],
+        )
+
+    def test_set_review_on_a_legacy_file_also_rewrites_bare(self):
+        path = self.write_project(self.legacy_file())
+        before = handoff_config.identities_of(handoff_config.validate_config(self.legacy_file()))
+        status, _, error = self.run_cli("set-review", "--spec-max-rounds", "2")
+        self.assertEqual((0, ""), (status, error))
+        updated = path.read_text(encoding="utf-8")
+        self.assertNotIn("hosts.claude_code", updated)
+        self.assertIn("[deep_reasoner]\n", updated)
+        self.assertIn("[fast_worker]\n", updated)
+        self.assertTrue(updated.startswith(self.PREAMBLE))
+        self.assertIn(self.CODEX_BLOCK, updated)
+        parsed = handoff_config.validate_config(updated)
+        self.assertEqual(2, parsed["review"]["spec_max_rounds"])
+        self.assertEqual(before, handoff_config.identities_of(parsed))
+
+    def test_two_tables_for_one_identity_are_refused_in_every_form(self):
+        legacy_header = "hosts.claude_code.identities.deep_reasoner"
+        cases = {
+            "bare then legacy": ("deep_reasoner", legacy_header),
+            "legacy then bare": (legacy_header, "deep_reasoner"),
+            "two bare": ("deep_reasoner", "deep_reasoner"),
+            "two legacy": (legacy_header, legacy_header),
+        }
+        for label, (first, second) in cases.items():
+            with self.subTest(label):
+                prefix = f"{self.HEAD}[{first}]\n{self.BODY}\n"
+                text = f"{prefix}[{second}]\n{self.BODY}"
+                named = f"([{first}] and [{second}]); keep one."
+                with self.assertRaises(handoff_config.ConfigParseError) as raised:
+                    handoff_config.validate_config(text)
+                self.assertIn(f"line {prefix.count(chr(10)) + 1}, column 1", str(raised.exception))
+                self.assertIn("identity 'deep_reasoner' is defined twice", str(raised.exception))
+                self.assertIn(named, str(raised.exception))
+                path = self.write_project(text)
+                before = path.read_bytes()
+                for command in (
+                    ("validate",),
+                    ("set", "--role", "fast_worker", "--backend", "codex", "--model", "m", "--effort", "high"),
+                ):
+                    status, output, error = self.run_cli(*command)
+                    self.assertEqual((2, ""), (status, output), command)
+                    self.assertIn(named, error)
+                self.assertEqual(before, path.read_bytes())
+
+    def test_a_bare_and_a_legacy_table_for_different_identities_both_load(self):
+        text = (
+            f"{self.HEAD}[deep_reasoner]\n{self.BODY}\n"
+            "[hosts.claude_code.identities.fast_worker]\n"
+            'backend = "codex"\nmodel = "gpt-fast"\neffort = "medium"\n'
+        )
+        parsed = handoff_config.validate_config(text)
+        self.assertEqual(["deep_reasoner", "fast_worker"], list(handoff_config.identities_of(parsed)))
+        self.write_project(text)
+        self.assertEqual(
+            (0, "claude\ncodex\n", ""),
+            self.run_cli("resolve", "deep_reasoner.backend", "fast_worker.backend"),
+        )
+
+    def test_unknown_legacy_identity_names_are_refused_before_anything_is_stored(self):
+        typo = f"{self.HEAD}[hosts.claude_code.identities.deep_reasonr]\n{self.BODY}"
+        legacy_review = "[hosts.claude_code.identities.review]\nspec_max_rounds = 9\n"
+        review = "[review]\nspec_max_rounds = 2\n"
+        cases = {
+            "typo": (typo, "deep_reasonr"),
+            "review after": (f"{self.HEAD}{review}\n{legacy_review}", "review"),
+            "review before": (f"{self.HEAD}{legacy_review}\n{review}", "review"),
+        }
+        for label, (text, name) in cases.items():
+            with self.subTest(label):
+                with self.assertRaises(handoff_config.ConfigValidationError) as raised:
+                    handoff_config.parse_config(text)
+                self.assertIn(f"unsupported identity: '{name}'", str(raised.exception))
+                with self.assertRaises(handoff_config.ConfigValidationError):
+                    handoff_config.validate_config(text)
+                path = self.write_project(text)
+                before = path.read_bytes()
+                with self.assertRaises(handoff_config.ConfigValidationError):
+                    handoff_config.resolve_config(self.repo, env=self.env)
+                # Nothing may print a review cap read from the refused table.
+                self.assertEqual((2, ""), self.run_cli("resolve", "review.spec_max_rounds")[:2])
+                self.assertEqual(2, self.run_cli("validate")[0])
+                status, _, error = self.run_cli("set-review", "--spec-max-rounds", "4")
+                self.assertEqual(2, status)
+                self.assertIn(f"unsupported identity: '{name}'", error)
+                self.assertEqual(before, path.read_bytes())
+        # Control: without the legacy table the same file resolves its own cap.
+        self.write_project(f"{self.HEAD}{review}")
+        self.assertEqual((0, "2\n", ""), self.run_cli("resolve", "review.spec_max_rounds"))
+
+    def test_nested_and_array_identity_tables_are_refused_and_unknown_bare_sections_survive(self):
+        valid = f"{self.HEAD}[deep_reasoner]\n{self.BODY}\n"
+        cases = {
+            "dotted": ("[deep_reasoner.x]\nk = 1\n", "invalid owned identity section [deep_reasoner.x]"),
+            "legacy dotted": (
+                "[hosts.claude_code.identities.deep_reasoner.x]\nk = 1\n",
+                "invalid owned identity section [hosts.claude_code.identities.deep_reasoner.x]",
+            ),
+            "array": ('[[deep_reasoner]]\nbackend = "claude"\n', "array-of-tables headers are not supported"),
+        }
+        for label, (extra, message) in cases.items():
+            with self.subTest(label):
+                with self.assertRaises(handoff_config.ConfigParseError) as raised:
+                    handoff_config.validate_config(valid + extra)
+                self.assertIn(message, str(raised.exception))
+                path = self.write_project(valid + extra)
+                before = path.read_bytes()
+                self.assertEqual(2, self.run_cli("validate")[0])
+                self.assertEqual(2, self.run_cli("set", "--role", "deep_reasoner", "--effort", "xhigh")[0])
+                self.assertEqual(before, path.read_bytes())
+
+        notes = '[notes]\nopaque = { inline = "table" } # not parsed, not ours\n\n'
+        text = f"{self.HEAD}[deep_reasoner]\n{self.BODY}\n{notes}{self.TAIL}"
+        path = self.write_project(text)
+        self.assertEqual(0, self.run_cli("validate")[0])
+        status, _, error = self.run_cli("set", "--role", "deep_reasoner", "--effort", "xhigh")
+        self.assertEqual((0, ""), (status, error))
+        updated = path.read_text(encoding="utf-8")
+        self.assertIn(notes, updated)
+        self.assertIn('effort = "xhigh"', updated)
+
+        def unowned(source: str):
+            return {
+                chunk.name: chunk.text
+                for chunk in handoff_config.split_sections(source)
+                if chunk.name and handoff_config._identity_name(chunk.name) is None
+            }
+
+        self.assertEqual(unowned(text), unowned(updated))
+
+    def test_resolution_merges_per_field_across_both_forms(self):
+        global_path = handoff_config.global_config_path(self.env)
+        global_path.parent.mkdir(parents=True)
+        global_path.write_text(
+            self.HEAD
+            + "[hosts.claude_code.identities.deep_reasoner]\n"
+            'backend = "codex"\n'
+            'model = "global-model"\n'
+            'effort = "high"\n'
+            'permission_mode = "allow-all"\n'
+            "verified = true\n"
+            'verified_at = "2026-09-10T00:00:00Z"\n',
+            encoding="utf-8",
+        )
+        # A layer is validated whole, so a project file naming only `effort`
+        # is refused rather than completed from the global one.
+        self.write_project(f'{self.HEAD}[deep_reasoner]\neffort = "xhigh"\n')
+        with self.assertRaisesRegex(
+            handoff_config.ConfigValidationError, r"deep_reasoner\.backend must be one of"
+        ):
+            handoff_config.resolve_config(self.repo, env=self.env)
+        # The project layer changes only the effort of the legacy global identity.
+        self.write_project(
+            f"{self.HEAD}[deep_reasoner]\n"
+            'backend = "codex"\n'
+            'model = "global-model"\n'
+            'effort = "xhigh"\n'
+        )
+        resolved = handoff_config.resolve_config(self.repo, env=self.env)
+        self.assertEqual("project", resolved["source"])
+        identity = resolved["deep_reasoner"]
+        self.assertEqual(("codex", "global-model", "xhigh"), (
+            identity["backend"], identity["model"], identity["effort"]))
+        # Fields the project omits come from the legacy global layer, but a
+        # changed identity no longer inherits the global verification.
+        self.assertEqual("allow-all", identity["permission_mode"])
+        self.assertFalse(identity["verified"])
+        self.assertNotIn("verified_at", identity)
+        self.assertEqual((0, "xhigh\n", ""), self.run_cli("resolve", "deep_reasoner.effort"))
 
 
 if __name__ == "__main__":

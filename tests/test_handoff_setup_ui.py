@@ -267,10 +267,7 @@ class SetupUITests(unittest.TestCase):
         status = handoff_setup_ui.engine.handoff_config.resolve_config(
             self.repo, env=self.env
         )
-        self.assertEqual(
-            "gpt-detected",
-            status["hosts"]["claude_code"]["identities"]["fast_worker"]["model"],
-        )
+        self.assertEqual("gpt-detected", status["fast_worker"]["model"])
 
     def test_parse_preview_files_stops_at_first_non_file_line(self):
         output = (
@@ -895,11 +892,11 @@ exit 0
 
 RETAINED_CURSOR_CONFIG = (
     "schema_version = 2\nrevision = 0\n\n"
-    "[hosts.claude_code.identities.deep_reasoner]\n"
+    "[deep_reasoner]\n"
     'backend = "claude"\nmodel = "opus"\neffort = "high"\n\n'
-    "[hosts.claude_code.identities.fast_worker]\n"
+    "[fast_worker]\n"
     'backend = "cursor"\nmodel = "gpt-5.2-retired"\neffort = "model"\n\n'
-    "[hosts.claude_code.identities.arbiter]\n"
+    "[arbiter]\n"
     'backend = "codex"\nmodel = "gpt-detected"\neffort = "xhigh"\n'
 )
 

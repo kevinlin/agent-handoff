@@ -87,7 +87,7 @@ The review caps have no session override, because `delegate-codex.sh resume` enf
 
 | File | What it owns | What it must not do |
 | --- | --- | --- |
-| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns `hosts.claude_code.identities.*` and `[review]` | reformat or drop anything else: `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era) round-trip byte-for-byte |
+| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era) round-trip byte-for-byte |
 | `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
 | `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard; probes the CLIs for model and effort lists | implement a second write path; every preview and write delegates to `handoff-setup.py` |
 | `scripts/delegate-codex.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
@@ -95,7 +95,7 @@ The review caps have no session override, because `delegate-codex.sh resume` enf
 | `references/setup.md` | the wizard contract an agent loads | ask the setup matrix through repeated chat questions when a browser is available |
 | `references/tryout.md` | the post-install proof pass | substitute a model or backend to make a row pass |
 
-The `hosts.*` nesting in the schema is historical and retained so configs written by earlier versions keep loading.
+Configs written before 3.9.2 use a longer header for identity sections. They still load, and *Legacy section headers (3.9.2)* says what happens to them.
 
 ## Setup
 
@@ -127,7 +127,7 @@ Then `/agent-handoff tryout` runs one small real task per identity and reports w
 - **No silent fallback.** Effort may be adjusted to an advertised value only while the user is changing backend or model in the UI. Apply and smoke surface an unsupported combination and never swap a model quietly.
 - **`verified` means a CLI answered**, not that a file was written. Re-applying the same backend, model, and effort preserves an existing verification; changing any of the three clears it. Changing only the permission posture does not, because smoke checks a model-and-effort pair, not a posture.
 - **User-owned files are read-only to this flow.** Generated Claude agents stay namespaced (`handoff-deep-reasoner`, …) and never overwrite a user's own `deep-reasoner.md`. The managed routing block writes only inside its own markers, and only when explicitly enabled.
-- **Uninstall removes only what Handoff generated.** `--uninstall` drops `handoff-*` agent files whose hash still matches `.handoff/.generated-manifest` — a file the user hand-edited since generation is left in place and reported as skipped — plus a structurally valid managed routing block. Config is untouched unless `--remove-config`, which clears only the identity sections.
+- **Uninstall removes only what Handoff generated.** `--uninstall` drops `handoff-*` agent files whose hash still matches `.handoff/.generated-manifest` — a file the user hand-edited since generation is left in place and reported as skipped — plus a structurally valid managed routing block. Config is untouched unless `--remove-config`, which clears only the identity sections, in either header form.
 
 ## The configuration document
 
@@ -137,33 +137,33 @@ Then `/agent-handoff tryout` runs one small real task per identity and reports w
 schema_version = 2
 revision = 0
 
-[hosts.claude_code.identities.deep_reasoner]
+[deep_reasoner]
 backend = "claude"          # claude | codex | copilot | cursor — which CLI executes
 model = "opus"
 effort = "high"
 permission_mode = "default" # default | allow-all
 verified = false
 
-[hosts.claude_code.identities.fast_worker]
+[fast_worker]
 backend = "codex"
 model = "gpt-5.6-sol"
 effort = "medium"
 verified = false
 
-[hosts.claude_code.identities.arbiter]
+[arbiter]
 backend = "codex"
 model = "gpt-5.6-sol"
 effort = "xhigh"
 verified = false
 
 # Optional. Setup writes the two sections below only under --with-e2e.
-[hosts.claude_code.identities.e2e_specifier]
+[e2e_specifier]
 backend = "codex"
 model = "gpt-5.6-sol"
 effort = "xhigh"
 verified = false
 
-[hosts.claude_code.identities.e2e_verifier]
+[e2e_verifier]
 backend = "codex"
 model = "gpt-5.6-sol"
 effort = "high"
@@ -183,14 +183,13 @@ always_on_host_rules = false
 |---|---|---:|---|
 | `schema_version` | integer | yes | Must be `2`. |
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
-| `hosts.claude_code` | table | per configured identity | The owned namespace. The `hosts.*` nesting is retained so configs written by earlier versions keep loading. |
-| `hosts.claude_code.identities.<identity>` | table | per configured identity | `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. |
-| `hosts.claude_code.identities.<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, or `cursor`. All four are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
-| `hosts.claude_code.identities.<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot` and `cursor`, `auto` is refused at submit: name a concrete model. The wizard offers account models rather than a text field. |
-| `hosts.claude_code.identities.<identity>.effort` | string | per configured identity | Non-empty reasoning effort for the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor takes only `model` (set by the model id, not passed as a flag). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
-| `hosts.claude_code.identities.<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
-| `hosts.claude_code.identities.<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
-| `hosts.claude_code.identities.<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
+| `<identity>` | table | per configured identity | A top-level table. `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. Files written before 3.9.2 head this table `hosts.claude_code.identities.<identity>`; see *Legacy section headers (3.9.2)*. |
+| `<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, or `cursor`. All four are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
+| `<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot` and `cursor`, `auto` is refused at submit: name a concrete model. The wizard offers account models rather than a text field. |
+| `<identity>.effort` | string | per configured identity | Non-empty reasoning effort for the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor takes only `model` (set by the model id, not passed as a flag). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
+| `<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
+| `<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
+| `<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
 | `routing.always_on_host_rules` | boolean | no | Whether setup writes a persistent routing block; default `false`. |
 | `review.spec_max_rounds` | integer ≥ 1 | no | Spec review passes (`deep_reasoner` reads the plan) before a still-declined blocking finding goes to the arbiter. Default `1`. |
 | `review.implementation_max_rounds` | integer ≥ 1 | no | Driver review passes on a delegated diff (the original job plus each `resume`) before open findings go to the arbiter. Default `3`. |
@@ -201,7 +200,7 @@ Every configured identity requires `backend`, `model`, and `effort`. Backend is 
 
 ### Version skew
 
-Each of these fails closed in the safe direction: an older engine refuses a file it cannot honour rather than running an identity on the wrong CLI or silently ignoring one.
+Most rows below fail closed. An older engine refuses a file it cannot honour, so it never runs an identity on the wrong CLI or drops one without a word. The bare-header row is the exception.
 
 | A config carrying | On a pre-release engine | Because |
 | --- | --- | --- |
@@ -209,14 +208,15 @@ Each of these fails closed in the safe direction: an older engine refuses a file
 | `backend = "copilot"` | pre-3.7 refuses | `validate_config` gates `backend` on the known tuple |
 | `backend = "cursor"` | pre-3.9 refuses | `validate_config` gates `backend` on the known tuple |
 | `[review]` | pre-3.8 ignores it | an unknown section round-trips rather than failing |
+| bare `[<identity>]` headers | pre-3.9.2 ignores them | the old engine reads only prefixed headers. To it, a bare section is an unknown section: it round-trips, and its identity is invisible. If no other layer configures the role, `delegate-codex.sh` refuses it. If the global config has a legacy-form identity, the old engine runs the global values, and `config_source` still says `project`. That case does not fail closed. |
 
-`schema_version` stays `2` through all of this: adding identity names or a section does not change the document shape.
+`schema_version` stays `2` through all of this. New identity names and a new section left the document shape alone. 3.9.2 renames the identity headers, which is why its row does not fail closed. A pre-3.9.2 engine can also write an identity into a file that already has bare headers. That identity then exists in both forms, and a 3.9.2 engine refuses the file until someone deletes one of the two sections.
 
 ### Ownership and deterministic writes
 
-The writer may rewrite only `[hosts.claude_code.identities.*]` sections and `[review]`. Everything else round-trips byte-for-byte. Owned identity sections are emitted in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `permission_mode`, `verified`, then `verified_at`. `[review]` is emitted as `spec_max_rounds`, then `implementation_max_rounds`, replaced where it stands or appended at the end of the file when absent. Strings are double-quoted. Repeating the same write produces identical bytes.
+The writer rewrites identity sections in either header form, plus `[review]`. Everything else round-trips byte-for-byte. Owned identity sections are emitted bare, in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `permission_mode`, `verified`, then `verified_at`. `[review]` is emitted as `spec_max_rounds`, then `implementation_max_rounds`, replaced where it stands or appended at the end of the file when absent. Strings are double-quoted. Repeating the same write produces identical bytes.
 
-Comments and formatting inside an owned section are intentionally not retained. All unowned chunks keep their original order and bytes, including comments and line endings.
+Comments and formatting inside an owned section are intentionally not retained. A comment line just before the next header belongs to the owned chunk above it, so it is not kept either. All unowned chunks keep their original order and bytes, including comments and line endings.
 
 ### Schema v1 migration
 
@@ -225,6 +225,18 @@ Schema v1 is never converted silently. A file with `schema_version = 1`, or with
 > Detected a schema v1 config. Rerun `/agent-handoff config` to upgrade (setup replaces it with a schema v2 document and backs up the old file).
 
 The setup wizard treats a v1 file as a blank starting point: the preview shows the full replacement, the apply backs the original up under `.handoff/backups/`, and `--rollback` restores it. Old v1 values are not carried into the new document; pick them again in the wizard if you still want them.
+
+### Legacy section headers (3.9.2)
+
+Before 3.9.2, identity sections carried a leftover dual-host prefix: `[hosts.claude_code.identities.deep_reasoner]`. From 3.9.2 they are bare top-level tables: `[deep_reasoner]`. Fields, field order, `[review]`, `[routing]` and `schema_version = 2` are unchanged.
+
+- **On read.** A file with prefixed headers loads with the same values, and a read never rewrites it. That covers `resolve`, `get`, `validate`, delegation and opening the wizard.
+- **On write.** The next write re-emits every identity section bare, in the place where the first one stood. The writes are `handoff-config.py set` and `set-review`, setup apply, smoke's verification write, and `--uninstall --remove-config`, which clears both forms. Every other section keeps its bytes, including the preamble and stale `hosts.codex.*` blocks.
+- **Keys.** `get` and `resolve` keys drop the prefix too: `deep_reasoner.backend`. The old key `hosts.claude_code.identities.deep_reasoner.backend` no longer resolves, and no alias exists. Validation messages read `deep_reasoner.backend must be one of ...`.
+- **Duplicates.** A file that defines one identity twice is refused, and the error names both headers. That includes one identity defined in both forms. The usual cause is a pre-3.9.2 engine writing to an already migrated file. Delete one of the two sections by hand. Two different identities in different forms (`[deep_reasoner]` plus `[hosts.claude_code.identities.fast_worker]`) load fine.
+- **Typos.** A legacy header that names an unknown identity, such as `[hosts.claude_code.identities.deep_reasonr]`, is refused. A misspelt bare header such as `[deep_reasonr]` is an unknown section. It round-trips untouched, and that identity is absent from that file. Resolution uses the next layer instead: if the global config defines the identity, the global values run. `delegate-codex.sh` refuses the role only when no layer configures it. Before 3.9.2, `validate` caught every misspelt identity header. Now it catches only the legacy form.
+- **Older engines.** An engine older than 3.9.2 cannot see the bare sections. See *Version skew*.
+- **Schema v1.** `[hosts.<host>.roles.*]` is still refused exactly as in *Schema v1 migration*.
 
 ### Concurrency and atomicity
 
@@ -255,7 +267,7 @@ Run from the repository root:
 ```sh
 python3 scripts/handoff-config.py --scope project init
 python3 scripts/handoff-config.py --scope project validate
-python3 scripts/handoff-config.py --scope project get hosts.claude_code.identities.deep_reasoner.backend
+python3 scripts/handoff-config.py --scope project get deep_reasoner.backend
 python3 scripts/handoff-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
 python3 scripts/handoff-config.py --scope project set --role fast_worker --permission-mode allow-all
 python3 scripts/handoff-setup.py --preview --role-permission-mode fast_worker=default

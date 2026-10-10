@@ -557,7 +557,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
     repo = repo.resolve()
     presets = _preset_matrices(env)
     resolved = engine.handoff_config.resolve_config(repo, env=env)
-    identities = resolved["hosts"][engine.handoff_config.HOST]["identities"]
+    identities = engine.handoff_config.identities_of(resolved)
     current = {
         identity: {
             "backend": values["backend"],
