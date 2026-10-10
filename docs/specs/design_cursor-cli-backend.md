@@ -144,6 +144,8 @@ Cursor reports four token counters and no cost of any kind. A cursor job row sho
 
 Page-load discovery is compatible with the existing tests. `tests/test_handoff_setup_ui.py:629` forbids a copilot subprocess at page load, not every subprocess. A new assertion allows `cursor-agent models` and nothing else from cursor.
 
+Superseded in v3.9.3: opening the wizard also runs `cursor-agent --version` and `copilot --version`, and neither starts a session.
+
 ### 12. Smoke: one free-or-cheap real call
 
 Smoke runs three steps for a cursor identity: the dry-run chain, a catalogue membership check against `cursor-agent models` (free), and then `cursor-agent -p "…HANDOFF_SMOKE_OK…" --output-format stream-json --trust --model <slug> --mode ask`. A pass needs exit 0 and the sentinel in the last `assistant` event's text, which is Claude's smoke rule (`handoff-setup.py:1050`), not Copilot's exit-code-only rule (`handoff-setup.py:892`). `--mode ask` is read-only Q&A; the spec does not claim the run is tool-free. The cost of the paid step is lopsided, and measured. A slug the account cannot use is refused before any session, at no cost, and its stderr is quoted verbatim (it lists the available models). A usable slug costs one small request, about 16k input tokens on `gpt-5.4-mini`. This is `validate_cursor_model` beside `validate_copilot_pair`, not a shared helper. The command lines and the parsing differ, and approach A keeps them apart.

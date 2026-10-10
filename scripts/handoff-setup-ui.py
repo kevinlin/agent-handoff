@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import hmac
 import importlib.util
@@ -19,12 +20,13 @@ import threading
 import time
 import webbrowser
 from http import HTTPStatus
+from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -42,6 +44,31 @@ EXCLUDE_CHOICES = ("git-exclude", "self", "track")
 ROUTING_ACTIONS = ("none", "write", "remove")
 CLAUDE_MODEL_ALIASES = ("fable", "opus", "sonnet", "haiku")
 COPILOT_MODELS_URL = "https://api.githubcopilot.com/models"
+# Fixed text. The page shows these commands and links as written, so nothing in
+# a release response is ever interpolated into one.
+CLI_RELEASES = {
+    "codex": {
+        "label": "Codex",
+        "latest_url": "https://registry.npmjs.org/@openai/codex/latest",
+        "install": "npm install -g @openai/codex",
+        "update": "codex update",
+        "docs": "https://developers.openai.com/codex/cli",
+    },
+    "copilot": {
+        "label": "GitHub Copilot",
+        "latest_url": "https://registry.npmjs.org/@github/copilot/latest",
+        "install": "npm install -g @github/copilot",
+        "update": "copilot update",
+        "docs": "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli",
+    },
+    "cursor": {
+        "label": "Cursor",
+        "latest_url": "https://cursor.com/install",
+        "install": "curl https://cursor.com/install -fsS | bash",
+        "update": "cursor-agent update",
+        "docs": "https://cursor.com/docs/cli/installation",
+    },
+}
 IDENTITY_META = {
     "deep_reasoner": {
         "label": "Deep reasoning",
@@ -82,7 +109,10 @@ def _binary_version(path: Optional[str], env: Mapping[str, str], source: str) ->
             check=False,
             timeout=5,
         )
-        version = (result.stdout or result.stderr).strip().splitlines()[0]
+        lines = (result.stdout or result.stderr).strip().splitlines()
+        # A CLI that prints nothing for --version is installed all the same; an
+        # IndexError here would escape controller construction.
+        version = lines[0] if lines else "Found, version unreadable"
     except (OSError, subprocess.TimeoutExpired):
         version = "Found, version unreadable"
     return {"available": True, "path": path, "version": version, "source": source}
@@ -106,6 +136,71 @@ def _codex_path(env: Mapping[str, str]) -> Tuple[Optional[str], str]:
 def _codex_version(env: Mapping[str, str]) -> Dict[str, Any]:
     path, source = _codex_path(env)
     return _binary_version(path, env, source)
+
+
+# Release lookups are plain, unauthenticated GETs. They never share
+# _copilot_urlopen, whose opener exists to keep a bearer on one host.
+_release_urlopen = urlopen
+
+
+def _version_tuple(text: Any) -> Optional[Tuple[int, ...]]:
+    match = re.search(r"\d+(?:\.\d+)+", text) if isinstance(text, str) else None
+    return tuple(int(part) for part in match.group(0).split(".")) if match else None
+
+
+def _cli_status(probe: Mapping[str, Any], latest: Optional[str]) -> str:
+    """``missing``, ``unknown``, ``outdated`` or ``current`` for one probed CLI.
+
+    ``unknown`` is the honest answer when either side has no readable
+    version; the page then claims neither an update nor "up to date".
+    """
+
+    if not probe.get("available"):
+        return "missing"
+    installed = _version_tuple(probe.get("version"))
+    newest = _version_tuple(latest)
+    if installed is None or newest is None:
+        return "unknown"
+    width = max(len(installed), len(newest))
+    installed += (0,) * (width - len(installed))
+    newest += (0,) * (width - len(newest))
+    return "outdated" if installed < newest else "current"
+
+
+def _latest_version(backend: str) -> Optional[str]:
+    """The newest published version of one backend's CLI, or None.
+
+    npm serves Codex and Copilot as JSON. Cursor has no registry behind its
+    installer, but the install script names its build in the download URL, so
+    that is read from the script.
+    """
+
+    request = Request(
+        CLI_RELEASES[backend]["latest_url"], headers={"User-Agent": "handoff-setup"}
+    )
+    try:
+        with _release_urlopen(request, timeout=3) as response:
+            body = response.read(1_000_000)
+        if backend == "cursor":
+            # A scrape, so it must be unambiguous: one distinct build, or
+            # nothing. Two builds mean the script changed shape, and picking
+            # one would report an update or "current" on a guess.
+            builds = set(
+                re.findall(
+                    r"https://downloads\.cursor\.com/lab/([0-9A-Za-z.\-]+)/",
+                    body.decode("utf-8"),
+                )
+            )
+            return builds.pop() if len(builds) == 1 else None
+        version = json.loads(body)["version"]
+    except HTTPError as error:
+        error.close()
+        return None
+    except (OSError, HTTPException, ValueError, KeyError, TypeError, AttributeError):
+        # Nothing may escape: build_state runs during controller construction,
+        # so an exception here would take the whole page down with one tile.
+        return None
+    return version if isinstance(version, str) and _version_tuple(version) is not None else None
 
 
 def _send_json_line(process: subprocess.Popen[str], payload: Mapping[str, Any]) -> None:
@@ -568,16 +663,35 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         }
         for identity, values in identities.items()
     }
-    codex_detected = engine.detect_codex(env)
-    claude_detected = engine.detect_claude(env)
-    claude_cli = _binary_version(shutil.which("claude", path=env.get("PATH")), env, "PATH")
-    codex_cli = _codex_version(env)
-    codex_options, codex_discovery = _codex_model_options(codex_cli["path"], env)
-    claude_options, claude_discovery = _claude_model_options(
-        claude_cli["path"], env, claude_detected
-    )
-    copilot_options, copilot_discovery = _copilot_model_options(env)
-    cursor_options, cursor_discovery = _cursor_model_options(env)
+    # The release lookups wait on the network and the probes below wait on
+    # subprocesses, so the lookups start first and are collected last: the two
+    # waits overlap instead of adding up.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(CLI_RELEASES)) as pool:
+        latest_futures = {name: pool.submit(_latest_version, name) for name in CLI_RELEASES}
+        codex_detected = engine.detect_codex(env)
+        claude_detected = engine.detect_claude(env)
+        claude_cli = _binary_version(shutil.which("claude", path=env.get("PATH")), env, "PATH")
+        codex_cli = _codex_version(env)
+        codex_options, codex_discovery = _codex_model_options(codex_cli["path"], env)
+        claude_options, claude_discovery = _claude_model_options(
+            claude_cli["path"], env, claude_detected
+        )
+        # Like _codex_path, say where the binary came from, so the page can
+        # tell a user whose override points at nothing from one with no install.
+        copilot_cli = _binary_version(
+            engine.copilot_bin(env),
+            env,
+            "HANDOFF_COPILOT_BIN" if env.get("HANDOFF_COPILOT_BIN") else "PATH",
+        )
+        cursor_cli = _binary_version(
+            engine.cursor_bin(env),
+            env,
+            "HANDOFF_CURSOR_BIN" if env.get("HANDOFF_CURSOR_BIN") else "PATH",
+        )
+        copilot_options, copilot_discovery = _copilot_model_options(env)
+        cursor_options, cursor_discovery = _cursor_model_options(env)
+        latest = {name: future.result() for name, future in latest_futures.items()}
+    release_clis = {"codex": codex_cli, "copilot": copilot_cli, "cursor": cursor_cli}
     option_sets = {
         "claude": claude_options,
         "codex": codex_options,
@@ -607,7 +721,15 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "config_source": resolved["source"],
         "clis": {
             "claude": claude_cli,
-            "codex": codex_cli,
+            **{
+                name: {
+                    **probe,
+                    **CLI_RELEASES[name],
+                    "latest": latest[name],
+                    "status": _cli_status(probe, latest[name]),
+                }
+                for name, probe in release_clis.items()
+            },
         },
         "detected": {
             "codex_model": codex_detected.get("model"),
@@ -988,6 +1110,24 @@ HTML = r'''<!doctype html>
     .pill.ok { background:var(--ok-soft); color:var(--ok-ink); border-color:var(--ok-line); }
     .pill.bad { background:var(--bad-soft); color:var(--bad-ink); border-color:var(--bad-line); }
     .pill.cobalt { background:var(--cobalt-soft); color:var(--cobalt); border-color:var(--cobalt-line); }
+    /* The pill and the help trigger share one cell, so the mobile tile grid keeps three cells. A div,
+       because the popover inside it is flow content. */
+    .detect .status-line { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; min-width:0; }
+    .cli-help-trigger { min-height:24px; padding:0 2px; border:0; background:transparent;
+      color:var(--cobalt); font:13px/1.55 var(--mono); text-decoration:underline; text-underline-offset:2px; }
+    /* No display here: the UA keeps a closed [popover] hidden, and a display of ours would show it. */
+    .cli-help { max-width:min(28rem, calc(100vw - 32px)); max-height:calc(100dvh - 32px);
+      padding:16px 20px; border:1px solid var(--line); border-radius:16px;
+      background:var(--surface); color:var(--ink); font-size:14px; line-height:1.6; }
+    .cli-help h3 { margin-bottom:6px; color:var(--ink); font:750 13px/1.3 var(--mono);
+      letter-spacing:.06em; text-transform:uppercase; }
+    .cli-help p { margin-top:6px; color:var(--muted); }
+    .cli-help code { font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
+    .cli-help pre { margin:10px 0 6px; white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.55 var(--mono); }
+    .cli-help a { color:var(--cobalt); text-underline-offset:2px; overflow-wrap:anywhere; }
+    .cli-help button { min-height:44px; margin-top:12px; padding:0 16px; border:1px solid var(--line);
+      border-radius:8px; background:transparent; color:var(--ink); font:750 11px/1.3 var(--mono);
+      letter-spacing:.09em; text-transform:uppercase; }
     /* Wraps instead of truncating: the detail is what the probe found, so none of it is hidden. */
     .detail { min-width:0; margin-top:5px; color:var(--ink); font:13px/1.55 var(--mono); overflow-wrap:anywhere; }
     .detect .item.failed { grid-column:1 / -1; }
@@ -1183,7 +1323,7 @@ HTML = r'''<!doctype html>
         align-items:center; column-gap:12px; padding:10px; border-top:1px solid var(--line); border-left:0; }
       .detect .item:first-child { border-top:0; }
       .detect .k { margin-bottom:0; }
-      .detect .pill { justify-self:end; }
+      .detect .status-line { justify-self:end; justify-content:flex-end; }
       .detect .detail { grid-column:1 / -1; }
       .preview-plan .file-row { grid-template-columns:minmax(0,1fr); gap:4px; }
       .identity { grid-template-columns:minmax(0,1fr); }
@@ -1699,8 +1839,30 @@ HTML = r'''<!doctype html>
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       return data;
     }
-    function detectItem(key, word, tone, detail, extra = '') {
-      return `<div class="item${extra}"><div class="k">${key}</div><span class="pill ${tone}">${esc(word)}</span><div class="detail" title="${esc(detail)}">${esc(detail)}</div></div>`;
+    function detectItem(key, word, tone, detail, extra = '', help = '') {
+      return `<div class="item${extra}"><div class="k">${key}</div><div class="status-line"><span class="pill ${tone}">${esc(word)}</span>${help}</div><div class="detail" title="${esc(detail)}">${esc(detail)}</div></div>`;
+    }
+    // Help for a CLI that is missing or out of date, as a native popover: the browser gives it Esc,
+    // light dismiss and focus handling. Nothing else gets a trigger, so "unknown" claims nothing.
+    function cliHelp(name) {
+      const cli = state.clis[name];
+      if (cli.status !== 'missing' && cli.status !== 'outdated') return '';
+      const outdated = cli.status === 'outdated';
+      const id = `cliHelp-${esc(name)}`;
+      // A version line can end in a full stop ("GitHub Copilot CLI 1.0.83."), which would double up here.
+      const installed = String(cli.version ?? '').replace(/\.+$/, '');
+      // The path is shown because a typed `copilot update` runs the first copilot on PATH, which may not
+      // be the binary this page found.
+      const facts = outdated
+        ? `<p>Installed ${esc(installed)}. Latest ${esc(cli.latest)}.</p><p>Detected at <code>${esc(cli.path)}</code></p>`
+        : '<p>Not found on this machine.</p>';
+      const override = String(cli.source).startsWith('HANDOFF_')
+        ? `<p>${esc(cli.source)} is set; it must point at the CLI.</p>` : '';
+      return `<button type="button" class="cli-help-trigger" popovertarget="${id}" aria-label="${outdated ? 'How to update' : 'How to install'} ${esc(cli.label)}">${outdated ? 'How to update' : 'How to install'}</button>`
+        + `<div class="cli-help" id="${id}" popover><h3>${outdated ? 'Update' : 'Install'} ${esc(cli.label)}</h3>`
+        + `${facts}${override}<pre><code>${esc(outdated ? cli.update : cli.install)}</code></pre><p>Then start the wizard again.</p>`
+        + `<p><a href="${esc(cli.docs)}" target="_blank" rel="noopener noreferrer">Official install guide</a></p>`
+        + `<button type="button" popovertarget="${id}" popovertargetaction="hide">Close</button></div>`;
     }
     async function load() {
       state = await api('/api/state');
@@ -1710,12 +1872,21 @@ HTML = r'''<!doctype html>
       const codex = state.detected.codex_model ? ` · ${state.detected.codex_model} / ${state.detected.codex_effort || 'not set'}` : '';
       const config = state.config_source === 'default' ? 'No config yet' : 'Existing config';
       const models = backend => state.model_options[backend].filter(option => option.source === (backend === 'copilot' ? 'copilot models' : 'cursor-agent models')).length;
+      // An "unknown" status (no readable version on either side) adds no word: it neither claims an
+      // update nor that the CLI is up to date.
+      const codexWord = state.clis.codex.status === 'missing' ? 'MISSING' : state.clis.codex.status === 'outdated' ? 'UPDATE' : 'FOUND';
+      const modelsWord = name => state.clis[name].status === 'missing' ? 'MISSING'
+        : state.model_discovery_failed[name] ? 'NO MODELS'
+        : state.clis[name].status === 'outdated' ? 'UPDATE' : 'LISTED';
+      const modelsDetail = (name, found) => `${state.clis[name].version || 'Not installed'} · ${state.model_discovery_failed[name] ? state.model_discovery[name] : `${models(name)} models from ${found}`}`;
+      const copilotWord = modelsWord('copilot');
+      const cursorWord = modelsWord('cursor');
       $('detect').innerHTML = `
         ${detectItem('Project config', state.config_source.toUpperCase(), 'cobalt', config)}
         ${detectItem('Claude Code', state.clis.claude.available ? 'FOUND' : 'MISSING', state.clis.claude.available ? 'ok' : 'bad', state.clis.claude.version || 'Not installed')}
-        ${detectItem('Codex', state.clis.codex.available ? 'FOUND' : 'MISSING', state.clis.codex.available ? 'ok' : 'bad', `${state.clis.codex.version || 'Not installed'}${codex}`)}
-        ${detectItem('GitHub Copilot', state.model_discovery_failed.copilot ? 'NO MODELS' : 'LISTED', state.model_discovery_failed.copilot ? 'bad' : 'ok', state.model_discovery_failed.copilot ? state.model_discovery.copilot : `${models('copilot')} models from your Copilot entitlement · CLI checked at smoke`)}
-        ${detectItem('Cursor', state.model_discovery_failed.cursor ? 'NO MODELS' : 'LISTED', state.model_discovery_failed.cursor ? 'bad' : 'ok', state.model_discovery_failed.cursor ? state.model_discovery.cursor : `${models('cursor')} models from cursor-agent models`)}`;
+        ${detectItem('Codex', codexWord, codexWord === 'FOUND' ? 'ok' : 'bad', `${state.clis.codex.version || 'Not installed'}${codex}`, '', cliHelp('codex'))}
+        ${detectItem('GitHub Copilot', copilotWord, copilotWord === 'LISTED' ? 'ok' : 'bad', modelsDetail('copilot', 'your Copilot entitlement'), '', cliHelp('copilot'))}
+        ${detectItem('Cursor', cursorWord, cursorWord === 'LISTED' ? 'ok' : 'bad', modelsDetail('cursor', 'cursor-agent models'), '', cliHelp('cursor'))}`;
       $('modes').innerHTML = PRESET_MODES.map(name => `<button type="button" class="mode ${name === mode ? 'active':''}" data-mode="${name}" aria-pressed="${name === mode}"><strong>${MODE_LABELS[name]}</strong><small>${modeSummary(name)}</small></button>`).join('');
       document.querySelectorAll('.mode').forEach(el => el.addEventListener('click', () => selectMode(el.dataset.mode)));
       renderIdentities();

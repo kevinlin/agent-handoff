@@ -6,14 +6,17 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 from pathlib import Path
+from urllib.error import URLError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,6 +129,13 @@ class SetupUITests(unittest.TestCase):
         )
         self.env = os.environ.copy()
         self.env.pop("HANDOFF_CURSOR_BIN", None)
+        self.env.pop("HANDOFF_COPILOT_BIN", None)
+        # No test reaches npm or cursor.com: a test that needs a release
+        # version patches this itself, and the lookups are tested through
+        # _release_urlopen instead.
+        latest = mock.patch.object(handoff_setup_ui, "_latest_version", return_value=None)
+        latest.start()
+        self.addCleanup(latest.stop)
         self.env.update(
             {
                 "HOME": str(self.home),
@@ -666,16 +676,26 @@ class CopilotSetupUITests(SetupUITests):
             "smoke": False,
         }
 
-    def test_opening_the_wizard_makes_no_copilot_subprocess_call(self):
+    def copilot_session_args(self):
+        """Logged copilot lines other than `--version`.
+
+        COPILOT_FAKE logs one argument per line, so a `-p` session of any kind
+        shows up here, and a `--version` identity check does not.
+        """
+
+        lines = self.copilot_log.read_text(encoding="utf-8").splitlines() if self.copilot_log.exists() else []
+        return [line for line in lines if line != "--version"]
+
+    def test_opening_the_wizard_runs_copilot_version_and_nothing_else(self):
         # The catalogue is read over HTTP, not by running the CLI, which is what
-        # keeps opening the page free of a premium request.
+        # keeps opening the page free of a premium request. Only `--version`
+        # runs, to find the binary and read its release.
         with self.catalogue():
             state = handoff_setup_ui.build_state(self.repo, self.env)
-        self.assertFalse(
-            self.copilot_log.exists(),
-            self.copilot_log.read_text(encoding="utf-8") if self.copilot_log.exists() else "",
-        )
-        self.assertNotIn("copilot", state["clis"])
+        self.assertEqual([], self.copilot_session_args())
+        self.assertIn("--version", self.copilot_log.read_text(encoding="utf-8").splitlines())
+        self.assertIn("copilot", state["clis"])
+        self.assertEqual("GitHub Copilot CLI 1.0.83.", state["clis"]["copilot"]["version"])
         self.assertIn("copilot", state["model_options"])
         self.assertIn("copilot", state["model_discovery"])
         self.assertEqual(
@@ -719,7 +739,7 @@ class CopilotSetupUITests(SetupUITests):
         self.assertIn("low, medium, high", message)
         self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
         # refused from the catalogue: no request was spent finding out
-        self.assertFalse(self.copilot_log.exists())
+        self.assertEqual([], self.copilot_session_args())
 
     def test_no_catalogue_offers_no_model_and_names_the_fix(self):
         # No `gh` on PATH, so there is no bearer, and nothing is requested.
@@ -731,7 +751,7 @@ class CopilotSetupUITests(SetupUITests):
         # the page holds the snapshot it opened with, so "refresh" would be
         # the wrong instruction
         self.assertIn("start the wizard again", discovery)
-        self.assertFalse(self.copilot_log.exists())
+        self.assertEqual([], self.copilot_session_args())
 
     def test_each_catalogue_failure_names_what_to_do_about_it(self):
         def refuse(*args, **kwargs):
@@ -823,11 +843,12 @@ class CopilotSetupUITests(SetupUITests):
                 controller.preview(self.copilot_payload(model="invented-model"))
         self.assertIn("not in your Copilot model list", str(refusal.exception))
         self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
-        self.assertFalse(self.copilot_log.exists())
+        self.assertEqual([], self.copilot_session_args())
 
     def test_controller_construction_makes_no_copilot_subprocess_call(self):
+        # No session: `--version` is the one call construction may make.
         handoff_setup_ui.SetupController(self.repo, self.env)
-        self.assertFalse(self.copilot_log.exists())
+        self.assertEqual([], self.copilot_session_args())
 
     def test_the_page_picks_the_copilot_model_from_a_list(self):
         source = SCRIPT.read_text(encoding="utf-8")
@@ -840,7 +861,8 @@ class CopilotSetupUITests(SetupUITests):
         self.assertIn('Not in `cursor-agent models`. Pick a slug from the list.', source)
         self.assertIn("'copilot models':'Read from your Copilot entitlement',", source)
         self.assertIn("copilot:'GitHub Copilot'", source)
-        self.assertNotIn("state.clis.copilot", source)
+        # the CLI check is the tile's, not the picker's: the picker stays backed by the catalogue
+        self.assertIn("cliHelp('copilot')", source)
         # an empty list explains itself with the reason the server recorded
         self.assertIn("state.model_discovery[values.backend]", source)
 
@@ -858,7 +880,7 @@ class CopilotSetupUITests(SetupUITests):
         self.assertIn("'auto', which is refused on copilot", result["error"])
         self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
         # the refusal is the engine's; the UI process ran no validation itself
-        self.assertFalse(self.copilot_log.exists())
+        self.assertEqual([], self.copilot_session_args())
 
     def test_apply_is_blocked_without_a_matching_preview(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
@@ -879,6 +901,10 @@ class CopilotSetupUITests(SetupUITests):
 
 CURSOR_UI_FAKE = """#!/bin/sh
 printf '%s\\n' "$*" >> "$HANDOFF_TEST_CURSOR_ARGS"
+if [ "$1" = "--version" ]; then
+  printf '2026.10.01-e373342\\n'
+  exit 0
+fi
 if [ "$1" = "models" ]; then
   if [ -n "${HANDOFF_TEST_CURSOR_MODELS_ERROR:-}" ]; then
     printf '%s\\n' "$HANDOFF_TEST_CURSOR_MODELS_ERROR" >&2
@@ -936,7 +962,8 @@ class CursorSetupUITests(SetupUITests):
 
     def test_opening_the_wizard_runs_cursor_agent_models_and_nothing_else(self):
         state = self.state()
-        self.assertEqual(["models"], self.cursor_calls())
+        # `--version` reads the installed release; `models` reads the catalogue.
+        self.assertEqual(["--version", "models"], sorted(self.cursor_calls()))
         options = state["model_options"]["cursor"]
         self.assertEqual(["gpt-5.4-mini-low", "composer-2.5"], [o["value"] for o in options])
         self.assertEqual("GPT-5.4 Mini Low", options[0]["label"])
@@ -944,7 +971,8 @@ class CursorSetupUITests(SetupUITests):
         self.assertEqual(["model"], state["efforts_by_backend"]["cursor"])
         self.assertEqual("Read from cursor-agent models", state["model_discovery"]["cursor"])
         self.assertFalse(state["model_discovery_failed"]["cursor"])
-        self.assertNotIn("cursor", state["clis"])
+        self.assertIn("cursor", state["clis"])
+        self.assertEqual("2026.10.01-e373342", state["clis"]["cursor"]["version"])
 
     def test_the_only_effort_is_model(self):
         options = self.state()["model_options"]
@@ -1001,6 +1029,374 @@ class CursorSetupUITests(SetupUITests):
         self.assertIn(".textContent = sourceText(", source)
         # The effort field is locked on cursor.
         self.assertIn("values.backend !== 'cursor'", source)
+
+
+def probe(version, available=True):
+    return {"available": available, "path": "/x/cli" if available else None,
+            "version": version, "source": "PATH"}
+
+
+class CliStatusTests(unittest.TestCase):
+    """_version_tuple and _cli_status: the comparison behind UPDATE."""
+
+    def test_the_spec_examples_hold(self):
+        for installed, latest, expected in (
+            ("codex-cli 0.147.0", "0.162.1", "outdated"),
+            ("GitHub Copilot CLI 1.0.83.", "1.0.83", "current"),
+            ("2026.10.01-e373342", "2026.10.01-aaaaaaa", "current"),
+            ("2026.10.01-e373342", "2026.10.02-bbbbbbb", "outdated"),
+            ("1.2", "1.2.0", "current"),
+            ("1.2.0", "1.2", "current"),
+            ("0.163.0-alpha.1", "0.162.1", "current"),
+            ("Found, version unreadable", "0.162.1", "unknown"),
+            ("codex-cli 0.147.0", None, "unknown"),
+            ("codex-cli 0.147.0", "latest", "unknown"),
+        ):
+            with self.subTest(installed=installed, latest=latest):
+                self.assertEqual(expected, handoff_setup_ui._cli_status(probe(installed), latest))
+
+    def test_versions_compare_as_numbers_not_text(self):
+        self.assertEqual("current", handoff_setup_ui._cli_status(probe("1.10.0"), "1.9.0"))
+        self.assertEqual("outdated", handoff_setup_ui._cli_status(probe("1.9.0"), "1.10.0"))
+        self.assertEqual("outdated", handoff_setup_ui._cli_status(probe("1.2"), "1.2.1"))
+
+    def test_a_missing_cli_is_missing_whatever_the_latest_says(self):
+        for latest in ("9.9.9", None):
+            self.assertEqual("missing", handoff_setup_ui._cli_status(probe(None, available=False), latest))
+
+    def test_version_tuple_takes_the_first_dotted_number(self):
+        self.assertEqual((0, 147, 0), handoff_setup_ui._version_tuple("codex-cli 0.147.0"))
+        self.assertEqual((1, 0, 83), handoff_setup_ui._version_tuple("GitHub Copilot CLI 1.0.83."))
+        self.assertEqual((2026, 10, 1), handoff_setup_ui._version_tuple("2026.10.01-e373342"))
+        self.assertEqual((1, 2), handoff_setup_ui._version_tuple("v 1.2 then 3.4.5"))
+        for text in ("Found, version unreadable", "7", "", None, 3):
+            self.assertIsNone(handoff_setup_ui._version_tuple(text), text)
+
+
+class LatestVersionTests(unittest.TestCase):
+    """_latest_version reads fixed endpoints, anonymously, and never raises."""
+
+    def fetch(self, backend, body=b"", error=None):
+        seen = []
+
+        class Response(io.BytesIO):
+            reads = []
+
+            def read(self, size=-1):
+                self.reads.append(size)
+                return super().read(size)
+
+        response = Response(body)
+
+        def fake(request, timeout=None):
+            seen.append((request, timeout))
+            if error is not None:
+                raise error
+            return response
+
+        def no_bearer(*args, **kwargs):
+            raise AssertionError("a release lookup must never look for or use the Copilot bearer")
+
+        with mock.patch.object(handoff_setup_ui, "_release_urlopen", fake), \
+                mock.patch.object(handoff_setup_ui, "_copilot_urlopen", no_bearer), \
+                mock.patch.object(handoff_setup_ui, "_github_token", no_bearer):
+            result = handoff_setup_ui._latest_version(backend)
+        return result, seen, response.reads
+
+    def test_npm_json_yields_the_version(self):
+        for backend in ("codex", "copilot"):
+            with self.subTest(backend=backend):
+                body = json.dumps({"name": "x", "version": "1.2.3", "dist": {}}).encode()
+                result, seen, reads = self.fetch(backend, body)
+                self.assertEqual("1.2.3", result)
+                (request, timeout), = seen
+                self.assertEqual(handoff_setup_ui.CLI_RELEASES[backend]["latest_url"], request.full_url)
+                self.assertEqual(3, timeout)
+                self.assertFalse(request.has_header("Authorization"))
+                self.assertEqual("handoff-setup", request.get_header("User-agent"))
+                self.assertEqual([1_000_000], reads)
+
+    def test_a_reply_without_a_usable_version_is_none(self):
+        for body in (
+            b'{"name": "x"}',
+            b'{"version": 3}',
+            b'{"version": "latest"}',
+            b'{"version": null}',
+            b'["version"]',
+            b'"version"',
+            b"not json at all",
+            b"<html>502</html>",
+            b"\xff\xfe\x00",
+            b"",
+        ):
+            with self.subTest(body=body):
+                self.assertIsNone(self.fetch("codex", body)[0])
+
+    def test_every_failure_to_fetch_is_none_and_the_error_is_closed(self):
+        fp = io.BytesIO(b"gone")
+        http_error = handoff_setup_ui.HTTPError("https://example.invalid", 503, "Unavailable", {}, fp)
+        for error in (
+            http_error,
+            URLError("no route"),
+            OSError("reset"),
+            TimeoutError("slow"),
+            HTTPException("bad status line"),
+        ):
+            for backend in ("codex", "cursor"):
+                with self.subTest(error=repr(error), backend=backend):
+                    self.assertIsNone(self.fetch(backend, error=error)[0])
+        self.assertTrue(fp.closed)
+
+    def test_cursor_script_naming_one_build_yields_that_build(self):
+        script = (
+            b"#!/bin/bash\nVERSION=x\n"
+            b'URL="https://downloads.cursor.com/lab/2026.10.01-e373342/${OS}/${ARCH}/agent-cli-package.tar.gz"\n'
+            b'echo "fetching https://downloads.cursor.com/lab/2026.10.01-e373342/darwin/arm64/x.tar.gz"\n'
+            b"# https://example.com/lab/1.1.1/ is another host and does not count\n"
+        )
+        result, seen, reads = self.fetch("cursor", script)
+        self.assertEqual("2026.10.01-e373342", result)
+        (request, timeout), = seen
+        self.assertEqual("https://cursor.com/install", request.full_url)
+        self.assertFalse(request.has_header("Authorization"))
+        self.assertEqual("handoff-setup", request.get_header("User-agent"))
+        self.assertEqual(3, timeout)
+        self.assertEqual([1_000_000], reads)
+
+    def test_cursor_script_without_exactly_one_build_is_none(self):
+        two = (b"https://downloads.cursor.com/lab/2026.10.01-e373342/a\n"
+               b"https://downloads.cursor.com/lab/2026.10.02-bbbbbbb/b\n")
+        for label, body in (
+            ("two distinct builds", two),
+            ("no match", b"#!/bin/bash\necho nothing to see\n"),
+            ("empty", b""),
+            ("builds only under another path", b"https://downloads.cursor.com/stable/2026.10.01/x\n"),
+            ("not utf-8", b"\xff\xfe https://downloads.cursor.com/lab/1.0/x"),
+        ):
+            with self.subTest(label):
+                self.assertIsNone(self.fetch("cursor", body)[0])
+
+    def test_the_commands_and_links_are_fixed_text(self):
+        releases = handoff_setup_ui.CLI_RELEASES
+        self.assertEqual(["codex", "copilot", "cursor"], sorted(releases))
+        self.assertEqual(
+            {
+                "codex": ("Codex", "https://registry.npmjs.org/@openai/codex/latest",
+                          "npm install -g @openai/codex", "codex update",
+                          "https://developers.openai.com/codex/cli"),
+                "copilot": ("GitHub Copilot", "https://registry.npmjs.org/@github/copilot/latest",
+                            "npm install -g @github/copilot", "copilot update",
+                            "https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli"),
+                "cursor": ("Cursor", "https://cursor.com/install",
+                           "curl https://cursor.com/install -fsS | bash", "cursor-agent update",
+                           "https://cursor.com/docs/cli/installation"),
+            },
+            {name: tuple(entry[field] for field in ("label", "latest_url", "install", "update", "docs"))
+             for name, entry in releases.items()},
+        )
+
+
+class CliInstallStatusTests(unittest.TestCase):
+    """build_state reports whether each backend CLI is installed and current."""
+
+    def setUp(self):
+        # The same sandbox as SetupUITests, without re-running its tests.
+        SetupUITests.setUp(self)
+        self.copilot_log = self.root / "copilot-ui-args.txt"
+        self.cursor_log = self.root / "cursor-ui-args.txt"
+        self.env["HANDOFF_TEST_COPILOT_ARGS"] = str(self.copilot_log)
+        self.env["HANDOFF_TEST_CURSOR_ARGS"] = str(self.cursor_log)
+
+    def install(self, name, script):
+        path = self.bin / name
+        path.write_text(script, encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def install_all(self):
+        self.install("copilot", COPILOT_FAKE)
+        self.install("cursor-agent", CURSOR_UI_FAKE)
+
+    def state(self, latest=None):
+        """build_state with chosen release versions; a backend not named has none."""
+
+        latest = latest or {}
+        with mock.patch.object(handoff_setup_ui, "_latest_version", side_effect=latest.get):
+            return handoff_setup_ui.build_state(self.repo, self.env)
+
+    def test_clis_carry_status_latest_and_the_fixed_commands(self):
+        self.install_all()
+        state = self.state({"codex": "8.8", "copilot": "1.0.83", "cursor": "2026.10.01-aaaaaaa"})
+        self.assertEqual(
+            {"available", "path", "version", "source"}, set(state["clis"]["claude"]))
+        for name in ("codex", "copilot", "cursor"):
+            with self.subTest(name=name):
+                entry = state["clis"][name]
+                for field in ("status", "latest", "install", "update", "docs", "label", "available", "version"):
+                    self.assertIn(field, entry)
+                for field in ("install", "update", "docs", "label"):
+                    self.assertEqual(handoff_setup_ui.CLI_RELEASES[name][field], entry[field])
+                self.assertEqual("current", entry["status"])
+        self.assertEqual("codex-cli 8.8", state["clis"]["codex"]["version"])
+        self.assertEqual("GitHub Copilot CLI 1.0.83.", state["clis"]["copilot"]["version"])
+        self.assertEqual("2026.10.01-e373342", state["clis"]["cursor"]["version"])
+
+    def test_a_newer_codex_release_makes_codex_outdated(self):
+        self.install_all()
+        state = self.state({"codex": "9.0.0", "copilot": "1.0.83", "cursor": "2026.10.01-e373342"})
+        self.assertEqual("outdated", state["clis"]["codex"]["status"])
+        self.assertEqual("9.0.0", state["clis"]["codex"]["latest"])
+        self.assertEqual("current", state["clis"]["copilot"]["status"])
+
+    def test_an_unanswered_lookup_is_unknown_and_leaves_the_others_computed(self):
+        self.install_all()
+        state = self.state({"codex": "9.0.0", "copilot": "1.0.84", "cursor": None})
+        self.assertEqual("outdated", state["clis"]["codex"]["status"])
+        self.assertEqual("outdated", state["clis"]["copilot"]["status"])
+        self.assertEqual("unknown", state["clis"]["cursor"]["status"])
+        self.assertIsNone(state["clis"]["cursor"]["latest"])
+        # no lookup answered at all: installed CLIs are unknown, none is called current
+        state = self.state()
+        self.assertEqual({"unknown"}, {state["clis"][n]["status"] for n in ("codex", "copilot", "cursor")})
+
+    def test_a_cli_that_is_not_installed_is_missing(self):
+        self.install("cursor-agent", CURSOR_UI_FAKE)
+        state = self.state({"codex": "9.0.0", "copilot": "9.0.0", "cursor": "2026.10.02-bbbbbbb"})
+        copilot = state["clis"]["copilot"]
+        self.assertEqual("missing", copilot["status"])
+        self.assertFalse(copilot["available"])
+        self.assertIsNone(copilot["path"])
+        self.assertEqual("PATH", copilot["source"])
+        self.assertEqual("9.0.0", copilot["latest"])
+        self.assertEqual("outdated", state["clis"]["cursor"]["status"])
+
+    def test_an_override_that_points_at_nothing_says_which_variable(self):
+        self.install_all()
+        self.env["HANDOFF_COPILOT_BIN"] = str(self.bin / "no-such-copilot")
+        self.env["HANDOFF_CURSOR_BIN"] = str(self.bin / "no-such-cursor")
+        state = self.state()
+        for name, variable in (("copilot", "HANDOFF_COPILOT_BIN"), ("cursor", "HANDOFF_CURSOR_BIN")):
+            with self.subTest(name=name):
+                self.assertEqual("missing", state["clis"][name]["status"])
+                self.assertEqual(variable, state["clis"][name]["source"])
+        # a set override that works is the source and is the binary probed
+        self.env["HANDOFF_COPILOT_BIN"] = str(self.bin / "copilot")
+        state = self.state()
+        self.assertEqual("HANDOFF_COPILOT_BIN", state["clis"]["copilot"]["source"])
+        self.assertEqual(str(self.bin / "copilot"), state["clis"]["copilot"]["path"])
+
+    def test_a_cli_that_prints_nothing_for_version_is_found_but_unknown(self):
+        silent = "#!/bin/sh\nexit 0\n"
+        for name, variable in (("codex", "HANDOFF_CODEX_BIN"), ("cursor-agent", "HANDOFF_CURSOR_BIN")):
+            with self.subTest(name=name):
+                path = self.install(f"silent-{name}", silent)
+                self.env[variable] = str(path)
+                controller = handoff_setup_ui.SetupController(self.repo, self.env)
+                with mock.patch.object(handoff_setup_ui, "_latest_version", return_value="9.9.9"):
+                    state = handoff_setup_ui.build_state(self.repo, self.env)
+                self.assertEqual({"claude", "codex", "copilot", "cursor"}, set(controller.state()["clis"]))
+                entry = state["clis"]["cursor" if name == "cursor-agent" else name]
+                self.assertTrue(entry["available"])
+                self.assertEqual("Found, version unreadable", entry["version"])
+                self.assertEqual("unknown", entry["status"])
+
+    def test_binary_version_takes_the_first_line_and_survives_blank_output(self):
+        for body, expected in (
+            ("printf 'tool 1.2.3\\nmore\\n'", "tool 1.2.3"),
+            ("printf 'tool 4.5.6\\n' >&2", "tool 4.5.6"),
+            ("printf ''", "Found, version unreadable"),
+            ("printf '\\n  \\n' >&2", "Found, version unreadable"),
+        ):
+            with self.subTest(body=body):
+                path = self.install("probe", f"#!/bin/sh\n{body}\n")
+                result = handoff_setup_ui._binary_version(str(path), self.env, "PATH")
+                self.assertEqual(expected, result["version"])
+                self.assertTrue(result["available"])
+
+    def test_release_lookups_start_before_the_probes_and_are_collected_after(self):
+        self.install_all()
+        started, probes_done = threading.Event(), threading.Event()
+        waits = {"started": [], "collected_after_probes": []}
+
+        def lookup(backend):
+            started.set()
+            waits["collected_after_probes"].append(probes_done.wait(5))
+            return None
+
+        real_probe = handoff_setup_ui._binary_version
+        real_cursor_options = handoff_setup_ui._cursor_model_options
+
+        def first_probe_waits_for_a_lookup(path, env, source):
+            if not waits["started"]:
+                waits["started"].append(started.wait(2))
+            return real_probe(path, env, source)
+
+        def last_step(env):
+            probes_done.set()
+            return real_cursor_options(env)
+
+        with mock.patch.object(handoff_setup_ui, "_latest_version", side_effect=lookup), \
+                mock.patch.object(handoff_setup_ui, "_binary_version", side_effect=first_probe_waits_for_a_lookup), \
+                mock.patch.object(handoff_setup_ui, "_cursor_model_options", side_effect=last_step):
+            handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertEqual([True], waits["started"])
+        self.assertEqual([True, True, True], waits["collected_after_probes"])
+
+
+class CliHelpPageTests(unittest.TestCase):
+    """The page contract for the install/update popover, read from the source."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = SCRIPT.read_text(encoding="utf-8")
+
+    def test_the_popover_is_native_and_its_link_is_safe(self):
+        for text in (
+            "popovertarget", "popover>", 'popovertargetaction="hide"',
+            'target="_blank" rel="noopener noreferrer"',
+            "How to install", "How to update", "Then start the wizard again.",
+            "Not found on this machine.", "Official install guide",
+            "cliHelp('codex')", "cliHelp('copilot')", "cliHelp('cursor')",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, self.source)
+
+    def test_the_error_fallback_still_renders_through_detect_item(self):
+        self.assertIn(
+            "detectItem('Environment read failed', 'FAILED', 'bad', error.message, ' failed')",
+            self.source,
+        )
+
+    def test_the_old_tile_rules_are_gone(self):
+        self.assertNotIn("CLI checked at smoke", self.source)
+        self.assertNotIn(".detect .pill { justify-self:end; }", self.source)
+        self.assertIn(".detect .status-line { justify-self:end;", self.source)
+        self.assertIn('<div class="status-line"><span class="pill ${tone}">', self.source)
+        # three tiles can show the same trigger text, so each names its CLI
+        self.assertIn("aria-label=\"${outdated ? 'How to update' : 'How to install'} ${esc(cli.label)}\"", self.source)
+
+    def test_every_value_in_the_help_markup_goes_through_esc(self):
+        start = self.source.index("function cliHelp(name)")
+        body = self.source[start:self.source.index("async function load()", start)]
+        allowed = {
+            "id", "facts", "override",
+            "outdated ? 'How to update' : 'How to install'",
+            "outdated ? 'Update' : 'Install'",
+        }
+        for expression in re.findall(r"\$\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}", body):
+            with self.subTest(expression=expression):
+                self.assertTrue(
+                    expression in allowed or re.fullmatch(r"esc\([^()]*(?:\([^()]*\)[^()]*)*\)", expression),
+                    expression,
+                )
+
+    def test_a_closed_popover_stays_closed(self):
+        # a display of our own on .cli-help would override the UA's [popover]:not(:popover-open)
+        rule = re.search(r"\n\s*\.cli-help \{([^}]*)\}", self.source)
+        self.assertIsNotNone(rule)
+        self.assertNotIn("display", rule.group(1))
+        self.assertIn("max-width:min(28rem, calc(100vw - 32px))", rule.group(1))
+
 
 if __name__ == "__main__":
     unittest.main()

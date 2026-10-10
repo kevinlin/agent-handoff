@@ -10,7 +10,7 @@ This document is the design of record for that layer: the identity model, the co
 
 ### Scope
 
-Covered: the five identities and what each takes, the resolution chain from a task row to a running job, the configuration schema and its ownership rules, the setup wizard (detect, preset, preview, apply, smoke, rollback, uninstall), permission posture, and the Copilot and Cursor model catalogues.
+Covered: the five identities and what each takes, the resolution chain from a task row to a running job, the configuration schema and its ownership rules, the setup wizard (detect, preset, preview, apply, smoke, rollback, uninstall), permission posture, the Copilot and Cursor model catalogues, and the CLI install and update prompts.
 
 | Out of scope | Where it lives |
 | --- | --- |
@@ -89,7 +89,7 @@ The review caps have no session override, because `delegate-codex.sh resume` enf
 | --- | --- | --- |
 | `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era) round-trip byte-for-byte |
 | `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
-| `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard; probes the CLIs for model and effort lists | implement a second write path; every preview and write delegates to `handoff-setup.py` |
+| `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard; probes the CLIs for model and effort lists, and reads each worker CLI's version and newest release | implement a second write path; every preview and write delegates to `handoff-setup.py` |
 | `scripts/delegate-codex.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
 | `scripts/handoff_runtime.py` | `clean_claude_env()`, stripping `ANTHROPIC_*`/`CLAUDE_CODE_*` before spawning a child CLI | apply it to the copilot branch, which authenticates through `gh auth` and `~/.copilot` and reads none of those variables |
 | `references/setup.md` | the wizard contract an agent loads | ask the setup matrix through repeated chat questions when a browser is available |
@@ -101,7 +101,7 @@ Configs written before 3.9.2 use a longer header for identity sections. They sti
 
 `/agent-handoff config` opens a page bound to `127.0.0.1` with a per-run token. Six steps, and everything before apply is reversible.
 
-1. **Detect.** Which CLIs are installed, their versions, the existing config, and each backend's model and effort lists. Codex models and their per-model effort values come from the account-aware CLI `model/list`. Claude aliases come from `claude --help` plus the stable `fable`/`opus`/`sonnet`/`haiku` aliases, with `[1m]`/`1M` context variants normalized and deduplicated. Copilot models come from the account's entitlement API (see *Copilot model catalogue*). Nothing is a hardcoded guess. Copilot availability is decided by reading `--version` for `GitHub Copilot CLI`, because AWS Copilot CLI shares the binary name.
+1. **Detect.** Which CLIs are installed, their versions, the existing config, and each backend's model and effort lists. Codex models and their per-model effort values come from the account-aware CLI `model/list`. Claude aliases come from `claude --help` plus the stable `fable`/`opus`/`sonnet`/`haiku` aliases, with `[1m]`/`1M` context variants normalized and deduplicated. Copilot models come from the account's entitlement API (see *Copilot model catalogue*). Nothing is a hardcoded guess. Copilot availability is decided by reading `--version` for `GitHub Copilot CLI`, because AWS Copilot CLI shares the binary name. Since 3.9.3 the page also reads the newest published release of the Codex, Copilot and Cursor CLIs and compares it with the installed version. A CLI that is missing or outdated gets an install or update prompt (see *CLI install and update prompts*).
 2. **Pick a preset.** `balanced` (default), `quality`, or `cost`. Changing any control switches the matrix to `custom` internally; `custom` mode requires an explicit backend, model, and effort for every selected identity. A codex preset model is detected from `${CODEX_HOME:-$HOME/.codex}/config.toml` rather than guessed. If detection fails, setup says so and names the flag instead of inventing a model name.
 3. **Tune.** Per identity: backend → model → effort → permission. Switching backend or model immediately constrains effort to that selection's advertised values. The same page carries the two review caps, because they belong to the configuration and not to a prompt.
 4. **Preview.** `handoff-setup.py --preview` prints exact target paths and unified diffs. Any control change invalidates the preview, and the UI cannot apply a payload that no longer matches its latest one.
@@ -419,5 +419,58 @@ check itself remains on the smoke path, which is what sets `verified`, and
 
 **Limits.** The endpoint is not a documented GitHub API contract, and Handoff does not
 discover a tenant-hosted one. The token it reads with never reaches the served page state
-or a log line. A failed read is not fatal to the rest of the wizard, and the read spawns no
-`copilot` process, so opening the page still costs no premium request.
+or a log line. A failed read is not fatal to the rest of the wizard. The catalogue read
+spawns no `copilot` process. Since 3.9.3 the page runs `copilot --version` to find the
+CLI. That starts no session, so opening the page still costs no premium request.
+
+## CLI install and update prompts (v3.9.3)
+
+Opening `/agent-handoff config` probes the three worker CLIs, reads the newest published
+release of each, and says on the tile when one is missing or out of date. The Claude Code
+tile is unchanged.
+
+**Probe.** Codex is found as before: `HANDOFF_CODEX_BIN`, then the ChatGPT/Codex app
+bundle on macOS, then PATH. GitHub Copilot is found by `--version` output that reads
+`GitHub Copilot CLI`, because AWS Copilot CLI shares the name, and `HANDOFF_COPILOT_BIN`
+comes first. Cursor is `cursor-agent`, with `HANDOFF_CURSOR_BIN` first, and never
+`cursor`. Each probe runs only `--version`. That starts no session and costs no premium
+request.
+
+**Latest release.** Codex and Copilot come from the npm registry: the `latest` tag of
+`@openai/codex` and `@github/copilot`. Cursor has no registry, so the page reads Cursor's
+install script, `https://cursor.com/install`. The script names its build in a
+`downloads.cursor.com/lab/<build>/` URL, and exactly one distinct build must appear. The
+requests carry no credentials, time out after 3 seconds, and run in parallel while the
+local probes run.
+
+**Comparison.** Each side is reduced to its leading dotted number. The two numbers are
+compared numerically, after the shorter one is padded with zeros, so `codex-cli 0.147.0`
+is older than `0.162.1`. A prerelease counts as its stable number. Two Cursor builds from
+the same date with different hashes count as equal. The result is one status per CLI:
+`missing`, `outdated`, `current` or `unknown`. `unknown` means the installed version or
+the newest release could not be read, and the page then makes no claim either way.
+
+**What the tile says.** Codex says MISSING, UPDATE or FOUND. Copilot and Cursor say
+MISSING, then NO MODELS when their model list failed, then UPDATE, else LISTED. FOUND and
+LISTED also show when the status is `unknown`, so neither word means up to date.
+
+**The prompt.** Whenever a CLI is missing or outdated, its tile shows a `How to install`
+or `How to update` button. NO MODELS on an outdated CLI still shows the button. The button
+opens a native HTML popover: click to open, Esc or Close to dismiss. The popover holds the
+command, the detected binary path for an outdated CLI, a note when a `HANDOFF_*_BIN` override
+is set, "Then start the wizard again.", and an `Official install guide` link that opens in
+a new tab.
+
+| CLI | Install | Update | Official page |
+| --- | --- | --- | --- |
+| Codex | `npm install -g @openai/codex` | `codex update` | https://developers.openai.com/codex/cli |
+| GitHub Copilot | `npm install -g @github/copilot` | `copilot update` | https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli |
+| Cursor | `curl https://cursor.com/install -fsS \| bash` | `cursor-agent update` | https://cursor.com/docs/cli/installation |
+
+**Limits.** The install line is one fixed command per CLI; other installers, such as
+Homebrew, are on the official page. A typed `copilot update` runs the first
+`copilot` on PATH, which may not be the binary the wizard found when AWS Copilot sits
+earlier, so the popover shows the detected path. A Codex bundled in the ChatGPT or Codex
+app updates with the app. Cursor's install script is not a stable API: if its format
+changes, Cursor reads `unknown`. A Copilot whose `--version` times out is reported
+missing.

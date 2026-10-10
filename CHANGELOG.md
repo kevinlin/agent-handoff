@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.9.3 (2026-10-10)
+
+### The setup wizard says when a CLI is missing or out of date
+
+- feat: the Codex, GitHub Copilot and Cursor tiles say UPDATE when the installed CLI is older than the newest release, and MISSING when it is not installed. Codex and Copilot releases come from the npm registry (`@openai/codex`, `@github/copilot`). Cursor has no registry entry, so the page reads the build its install script names, at `https://cursor.com/install`. The requests send no credentials, time out after 3 seconds and run while the local probes run.
+- feat: versions compare by their leading dotted number, so `codex-cli 0.147.0` is older than `0.162.1`. When either side can't be read, the status is `unknown` and the tile makes no claim. It still shows FOUND or LISTED then, so neither word means up to date.
+- feat: Copilot and Cursor tiles show MISSING first, then NO MODELS when the model list failed, then UPDATE, else LISTED.
+- feat: a missing or outdated CLI gets a `How to install` or `How to update` button, even under NO MODELS. Its popover gives the command, such as `npm install -g @github/copilot` or `cursor-agent update`, plus the detected binary path for an outdated CLI, a note when a `HANDOFF_*_BIN` override is set, and a link to the official install guide.
+- fix: the wizard no longer fails to start when a CLI prints nothing for `--version`.
+- note: opening the wizard now runs `copilot --version` and `cursor-agent --version`. Neither starts a session or costs a premium request. This revises v3.9.1's "runs no new command". The Copilot model catalogue read still spawns no `copilot` process.
+
 ## v3.9.2 (2026-10-09)
 
 ### Identity sections drop the dual-host prefix

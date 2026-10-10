@@ -93,6 +93,7 @@ Acceptance: a fixture log ending mid-run with no `result` event produces a resum
 
 **R6.2** The web wizard's cursor model list comes from `cursor-agent models` at page load, one option per `slug - Display name` line, with `auto` dropped. When the CLI is missing, not logged in, or times out, the page offers no discovered model and names the fix (`cursor-agent login`, or `HANDOFF_CURSOR_BIN`). No model is ever guessed. The one exception is R6.4's retained slug, and the page shows the discovery failure and its fix beside it. `normalize_payload` refuses a cursor model that the list does not offer, as it does for copilot.
 Acceptance: opening the wizard runs `cursor-agent models` and no other cursor command; the existing test that page load starts no copilot subprocess still passes.
+Superseded in v3.9.3: opening the wizard also runs `cursor-agent --version` and `copilot --version`, and neither starts a session.
 
 **R6.3** In both wizards, a cursor identity's effort is `model`, set automatically and not editable.
 
