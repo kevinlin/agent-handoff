@@ -731,10 +731,11 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
         preserve_verification(current_identities, desired)
     review = desired_review(args, env, current_review)
     new_config = handoff_config.update_host("" if legacy else old_config, identities=desired, path=path)
-    # A newly created base document has one transitional separator; converge it
+    new_config = handoff_config.update_review(new_config, review, path=path)
+    # update_review puts a blank line between the identity block and an
+    # appended [review], and the next identity write drops that line. Converge
     # before the first write so the next identical apply is byte-idempotent.
     new_config = handoff_config.update_host(new_config, identities=desired, path=path)
-    new_config = handoff_config.update_review(new_config, review, path=path)
 
     unavailable = _cli_unavailable(desired, env)
     for identity in desired:
@@ -1454,7 +1455,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="Skip managed-content hash validation only; structural checks still apply.")
     parser.add_argument("--exclude-choice", choices=("git-exclude", "self", "track"), default="git-exclude", help="Project config Git handling (default: git-exclude).")
     parser.add_argument("--timestamp", help="Explicit smoke verified_at value; also gives deterministic backup IDs in tests.")
-    parser.add_argument("--remove-config", action="store_true", help="With --uninstall, also clear the identities from the config ([routing], comments, and top-level fields untouched).")
+    parser.add_argument("--remove-config", action="store_true", help="With --uninstall, also clear the identities from the config (comments, other sections, and top-level fields untouched).")
     parser.add_argument("--dry-run", action="store_true", help="With --uninstall, report what would be removed without writing anything.")
     return parser
 

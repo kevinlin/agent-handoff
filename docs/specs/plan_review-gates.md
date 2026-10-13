@@ -147,8 +147,8 @@ class ReviewSectionTests(unittest.TestCase):
         'model = "gpt-test"\n'
         'effort = "medium"\n'
         "\n"
-        "[routing]\n"
-        "always_on_host_rules = false # keep\n"
+        "[notes]\n"
+        "kept = true # keep\n"
         "\n"
         "[future]\n"
         'opaque = "preserve me"\n'
@@ -213,7 +213,7 @@ class ReviewSectionTests(unittest.TestCase):
         )
 
     def test_section_in_the_middle_is_replaced_where_it_stands(self):
-        text = self.BASE.replace("[routing]", "[review]\nspec_max_rounds = 4\n\n[routing]")
+        text = self.BASE.replace("[notes]", "[review]\nspec_max_rounds = 4\n\n[notes]")
         updated = handoff_config.update_review(text, {"spec_max_rounds": 2})
         self.assertEqual(text.replace("spec_max_rounds = 4", "spec_max_rounds = 2"), updated)
 

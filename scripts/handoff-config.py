@@ -2,10 +2,10 @@
 """Read, merge, validate, and atomically write handoff configuration.
 
 This is deliberately a TOML subset implementation.  It splits the document
-into raw section chunks, then parses only top-level metadata, [routing], [review], and
+into raw section chunks, then parses only top-level metadata, [review], and
 the identity sections ([deep_reasoner], [fast_worker], [arbiter], and the optional
 [e2e_specifier] and [e2e_verifier]).  Every other chunk -- comments,
-[routing], unknown sections -- is preserved byte-for-byte, never reformatted.
+unknown sections -- is preserved byte-for-byte, never reformatted.
 """
 
 from __future__ import annotations
@@ -95,7 +95,6 @@ INTEGER_RE = re.compile(r"^[+-]?(?:0|[1-9](?:_?[0-9])*)$")
 DEFAULTS: Dict[str, Any] = {
     "schema_version": 2,
     "revision": 0,
-    "routing": {"always_on_host_rules": False},
     "review": dict(DEFAULT_REVIEW),
 }
 
@@ -146,7 +145,7 @@ def _legacy_v1_error(path: Optional[Path] = None) -> ConfigValidationError:
 def _identity_name(section: Optional[str]) -> Optional[str]:
     """The identity a table header configures, or None when the engine does not own it.
 
-    None means the section is unowned and round-trips byte-for-byte: [routing],
+    None means the section is unowned and round-trips byte-for-byte:
     [review], [hosts.codex.*], the bare legacy table without its trailing dot,
     and any unknown section. A returned name is not yet checked against
     IDENTITIES -- parse_config refuses a legacy header naming anything else.
@@ -173,7 +172,7 @@ def split_sections(text: str) -> List[SectionChunk]:
     current_lines: List[str] = []
     start_line = 1
 
-    interpreted = ("routing", "review", LEGACY_IDENTITY_PREFIX.rstrip("."), *IDENTITIES)
+    interpreted = ("review", LEGACY_IDENTITY_PREFIX.rstrip("."), *IDENTITIES)
     for line_number, line in enumerate(lines, 1):
         stripped = line.lstrip(" \t")
         match = ARRAY_SECTION_RE.match(line) or SECTION_RE.match(line)
@@ -274,7 +273,7 @@ def _deep_merge(base: MutableMapping[str, Any], overlay: Mapping[str, Any]) -> M
 
 
 def parse_config(text: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
-    """Parse schema metadata, routing, review, and the identity sections.
+    """Parse schema metadata, review, and the identity sections.
 
     The result mirrors the TOML: each identity is a top-level key, whichever
     header form (bare or legacy) the file used.
@@ -301,11 +300,6 @@ def parse_config(text: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
             for key in ("schema_version", "revision"):
                 if key in top:
                     result[key] = top[key]
-        elif chunk.name == "routing":
-            if chunk.name in seen_sections:
-                raise ConfigParseError(chunk.start_line, 1, "duplicate [routing] section.")
-            seen_sections.add(chunk.name)
-            result["routing"] = _parse_assignments(chunk)
         elif chunk.name == "review":
             if chunk.name in seen_sections:
                 raise ConfigParseError(chunk.start_line, 1, "duplicate [review] section.")
@@ -349,12 +343,6 @@ def _validate_data(
     revision = data.get("revision")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
         raise ConfigValidationError("revision must be a non-negative integer")
-    routing = data.get("routing", {})
-    if not isinstance(routing, Mapping):
-        raise ConfigValidationError("routing must be a table")
-    always_on = routing.get("always_on_host_rules", False)
-    if not isinstance(always_on, bool):
-        raise ConfigValidationError("routing.always_on_host_rules must be a boolean")
     review = data.get("review", {})
     if not isinstance(review, Mapping):
         raise ConfigValidationError("review must be a table")
@@ -444,8 +432,7 @@ def update_host(
             raise ConfigValidationError(f"unsupported identity: {identity!r}")
     emitted = emit_host_sections(candidate_identities)
     if not text:
-        routing = "[routing]\nalways_on_host_rules = false\n"
-        candidate = _base_document() + "\n" + emitted + ("\n" if emitted else "") + routing
+        candidate = _base_document() + ("\n" + emitted if emitted else "")
         validate_config(candidate, path=path)
         return candidate
 

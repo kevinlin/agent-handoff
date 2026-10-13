@@ -1180,5 +1180,45 @@ class IdentityLayoutTests(unittest.TestCase):
         self.assertEqual((0, "xhigh\n", ""), self.run_cli("resolve", "deep_reasoner.effort"))
 
 
+class RetiredRoutingSectionTests(unittest.TestCase):
+    """[routing] held one key that nothing read. Since 3.10.0 it is an unknown section."""
+
+    HEAD = "schema_version = 2\nrevision = 0\n\n"
+    IDENTITIES = {"fast_worker": {"backend": "codex", "model": "gpt-test", "effort": "medium"}}
+
+    def test_new_document_has_no_routing_section(self):
+        self.assertEqual("schema_version = 2\nrevision = 0\n", handoff_config.update_host("", {}))
+        self.assertNotIn("routing", handoff_config.update_host("", self.IDENTITIES))
+
+    def test_stale_routing_section_is_carried_not_interpreted(self):
+        # 3.9.4 parsed and validated [routing], so it refused every one of these.
+        shapes = {
+            "non-boolean value": '[routing]\nalways_on_host_rules = "yes"\n',
+            "duplicate section": "[routing]\nalways_on_host_rules = false\n\n[routing]\nalways_on_host_rules = true\n",
+            "array header": '[[routing]]\nname = "x"\n',
+            "nested array header": '[[routing.rules]]\nname = "x"\n',
+            "syntax outside the subset": "[routing]\nrules = [1, 2]\n",
+        }
+        for name, stale in shapes.items():
+            with self.subTest(shape=name):
+                text = self.HEAD + stale
+                self.assertNotIn("routing", handoff_config.validate_config(text))
+                updated = handoff_config.update_host(text, self.IDENTITIES)
+                self.assertIn(stale, updated)
+                handoff_config.validate_config(updated)
+
+    def test_resolved_config_has_no_routing_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            env = {"HOME": str(Path(directory) / "home"), "XDG_CONFIG_HOME": str(Path(directory) / "xdg")}
+            self.assertNotIn("routing", handoff_config.resolve_config(repo, env=env))
+            path = handoff_config.project_config_path(repo)
+            path.parent.mkdir(parents=True)
+            path.write_text(self.HEAD + "[routing]\nalways_on_host_rules = false\n", encoding="utf-8")
+            resolved = handoff_config.resolve_config(repo, env=env)
+            self.assertEqual("project", resolved["source"])
+            self.assertNotIn("routing", resolved)
+
+
 if __name__ == "__main__":
     unittest.main()

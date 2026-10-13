@@ -79,7 +79,7 @@ Values resolve from highest to lowest priority:
 3. `${XDG_CONFIG_HOME:-$HOME/.config}/handoff/config.toml`.
 4. Built-in defaults.
 
-Project and global files use the same schema. Built-in defaults provide schema metadata, empty identity maps, and `always_on_host_rules = false`; model presets belong to setup and are not duplicated in the engine. Identity values live in these two files and nowhere else — never in a prompt, a packet, or a doc.
+Project and global files use the same schema. Built-in defaults provide schema metadata and the default review caps, and leave every identity unset. Model presets belong to setup and are not duplicated in the engine. Identity values live in these two files and nowhere else — never in a prompt, a packet, or a doc.
 
 The review caps have no session override, because `delegate-codex.sh resume` enforces them from its own `resolve` call. A cap the driver believed in but the enforcing process never saw would be worse than no cap.
 
@@ -87,7 +87,7 @@ The review caps have no session override, because `delegate-codex.sh resume` enf
 
 | File | What it owns | What it must not do |
 | --- | --- | --- |
-| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: `[routing]`, comments, and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era) round-trip byte-for-byte |
+| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: comments and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era and a `[routing]` section written before 3.10.0) round-trip byte-for-byte |
 | `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
 | `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard, whose page is `assets/setup-ui.html`; probes the CLIs for model and effort lists, and reads each worker CLI's version and newest release | implement a second write path; every preview and write delegates to `handoff-setup.py` |
 | `scripts/delegate-codex.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
@@ -172,9 +172,6 @@ verified = false
 [review]
 spec_max_rounds = 1
 implementation_max_rounds = 3
-
-[routing]
-always_on_host_rules = false
 ```
 
 ### Fields
@@ -190,7 +187,6 @@ always_on_host_rules = false
 | `<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
 | `<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
-| `routing.always_on_host_rules` | boolean | no | Whether setup writes a persistent routing block; default `false`. |
 | `review.spec_max_rounds` | integer ≥ 1 | no | Spec review passes (`deep_reasoner` reads the plan) before a still-declined blocking finding goes to the arbiter. Default `1`. |
 | `review.implementation_max_rounds` | integer ≥ 1 | no | Driver review passes on a delegated diff (the original job plus each `resume`) before open findings go to the arbiter. Default `3`. |
 
@@ -255,10 +251,10 @@ The following constructs fail closed with a line number, character position, and
 - inline tables (`value = { ... }`);
 - multiline strings;
 - datetime values;
-- array-of-tables headers (`[[...]]`) naming `[routing]`, `[review]`, or an owned identity section (elsewhere they are treated as an unowned section and preserved);
+- array-of-tables headers (`[[...]]`) naming `[review]` or an owned identity section (elsewhere they are treated as an unowned section and preserved);
 - dotted-key assignments (`a.b = ...`).
 
-The engine parses only top-level schema metadata, `[routing]`, `[review]`, and the owned identity sections. This boundary lets any future unknown section round-trip without reformatting.
+The engine parses only top-level schema metadata, `[review]`, and the owned identity sections. This boundary lets any future unknown section round-trip without reformatting.
 
 ### CLI
 

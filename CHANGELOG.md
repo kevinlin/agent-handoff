@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.9.5 (2026-10-13)
+
+### `always_on_host_rules` is removed
+
+- **breaking**: the `routing.always_on_host_rules` config key is gone. Nothing read it. Every new config got `false`, and the managed routing block has always been switched by `--routing-block` and `--remove-routing-block`. `handoff-config.py get routing.always_on_host_rules` and the same `resolve` key now answer `key not found`, and `resolve` output has no `routing` table.
+- feat: a new config has no `[routing]` section. `[review]` follows the identity sections directly.
+- note: an existing `[routing]` section in a schema v2 file is now an unknown section. It loads, a write keeps its bytes, and it can be deleted by hand. The engine no longer checks it, so a non-boolean value, a second `[routing]` section or a `[[routing]]` header is no longer refused.
+- note: the managed routing block and its two flags are unchanged.
+- Config schema stays `2`.
+
 ## v3.9.4 (2026-10-11)
 
 ### The setup wizard shows each CLI's icon
