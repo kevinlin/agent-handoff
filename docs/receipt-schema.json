@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "handoff.receipt.v7",
+  "$id": "handoff.receipt.v8",
   "title": "Handoff Session Receipt",
-  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 7 splits the delegated-job counts by the backend that executed them: codex_jobs/codex_job_durations for codex-backed jobs, cc_jobs/cc_job_durations for claude-backed ones, copilot_jobs/copilot_job_durations for copilot-backed ones, cursor_jobs/cursor_job_durations for cursor-backed ones. All eight are measured from repo state rather than recalled.",
+  "description": "Machine-readable form of the [Handoff session receipt] text block. Field names and allowed values match SKILL.md. receipt_schema_version 8 splits the delegated-job counts by the backend that executed them: codex_jobs/codex_job_durations for codex-backed jobs, cc_jobs/cc_job_durations for claude-backed ones, copilot_jobs/copilot_job_durations for copilot-backed ones, cursor_jobs/cursor_job_durations for cursor-backed ones, antigravity_jobs/antigravity_job_durations for antigravity-backed ones. All ten are measured from repo state rather than recalled.",
   "type": "object",
   "required": [
     "phase",
@@ -18,6 +18,8 @@
     "copilot_job_durations",
     "cursor_jobs",
     "cursor_job_durations",
+    "antigravity_jobs",
+    "antigravity_job_durations",
     "scope",
     "config_source",
     "roles_used",
@@ -94,6 +96,16 @@
       "pattern": "^(none|[^=;]+=(\\d+min [0-5]\\dsec|running)(; [^=;]+=(\\d+min [0-5]\\dsec|running))*)$",
       "description": "'none', or per-job wall clock for the cursor-backed jobs, same grammar and same measurement as codex_job_durations."
     },
+    "antigravity_jobs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of antigravity-backed delegate-codex.sh background jobs, including fix rounds. 0 when none were used. Same primitive and same job directories as codex_jobs; only the executing CLI differs."
+    },
+    "antigravity_job_durations": {
+      "type": "string",
+      "pattern": "^(none|[^=;]+=(\\d+min [0-5]\\dsec|running)(; [^=;]+=(\\d+min [0-5]\\dsec|running))*)$",
+      "description": "'none', or per-job wall clock for the antigravity-backed jobs, same grammar and same measurement as codex_job_durations."
+    },
     "scope": {
       "enum": [
         "project",
@@ -144,7 +156,8 @@
                   "claude_code",
                   "codex",
                   "copilot",
-                  "cursor"
+                  "cursor",
+                  "antigravity"
                 ]
               },
               "model": {
@@ -165,8 +178,8 @@
       ]
     },
     "receipt_schema_version": {
-      "const": 7,
-      "description": "Always 7 for this contract; a receipt without cursor_jobs and cursor_job_durations is a v6 receipt, written before a cursor-backed identity could be delegated as a real job."
+      "const": 8,
+      "description": "Always 8 for this contract; a receipt without antigravity_jobs and antigravity_job_durations is a v7 receipt, written before an antigravity-backed identity could be delegated as a real job. A receipt without cursor_jobs and cursor_job_durations is a v6 receipt, written before a cursor-backed identity could be delegated as a real job."
     }
   },
   "additionalProperties": false

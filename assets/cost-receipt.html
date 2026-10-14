@@ -325,19 +325,23 @@ function render() {
   if (cursor.jobs) figureCard("Ran on the Cursor meter", cursor,
     "Cursor reports tokens but no cost figure, so none is shown.");
 
-  // Last of the figures: it holds the codex and cursor jobs again, and the
-  // caveat card right below it says so.
+  const antigravity = data.summary.antigravity_meter;
+  if (antigravity.jobs) figureCard("Ran on the Antigravity meter", antigravity,
+    "Antigravity reports tokens but no cost figure, so none is shown.");
+
+  // Last of the figures: it holds the codex, cursor, and antigravity jobs
+  // again, and the caveat card right below it says so.
   figureCard("Ran outside the driver session", data.summary.outside_driver,
     costNote(data.summary.outside_driver), true);
 
   const overlap = section("card reading");
   overlap.appendChild(el("h2", "Reading the figures"));
-  overlap.appendChild(el("p", "Codex and Cursor jobs are counted in their own figure and "
+  overlap.appendChild(el("p", "Codex, Cursor, and Antigravity jobs are counted in their own figure and "
     + "again in the outside-driver figure. The figures are not addends, and no "
     + "difference between them is a saving.", "note caveat"));
   if (data.summary.denials !== null) {
     overlap.appendChild(el("p", "Permission denials across claude-backed, copilot-backed, "
-      + `and cursor-backed jobs: ${data.summary.denials}. A denied tool call does `
+      + `cursor-backed, and antigravity-backed jobs: ${data.summary.denials}. A denied tool call does `
       + "not move a job's exit code.", "note"));
   }
 
@@ -358,7 +362,7 @@ function render() {
             : [absent("n/a"), absent("n/a")]),
         j.backend === "codex" ? absent("n/a - subscription")
           : j.backend === "copilot" ? absent("n/a - AI credits")
-          : j.backend === "cursor" ? absent("n/a - no cost figure")
+          : (j.backend === "cursor" || j.backend === "antigravity") ? absent("n/a - no cost figure")
           : (j.cost_usd === null ? absent("unknown") : measured(j.cost_usd))];
     }), "Delegated jobs, per-job telemetry", "jobs"));
 

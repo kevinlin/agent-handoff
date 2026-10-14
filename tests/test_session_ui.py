@@ -418,6 +418,75 @@ class SessionTests(unittest.TestCase):
         (job / 'log.jsonl').write_text('{"type":"result","permission_denials":[]}\n')
         self.assertEqual(ui.denials(job, 'claude'), {'state': 'reported', 'items': []})
 
+    def test_antigravity_denials_come_from_the_result_list(self):
+        """P0 and P1: both denied tool steps ended DONE with no error, so only the
+        result's list, with two actions, can say two."""
+        job = self.session.job_dir('job-a')
+        shutil.copyfile(FIXTURES / 'antigravity.jsonl', job / 'log.jsonl')
+        found = ui.denials(job, 'antigravity')
+        self.assertEqual('reported', found['state'])
+        self.assertEqual([{'tool': 'WriteToFile', 'action': 'write_file'},
+                          {'tool': 'RunCommand', 'action': 'command'}], found['items'])
+        # No fall-through in either direction: no other backend's parser counts
+        # an antigravity log, and the antigravity branch reads no other log.
+        self.assertEqual('not yet available', ui.denials(job, 'claude')['state'])
+        for other in ('cursor', 'copilot'):
+            self.assertEqual([], ui.denials(job, other)['items'])
+        (job / 'log.jsonl').write_text(json.dumps(
+            {'type': 'result', 'permission_denials': [{'tool_name': 'Bash'}]}) + '\n')
+        self.assertEqual({'state': 'not reported (antigravity)', 'items': []},
+                         ui.denials(job, 'antigravity'))
+
+    def test_an_antigravity_log_with_no_result_event_is_not_reported(self):
+        job = self.session.job_dir('job-a')
+        lines = (FIXTURES / 'antigravity.jsonl').read_text().splitlines()
+        self.assertEqual('result', json.loads(lines[-1])['event'])
+        (job / 'log.jsonl').write_text('\n'.join(lines[:-1]) + '\n')
+        self.assertEqual({'state': 'not reported (antigravity)', 'items': []},
+                         ui.denials(job, 'antigravity'))
+        (job / 'log.jsonl').write_text('')
+        self.assertEqual({'state': 'not reported (antigravity)', 'items': []},
+                         ui.denials(job, 'antigravity'))
+
+    def test_an_unexpected_antigravity_shape_is_skipped_not_fatal(self):
+        job = self.session.job_dir('job-a')
+        log = job / 'log.jsonl'
+        junk = ['null', '"text"', '[]', '{"event": "step_update", "step_update": null}']
+        # A result with no denied_actions key is a clean run, and so is a result
+        # whose payload is not an object or whose list is not a list.
+        for result in ({'status': 'SUCCESS'}, None, {'denied_actions': 'WriteToFile'}):
+            log.write_text('\n'.join(junk + [json.dumps({'event': 'result', 'result': result})]) + '\n')
+            self.assertEqual({'state': 'reported', 'items': []}, ui.denials(job, 'antigravity'))
+        log.write_text(json.dumps({'event': 'result', 'result': {
+            'denied_actions': [None, 3, {'display_name': 'WriteToFile'}]}}) + '\n')
+        self.assertEqual({'state': 'reported', 'items': [
+            {'tool': 'WriteToFile', 'action': 'details unavailable'}]}, ui.denials(job, 'antigravity'))
+
+    def test_an_antigravity_job_reports_its_denials_in_the_session_payload(self):
+        job = self.repo / '.handoff/jobs/job-c'
+        job.mkdir(parents=True)
+        (job / 'meta').write_text('backend=antigravity\nsubmitted_at=2026-09-10T00:05:00Z\n'
+                                  'model=gemini-3.8-flash-low\nrole=fast_worker\neffort=model\n')
+        (job / 'exit_code').write_text('0')
+        (job / 'prompt.md').write_text('fixture prompt')
+        shutil.copyfile(FIXTURES / 'antigravity.jsonl', job / 'log.jsonl')
+        receipt = self.repo / '.handoff/receipts/receipt-20260910T010000Z.md'
+        receipt.write_text(
+            '[Handoff session receipt]\nphase: review\nclaude_session: none\nduration: 30min 00sec\n'
+            'codex_jobs: 0\ncodex_job_durations: none\ncc_jobs: 0\ncc_job_durations: none\n'
+            'copilot_jobs: 0\ncopilot_job_durations: none\ncursor_jobs: 0\ncursor_job_durations: none\n'
+            'antigravity_jobs: 1\nantigravity_job_durations: job-c=5min 00sec\n'
+            'checks: fixture checks\nanomalies: none\nscope: project\nconfig_source: project\n'
+            'roles_used: none\nreceipt_schema_version: 8\n')
+        session = ui.Session(self.repo, str(receipt))
+        with patch.object(ui.transcript, '_is_ignored', return_value=True):
+            payload = session.payload('fixture-token')
+        self.assertEqual(['antigravity'], [row['backend'] for row in payload['jobs']])
+        self.assertEqual(
+            [{'job': 'job-c', 'state': 'reported', 'items': [
+                {'tool': 'WriteToFile', 'action': 'write_file'},
+                {'tool': 'RunCommand', 'action': 'command'}]}], payload['denials'])
+
     def test_malformed_roles_and_derived_anomalies(self):
         for raw in (None, 'oops', '{}', 'null'):
             self.assertEqual(ui.roles_used(raw), 'not recorded')

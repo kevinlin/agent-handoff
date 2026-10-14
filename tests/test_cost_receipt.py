@@ -36,10 +36,12 @@ def receipt_text(**overrides) -> str:
         "copilot_job_durations": "job-c=3min 00sec",
         "cursor_jobs": "1",
         "cursor_job_durations": "job-d=4min 00sec",
+        "antigravity_jobs": "1",
+        "antigravity_job_durations": "job-e=5min 00sec",
         "scope": "project",
         "config_source": "project",
         "roles_used": "none",
-        "receipt_schema_version": "7",
+        "receipt_schema_version": "8",
     }
     base.update(overrides)
     body = "\n".join(f"{k}: {v}" for k, v in base.items())
@@ -60,7 +62,7 @@ class LoadReceiptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         make_repo(self.tmp, {"job-a": "codex", "job-b": "claude", "job-c": "copilot",
-                             "job-d": "cursor"})
+                             "job-d": "cursor", "job-e": "antigravity"})
 
     def assert_refused(self, text, needle, repo=None):
         with self.assertRaises(rcr.ReceiptError) as caught:
@@ -69,10 +71,11 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_valid_receipt_loads_jobs_in_order(self):
         loaded = rcr.load_receipt(receipt_text(), self.tmp)
-        self.assertEqual([j["job_id"] for j in loaded["jobs"]], ["job-a", "job-b", "job-c", "job-d"])
+        self.assertEqual([j["job_id"] for j in loaded["jobs"]],
+                         ["job-a", "job-b", "job-c", "job-d", "job-e"])
         self.assertEqual([j["backend"] for j in loaded["jobs"]],
-                         ["codex", "claude", "copilot", "cursor"])
-        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, False, False, False])
+                         ["codex", "claude", "copilot", "cursor", "antigravity"])
+        self.assertEqual([j["running"] for j in loaded["jobs"]], [False] * 5)
 
     def test_two_receipt_blocks_are_refused(self):
         self.assert_refused(receipt_text() + "\n" + receipt_text(), "exactly one")
@@ -83,6 +86,15 @@ class LoadReceiptTests(unittest.TestCase):
     def test_schema_version_five_is_refused(self):
         self.assert_refused(receipt_text(receipt_schema_version="5"), "schema_version")
         self.assert_refused(receipt_text(receipt_schema_version="6"), "schema_version")
+        self.assert_refused(receipt_text(receipt_schema_version="7"), "schema_version")
+
+    def test_an_antigravity_count_disagreeing_with_entries_is_refused(self):
+        self.assert_refused(receipt_text(antigravity_jobs="2"), "antigravity_jobs")
+
+    def test_an_antigravity_job_listed_under_the_wrong_pair_is_refused(self):
+        self.assert_refused(
+            receipt_text(cursor_job_durations="job-e=4min 00sec",
+                         antigravity_job_durations="job-d=5min 00sec"), "backend")
 
     def test_a_cursor_count_disagreeing_with_entries_is_refused(self):
         self.assert_refused(receipt_text(cursor_jobs="2"), "cursor_jobs")
@@ -112,14 +124,15 @@ class LoadReceiptTests(unittest.TestCase):
 
     def test_running_entry_is_carried_not_dropped(self):
         loaded = rcr.load_receipt(receipt_text(cc_job_durations="job-b=running"), self.tmp)
-        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, True, False, False])
+        self.assertEqual([j["running"] for j in loaded["jobs"]], [False, True, False, False, False])
 
     def test_none_contributes_no_jobs(self):
         loaded = rcr.load_receipt(
             receipt_text(codex_jobs="0", codex_job_durations="none",
                          cc_jobs="0", cc_job_durations="none",
                          copilot_jobs="0", copilot_job_durations="none",
-                         cursor_jobs="0", cursor_job_durations="none"), self.tmp)
+                         cursor_jobs="0", cursor_job_durations="none",
+                         antigravity_jobs="0", antigravity_job_durations="none"), self.tmp)
         self.assertEqual(loaded["jobs"], [])
 
     def test_a_copilot_job_listed_under_the_wrong_pair_is_refused(self):
@@ -314,12 +327,189 @@ class CursorJobRowTests(unittest.TestCase):
         self.assertFalse(summary["outside_driver"]["cost_applicable"])
 
 
-class FourBackendRoundTripTests(unittest.TestCase):
+# Antigravity logs, in the shapes of the probe records with paths and tool
+# lists trimmed. A step_update carries usage on its closing agent_response
+# step only; denials are listed on the terminal result and nowhere else.
+def agy_usage(input_tokens, output_tokens, thinking=0, cache_read=0):
+    return {"input_tokens": input_tokens, "output_tokens": output_tokens,
+            "thinking_tokens": thinking, "cache_read_tokens": cache_read,
+            "total_tokens": input_tokens + output_tokens}
+
+
+def agy_step(index, step_type, state="DONE", **extra):
+    return {"event": "step_update", "step_update": {
+        "conversation_id": "c-1", "step_index": index, "state": state,
+        "step_type": step_type, **extra}}
+
+
+def agy_result(usage, status="SUCCESS", **extra):
+    return {"event": "result", "result": {
+        "conversation_id": "c-1", "status": status, "response": "", "usage": usage, **extra}}
+
+
+AGY_INIT = {"event": "init", "conversation_id": "c-1", "init": {
+    "model": "gemini-3.8-flash-low", "cwd": "<repo>", "tools": ["run_command"],
+    "permission_mode": "always-proceed"}}
+# P3's shape, and P0's: two steps close with usage, and a tool step that was
+# denied still ends DONE with no error.
+AGY_STEPS = [
+    AGY_INIT,
+    agy_step(0, "user_input"),
+    agy_step(1, "agent_response", usage=agy_usage(100, 10, thinking=4, cache_read=60)),
+    agy_step(2, "tool", tool_name="write_to_file",
+             tool_info={"name": "write_to_file", "parameters": {"TargetFile": "<repo>/a.txt"}}),
+    agy_step(3, "agent_response", usage=agy_usage(30, 5, thinking=2, cache_read=0)),
+]
+AGY_DENIED = [*AGY_STEPS, agy_result(
+    agy_usage(130, 15, thinking=6, cache_read=60),
+    denied_actions=[{"action": "write_file", "display_name": "WriteToFile"},
+                    {"action": "command", "display_name": "RunCommand"}])]
+# RPARENT, then RSAME: the round's own steps used 12,143 input tokens, but its
+# result reports 23,989, the whole conversation (11,846 + 12,143).
+AGY_PARENT = [AGY_INIT,
+              agy_step(1, "agent_response", usage=agy_usage(11846, 1)),
+              agy_result(agy_usage(11846, 1))]
+AGY_RESUME = [AGY_INIT,
+              agy_step(2, "user_input"),
+              agy_step(3, "system_message", duration_seconds=0.000285),
+              agy_step(4, "agent_response", usage=agy_usage(12143, 99, thinking=90)),
+              agy_result(agy_usage(23989, 100, thinking=90))]
+# MUNKNOWN: a launch rejection writes one result, with an empty conversation id.
+AGY_REJECTED = [{"event": "result", "result": {
+    "conversation_id": "", "status": "ERROR", "response": "",
+    "error": "invalid model selection (--model \"no-such-model-xyz\")",
+    "duration_seconds": 0, "num_turns": 0, "usage": agy_usage(0, 0)}}]
+
+
+class AntigravityFoldTests(unittest.TestCase):
+    def test_tokens_are_the_step_sum_and_reasoning_is_known(self):
+        folded = rcr.fold_usage(AGY_DENIED, "antigravity")
+        self.assertEqual({"input": 130, "cache_read": 60, "cache_write": None,
+                          "output": 15, "reasoning": 6}, folded["usage"])
+        self.assertIsNone(folded["cost_usd"])
+        self.assertEqual([], folded["models"])
+        self.assertEqual({key: None for key in rcr.CREDITS}, folded["credits"])
+
+    def test_an_antigravity_resume_counts_only_its_own_steps(self):
+        """RSAME: result.usage is cumulative over the conversation, so the round
+        reads its own steps and the chain total is the parent plus the round."""
+        parent = rcr.fold_usage(AGY_PARENT, "antigravity")["usage"]
+        round_ = rcr.fold_usage(AGY_RESUME, "antigravity")["usage"]
+        self.assertEqual((12143, 99, 90), (round_["input"], round_["output"], round_["reasoning"]))
+        self.assertNotEqual(23989, round_["input"])
+        self.assertEqual(23989, parent["input"] + round_["input"])
+        self.assertEqual(100, parent["output"] + round_["output"])
+
+    def test_an_antigravity_job_without_result_has_unknown_usage(self):
+        for events in (AGY_STEPS, [AGY_INIT], []):
+            folded = rcr.fold_usage(events, "antigravity")
+            self.assertEqual({c: None for c in rcr.COUNTERS}, folded["usage"])
+            self.assertIsNone(folded["denials"])
+
+    def test_a_launch_rejection_is_a_measured_zero_with_no_denials(self):
+        folded = rcr.fold_usage(AGY_REJECTED, "antigravity")
+        self.assertEqual({"input": 0, "cache_read": 0, "cache_write": None,
+                          "output": 0, "reasoning": 0}, folded["usage"])
+        self.assertEqual(0, folded["denials"])
+
+    def test_antigravity_denials_come_from_the_result_list(self):
+        self.assertEqual(2, rcr.fold_usage(AGY_DENIED, "antigravity")["denials"])
+        # A clean run omits the key, and a tool step in the ERROR state (P2R) is
+        # not a denial by itself: only the list counts.
+        errored = agy_step(2, "tool", state="ERROR", tool_name="write_to_file", tool_info={
+            "name": "write_to_file", "error": {"type": "TOOL_ERROR", "message": "denied"}})
+        clean = [*AGY_STEPS[:3], errored, agy_result(agy_usage(130, 15))]
+        self.assertEqual(0, rcr.fold_usage(clean, "antigravity")["denials"])
+
+    def test_an_unexpected_antigravity_shape_is_skipped(self):
+        odd = [None, "text", [], 7,
+               {"event": "step_update", "step_update": None},
+               {"event": "step_update", "step_update": "text"},
+               agy_step(1, "agent_response", usage="lots"),
+               agy_step(2, "agent_response", usage=[1, 2]),
+               agy_step(3, "agent_response", usage={"input_tokens": "5", "output_tokens": True}),
+               agy_step(4, "agent_response", usage=agy_usage(30, 5)),
+               {"event": "result", "result": "done"}]
+        folded = rcr.fold_usage(odd, "antigravity")
+        self.assertEqual(30, folded["usage"]["input"])
+        self.assertEqual(5, folded["usage"]["output"])
+        self.assertEqual(0, folded["denials"])
+        for denied in (None, "WriteToFile", {"display_name": "WriteToFile"}):
+            events = [agy_result(agy_usage(1, 1), denied_actions=denied)]
+            self.assertEqual(0, rcr.fold_usage(events, "antigravity")["denials"])
+
+    def test_no_log_is_read_by_another_backends_parser(self):
+        """R7.4: the backend decides the parser, in both directions."""
+        for backend in ("codex", "claude", "copilot", "cursor"):
+            folded = rcr.fold_usage(AGY_DENIED, backend)
+            self.assertEqual({c: None for c in rcr.COUNTERS}, folded["usage"], backend)
+            self.assertIn(folded["denials"], (None, 0), backend)
+        for foreign in ([CODEX_TURN], [CLAUDE_RESULT], [CURSOR_REJECTED, CURSOR_RESULT],
+                        [COPILOT_DENIAL]):
+            folded = rcr.fold_usage(foreign, "antigravity")
+            self.assertEqual({c: None for c in rcr.COUNTERS}, folded["usage"])
+            self.assertIsNone(folded["denials"])
+
+
+class AntigravityJobRowTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def write_job(self, job_id, meta, events=(), exit_code="0"):
+        job = self.tmp / ".handoff" / "jobs" / job_id
+        job.mkdir(parents=True)
+        (job / "meta").write_text(meta)
+        (job / "exit_code").write_text(exit_code + "\n")
+        (job / "log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+
+    def row(self, job_id):
+        return rcr.job_row(self.tmp, {"job_id": job_id, "backend": "antigravity",
+                                      "running": False})
+
+    def test_the_model_column_is_the_slug_from_meta_not_the_log(self):
+        self.write_job("job-g", "backend=antigravity\nmodel=claude-sonnet-4-6\n", AGY_STEPS)
+        self.write_job("job-g-r2", "backend=antigravity\nmodel=inherit\nparent=job-g\n", AGY_STEPS)
+        self.assertEqual("claude-sonnet-4-6", self.row("job-g")["model"])
+        self.assertEqual("claude-sonnet-4-6", self.row("job-g-r2")["model"])
+
+    def test_a_parent_and_its_fix_round_sum_their_own_steps_and_carry_no_cost(self):
+        self.write_job("job-g", "backend=antigravity\nmodel=gemini-3.8-flash-low\n", AGY_PARENT)
+        self.write_job("job-g-r2", "backend=antigravity\nmodel=gemini-3.8-flash-low\n"
+                       "parent=job-g\nresumed_session=c-1\n", AGY_RESUME)
+        summary = rcr.summarize([self.row("job-g"), self.row("job-g-r2")])
+        for figure in ("antigravity_meter", "outside_driver"):
+            self.assertEqual(23989, summary[figure]["usage"]["input"]["value"], figure)
+            self.assertEqual(100, summary[figure]["usage"]["output"]["value"], figure)
+            self.assertEqual(90, summary[figure]["usage"]["reasoning"]["value"], figure)
+        self.assertEqual(2, summary["antigravity_meter"]["jobs"])
+        self.assertIsNone(summary["antigravity_meter"]["cost_usd"])
+        self.assertFalse(summary["outside_driver"]["cost_applicable"])
+        # Cache writes are not reported, so that column stays unknown.
+        self.assertIsNone(summary["antigravity_meter"]["usage"]["cache_write"]["value"])
+
+    def test_a_job_with_no_log_or_no_result_is_unknown_not_zero(self):
+        self.write_job("job-cut", "backend=antigravity\nmodel=m\n", AGY_STEPS, exit_code="143")
+        self.write_job("job-none", "backend=antigravity\nmodel=m\n", exit_code="1")
+        for job_id in ("job-cut", "job-none"):
+            row = self.row(job_id)
+            self.assertEqual({c: None for c in rcr.COUNTERS}, row["usage"], job_id)
+            self.assertIsNone(row["denials"], job_id)
+
+    def test_a_launch_rejection_row_is_failed_with_zero_tokens(self):
+        self.write_job("job-bad", "backend=antigravity\nmodel=no-such-model-xyz\n",
+                       AGY_REJECTED, exit_code="1")
+        row = self.row("job-bad")
+        self.assertEqual(("FAILED", 0, 0), (row["state"], row["usage"]["input"], row["denials"]))
+        self.assertEqual("no-such-model-xyz", row["model"])
+
+
+class FiveBackendRoundTripTests(unittest.TestCase):
     def test_one_job_per_backend_makes_a_receipt_both_readers_accept(self):
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp)
         started = datetime.now(timezone.utc) - timedelta(minutes=30)
-        backends = ("codex", "claude", "copilot", "cursor")
+        backends = ("codex", "claude", "copilot", "cursor", "antigravity")
         for offset, backend in enumerate(backends):
             job = tmp / ".handoff" / "jobs" / f"job-{backend}"
             job.mkdir(parents=True)
@@ -331,9 +521,9 @@ class FourBackendRoundTripTests(unittest.TestCase):
             [sys.executable, str(ROOT / "scripts" / "make-receipt.py"), "--repo", str(tmp),
              "--phase", "delegated implementation", "--claude-session", "none",
              "--checks", "unittest", "--codex-jobs", "1", "--cc-jobs", "1",
-             "--copilot-jobs", "1", "--cursor-jobs", "1",
+             "--copilot-jobs", "1", "--cursor-jobs", "1", "--antigravity-jobs", "1",
              "--started-at", started.strftime("%Y-%m-%dT%H:%M:%SZ"),
-             "--roles-used", '[{"role":"fast_worker","host":"cursor","model":"m",'
+             "--roles-used", '[{"role":"fast_worker","host":"antigravity","model":"m",'
                              '"effort":"model","verified":false}]'],
             capture_output=True, text=True, check=False)
         self.assertEqual(0, made.returncode, made.stderr)
@@ -344,8 +534,13 @@ class FourBackendRoundTripTests(unittest.TestCase):
         self.assertEqual(0, checked.returncode, checked.stdout)
         loaded = rcr.load_receipt(receipt.read_text(encoding="utf-8"), tmp)
         self.assertEqual(list(backends), [job["backend"] for job in loaded["jobs"]])
-        for field in ("codex_jobs", "cc_jobs", "copilot_jobs", "cursor_jobs"):
+        for field in ("codex_jobs", "cc_jobs", "copilot_jobs", "cursor_jobs", "antigravity_jobs"):
             self.assertEqual("1", loaded["fields"][field])
+        # The renderer accepts the receipt it was handed, end to end.
+        rendered = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "render-cost-receipt.py"), str(receipt),
+             "--repo", str(tmp), "--no-open"], capture_output=True, text=True, check=False)
+        self.assertEqual(0, rendered.returncode, rendered.stderr)
 
 
 class CopilotFoldTests(unittest.TestCase):
@@ -602,6 +797,29 @@ class SummaryTests(unittest.TestCase):
                                  row("c", "cursor", 1, denials=3)])
         self.assertEqual(6, summary["denials"])
 
+    def test_denials_sum_across_all_four_reporting_backends(self):
+        summary = rcr.summarize([row("a", "claude", 1, denials=1),
+                                 row("b", "copilot", 1, denials=2),
+                                 row("c", "cursor", 1, denials=3),
+                                 row("d", "antigravity", 1, denials=4)])
+        self.assertEqual(10, summary["denials"])
+
+    def test_an_antigravity_job_with_unknown_denials_adds_none(self):
+        self.assertIsNone(rcr.summarize([row("a", "antigravity", 1, denials=None)])["denials"])
+        self.assertEqual(0, rcr.summarize([row("a", "antigravity", 1, denials=0)])["denials"])
+
+    def test_a_run_without_antigravity_has_no_antigravity_jobs(self):
+        self.assertEqual(0, rcr.summarize([row("a", "codex", 1)])["antigravity_meter"]["jobs"])
+
+    def test_the_antigravity_figure_counts_only_antigravity_jobs(self):
+        summary = rcr.summarize([row("a", "codex", 100), row("g", "antigravity", 130)])
+        self.assertEqual(130, summary["antigravity_meter"]["usage"]["input"]["value"])
+        self.assertEqual(1, summary["antigravity_meter"]["jobs"])
+        self.assertEqual(230, summary["outside_driver"]["usage"]["input"]["value"])
+        self.assertEqual(0, summary["cursor_meter"]["jobs"])
+        self.assertIsNone(summary["antigravity_meter"]["cost_usd"])
+        self.assertFalse(summary["outside_driver"]["cost_applicable"])
+
     def test_a_run_without_cursor_has_no_cursor_jobs(self):
         self.assertEqual(0, rcr.summarize([row("a", "codex", 1)])["cursor_meter"]["jobs"])
 
@@ -724,13 +942,48 @@ class MarkdownTests(unittest.TestCase):
                                         "Ran outside the driver session", "not addends")]
         self.assertEqual(sorted(order), order)
 
-    def test_the_caveat_names_both_double_counted_backends(self):
-        self.assertIn("Codex and Cursor jobs are counted in their own figure",
+    def test_an_antigravity_cost_cell_reads_no_cost_figure(self):
+        out = rcr.render_markdown(self.payload([row("job-ag", "antigravity", 130)]))
+        line = next(l for l in out.splitlines() if l.startswith("| `job-ag`"))
+        self.assertTrue(line.endswith("| n/a - no cost figure |"), line)
+        # The HTML cell is built in the page, so the template is what is read.
+        html = TEMPLATE.read_text(encoding="utf-8")
+        self.assertRegex(html, r'j\.backend === "antigravity"\) \? absent\("n/a - no cost figure"\)')
+        self.assertIn('absent("unknown")', html)
+
+    def test_the_summary_names_the_antigravity_meter_only_when_it_ran(self):
+        out = rcr.render_markdown(self.payload([row("job-ag", "antigravity", 130)]))
+        self.assertIn("**Ran on the Antigravity meter** (1 job). Antigravity reports tokens "
+                      "but no cost figure", out)
+        self.assertNotIn("Antigravity meter", rcr.render_markdown(self.payload()))
+
+    def test_the_antigravity_meter_shows_its_tokens(self):
+        out = rcr.render_markdown(self.payload([row("job-a", "codex", 100),
+                                                row("job-ag", "antigravity", 130)]))
+        summary = out.split("## Delegated jobs")[0]
+        meter = summary.split("**Ran on the Antigravity meter**")[1].split("**Ran outside")[0]
+        self.assertIn("| 130 | unknown | unknown | unknown | unknown |", meter)
+
+    def test_the_antigravity_meter_sits_between_cursor_and_the_outside_figure(self):
+        out = rcr.render_markdown(self.payload([row("job-cu", "cursor", 130),
+                                                row("job-ag", "antigravity", 130)]))
+        order = [out.index(s) for s in ("Ran on a Codex subscription", "Copilot AI-credit meter",
+                                        "Ran on the Cursor meter", "Ran on the Antigravity meter",
+                                        "Ran outside the driver session", "not addends")]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_antigravity_denials_are_summed_into_the_sentence(self):
+        out = rcr.render_markdown(self.payload([row("job-ag", "antigravity", 1, denials=2)]))
+        self.assertIn("antigravity-backed jobs: **2**", out)
+
+    def test_the_caveat_names_every_double_counted_backend(self):
+        self.assertIn("Codex, Cursor, and Antigravity jobs are counted in their own figure",
                       rcr.render_markdown(self.payload()))
 
     def test_denials_name_every_reporting_backend(self):
         out = rcr.render_markdown(self.payload([row("c", "cursor", 1, denials=2)]))
-        self.assertIn("claude-backed, copilot-backed, and cursor-backed jobs: **2**", out)
+        self.assertIn("claude-backed, copilot-backed, cursor-backed, "
+                      "and antigravity-backed jobs: **2**", out)
 
     def payload(self, rows=None, driver=None):
         rows = rows if rows is not None else [
@@ -825,10 +1078,10 @@ class MarkdownTests(unittest.TestCase):
         job_line = next(l for l in out.splitlines() if l.startswith("| `job-cp`"))
         self.assertTrue(job_line.endswith("| n/a - AI credits |"), job_line)
 
-    def test_denials_are_attributed_to_three_reporting_backends(self):
+    def test_denials_are_attributed_to_four_reporting_backends(self):
         rows = [row("job-cp", "copilot", 1, denials=2)]
         out = rcr.render_markdown(self.payload(rows=rows))
-        self.assertIn("claude-backed, copilot-backed, and cursor-backed jobs", out)
+        self.assertIn("claude-backed, copilot-backed, cursor-backed, and antigravity-backed jobs", out)
 
     def test_denial_command_strings_never_reach_the_output(self):
         rows = [row("job-b", "claude", 1, denials=11)]
@@ -843,7 +1096,7 @@ TEMPLATE = ROOT / "assets" / "cost-receipt.html"
 class TemplateTests(unittest.TestCase):
     def test_template_renders_the_cursor_meter_and_cost_cell(self):
         for needle in ("cursor_meter", "Ran on the Cursor meter", "n/a - no cost figure",
-                       "and cursor-backed jobs"):
+                       "cursor-backed, and antigravity-backed jobs"):
             self.assertIn(needle, self.html)
 
     def test_the_outside_card_sits_above_the_reading_card(self):
@@ -852,6 +1105,20 @@ class TemplateTests(unittest.TestCase):
             '"Ran on the Cursor meter"', '"Ran outside the driver session"',
             '"Reading the figures"')]
         self.assertEqual(sorted(order), order)
+
+    def test_the_antigravity_card_renders_its_counters_between_cursor_and_outside(self):
+        self.assertIn('if (antigravity.jobs) figureCard("Ran on the Antigravity meter", antigravity,',
+                      self.html)
+        self.assertIn("const antigravity = data.summary.antigravity_meter;", self.html)
+        self.assertIn("Antigravity reports tokens but no cost figure, so none is shown.", self.html)
+        order = [self.html.index(s) for s in ('"Ran on the Cursor meter"',
+                                              '"Ran on the Antigravity meter"',
+                                              '"Ran outside the driver session"')]
+        self.assertEqual(sorted(order), order)
+
+    def test_the_caveat_card_names_antigravity_among_the_counted_twice(self):
+        self.assertIn("Codex, Cursor, and Antigravity jobs are counted in their own figure",
+                      self.html)
 
     def test_the_cursor_card_renders_its_counters(self):
         self.assertIn('figureCard("Ran on the Cursor meter", cursor,', self.html)
@@ -881,9 +1148,9 @@ class TemplateTests(unittest.TestCase):
                        "Copilot AI-credit meter", "j.premium_requests", "j.nano_aiu"):
             self.assertIn(needle, self.html)
 
-    def test_template_attributes_denials_to_three_reporting_backends(self):
+    def test_template_attributes_denials_to_four_reporting_backends(self):
         self.assertIn("claude-backed, copilot-backed, ", self.html)
-        self.assertIn("and cursor-backed jobs", self.html)
+        self.assertIn("cursor-backed, and antigravity-backed jobs", self.html)
         self.assertNotIn("denials across claude-backed jobs", self.html)
 
     def test_page_never_uses_inner_html(self):
@@ -940,7 +1207,7 @@ import io
 
 
 class CliTests(unittest.TestCase):
-    """One job per backend, so the CLI path exercises the four-way partition."""
+    """One job per backend, so the CLI path exercises the five-way partition."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -969,6 +1236,13 @@ class CliTests(unittest.TestCase):
         (cursor / "log.jsonl").write_text(
             "\n".join(json.dumps(e) for e in (CURSOR_INIT, CURSOR_REJECTED, CURSOR_REJECTED,
                                                CURSOR_RESULT)) + "\n")
+        antigravity = jobs / "job-e"
+        antigravity.mkdir(parents=True)
+        (antigravity / "meta").write_text(
+            "backend=antigravity\nmodel=gemini-3.8-flash-low\nrole=fast_worker\nlabel=l\n")
+        (antigravity / "exit_code").write_text("0\n")
+        (antigravity / "log.jsonl").write_text(
+            "".join(json.dumps(event) + "\n" for event in AGY_DENIED))
         self.receipts = self.tmp / ".handoff" / "receipts"
         self.receipts.mkdir(parents=True)
         self.text = receipt_text(
@@ -976,6 +1250,7 @@ class CliTests(unittest.TestCase):
             cc_jobs="1", cc_job_durations="job-b=2min 00sec",
             copilot_jobs="1", copilot_job_durations="job-c=3min 00sec",
             cursor_jobs="1", cursor_job_durations="job-d=4min 00sec",
+            antigravity_jobs="1", antigravity_job_durations="job-e=5min 00sec",
             roles_used='[{"role":"fast_worker","host":"copilot",'
                        '"model":"mai-code-1.1-flash","effort":"medium","verified":true}]')
 
@@ -1064,12 +1339,17 @@ class CliTests(unittest.TestCase):
         self.run_cli()
         self.assertEqual(self.payload_from_html()["jobs"][0]["job_id"], "job-a")
 
-    def test_a_mixed_four_backend_run_renders(self):
+    def test_a_mixed_five_backend_run_renders(self):
         self.write("receipt-20260908T155001Z.md")
         self.assertEqual(self.run_cli()[0], 0)
         payload = self.payload_from_html()
         self.assertEqual([j["backend"] for j in payload["jobs"]],
-                         ["codex", "claude", "copilot", "cursor"])
+                         ["codex", "claude", "copilot", "cursor", "antigravity"])
+        antigravity = payload["jobs"][4]
+        self.assertEqual((130, 6, 2, "gemini-3.8-flash-low", None),
+                         (antigravity["usage"]["input"], antigravity["usage"]["reasoning"],
+                          antigravity["denials"], antigravity["model"], antigravity["cost_usd"]))
+        self.assertEqual(130, payload["summary"]["antigravity_meter"]["usage"]["input"]["value"])
         copilot = payload["jobs"][2]
         self.assertEqual(copilot["premium_requests"], 1)
         self.assertEqual(copilot["nano_aiu"], 84828000)
@@ -1087,7 +1367,8 @@ class CliTests(unittest.TestCase):
                / "cost-receipt-20260908T155001Z.md").read_text()
         self.assertIn("Copilot AI-credit meter", out)
         self.assertIn("84,828,000", out)
-        self.assertIn("claude-backed, copilot-backed, and cursor-backed jobs", out)
+        self.assertIn("claude-backed, copilot-backed, cursor-backed, and antigravity-backed jobs", out)
+        self.assertIn("Ran on the Antigravity meter", out)
 
     def test_a_cursor_job_with_two_rejections_reports_two(self):
         row = rcr.job_row(self.tmp, {"job_id": "job-d", "backend": "cursor", "running": False})
