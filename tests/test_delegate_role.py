@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -32,6 +34,31 @@ def write_fake(path: Path, body: str) -> Path:
     return path
 
 
+# The two flags the antigravity identity check looks for. The real CLI prints its
+# help on stderr (HELP), so the fake does too: a check that read stdout alone
+# would refuse the real thing.
+ANTIGRAVITY_HELP = (
+    "Usage of agy:\n"
+    "  --conversation                  Resume a previous conversation by ID\n"
+    "  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting\n"
+)
+
+
+def help_shim(help_text: str = ANTIGRAVITY_HELP, exit_code: int = 0) -> str:
+    """A fake CLI prologue answering --help on stderr and nothing else."""
+
+    return (
+        'if [ "${1:-}" = "--help" ]; then cat >&2 <<\'HELP\'\n'
+        f"{help_text}HELP\nexit {exit_code}\nfi\n"
+    )
+
+
+def antigravity_shim() -> str:
+    """A fake agy prologue: a bare version number, and help on stderr (VERSION, HELP)."""
+
+    return version_shim("1.3.5") + help_shim()
+
+
 def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dict[str, str]:
     """A clean environment pointing every HANDOFF_*_BIN at a fake worker CLI."""
 
@@ -49,6 +76,19 @@ def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dic
         write_fake(root / "cursor-agent", version_shim("2026.09.28-64d2043") + codex_body)
     )
     write_fake(root / "ide" / "cursor", "echo 'Cursor IDE launcher' >&2\nexit 64\n")
+    # Assigned, not setdefault: a HANDOFF_ANTIGRAVITY_BIN in the developer's shell
+    # must never reach a real agy from a test.
+    env["HANDOFF_ANTIGRAVITY_BIN"] = str(
+        write_fake(root / "agy", antigravity_shim() + codex_body)
+    )
+    # The decoy is what an IDE launcher named agy prints: help without the two
+    # flags, exit 0. It sits in its own directory so a test can put it first on PATH.
+    write_fake(
+        root / "ide" / "agy",
+        "echo 'Usage: antigravity [options] [paths...]'\necho '  --new-window'\nexit 0\n",
+    )
+    # The real CLI's agy, in a directory a test can put later on PATH than the decoy.
+    write_fake(root / "cli" / "agy", antigravity_shim() + codex_body)
     return env
 
 
@@ -411,6 +451,9 @@ class BackendLifecycle:
 
     BACKEND = "codex"
     EFFORT = "high"
+    # When set, submit_raw passes it as --model. Antigravity refuses an empty
+    # model (its resume passes the model again), so its shared submissions need one.
+    MODEL = None
     WORKDIR_MARKER = '-C "$WORKDIR"'
     # What this backend's worker runs under; codex is sandboxed by its own
     # config instead, so it records none.
@@ -479,6 +522,7 @@ class BackendLifecycle:
             self.BACKEND,
             "--effort",
             self.EFFORT,
+            *(["--model", self.MODEL] if self.MODEL else []),
             *arguments,
         )
 
@@ -496,7 +540,10 @@ class BackendLifecycle:
         marker = self.root / "injected"
         values = ["ordinary-model", f'$(touch {marker})', f'`touch {marker}`', 'model"; false; #']
         worker = Path(self.env[f"HANDOFF_{self.BACKEND.upper()}_BIN"])
+        # An antigravity worker must also answer --help with its two flags, or the
+        # identity check would refuse the shim before quoting is ever tested.
         write_fake(worker, version_shim(GITHUB_COPILOT_VERSION if self.BACKEND == "copilot" else "fixture")
+                   + (help_shim() if self.BACKEND == "antigravity" else "")
                    + "printf '%s\\n' \"$@\"\n")
         for value in values:
             with self.subTest(value=value):
@@ -671,6 +718,12 @@ class BackendLifecycle:
             self.assertEqual(read_only, "--mode plan" in run_sh)
             self.assertEqual(not read_only, "--force" in run_sh)  # risk-ok: Cursor CLI flag name
             self.assertEqual("plan" if read_only else "force", meta["permission_mode"])
+        elif self.BACKEND == "antigravity":
+            # RO2: plan mode with the skip flag wrote files, so read-only never carries it.
+            self.assertEqual(read_only, "--mode plan" in run_sh)
+            self.assertEqual(not read_only, "--dangerously-skip-permissions" in run_sh)
+            self.assertIn("--print-timeout 0s", run_sh)
+            self.assertEqual("plan" if read_only else "skip-permissions", meta["permission_mode"])
         else:
             self.fail(f"no posture assertions for backend {self.BACKEND}")
 
@@ -848,9 +901,12 @@ class BackendLifecycle:
                 "denied_tools",
                 "usage",
                 "errors",
+                "context_lost",
             },
             set(payload),
         )
+        # Measured only on an antigravity resume; every fresh job reads null.
+        self.assertIsNone(payload["context_lost"])
         self.assertEqual(0, payload["permission_denied"])
         self.assertEqual("sess-fixture", payload["session_id"])
         self.assertEqual("work done", payload["agent_message"])
@@ -862,6 +918,17 @@ class BackendLifecycle:
         meta = self.read_meta(self.submit())
         self.assertEqual(self.PERMISSION_MODE, meta.get("permission_mode", ""))
 
+    def denied_log_lines(self):
+        """The stream the shared denial test writes, in this backend's own shape.
+
+        The default is two standalone denial events around the clean stream, and
+        the order matters: Copilot names its first denial `unknown` because that
+        denial precedes the tool start (DENIED_TOOLS). A backend that reports
+        denials another way overrides this.
+        """
+
+        return (self.DENIED_LINE, *self.LOG_LINES, self.DENIED_LINE)
+
     def test_result_reports_denials_that_the_exit_code_hides(self):
         """A blocked check still leaves exit 0, so the count is the only signal.
 
@@ -872,8 +939,7 @@ class BackendLifecycle:
         job_id = self.submit()
         job = self.finish(job_id)
         job.joinpath("log.jsonl").write_text(
-            "\n".join((self.DENIED_LINE, *self.LOG_LINES, self.DENIED_LINE)) + "\n",
-            encoding="utf-8",
+            "\n".join(self.denied_log_lines()) + "\n", encoding="utf-8"
         )
 
         payload = json.loads(
@@ -1589,6 +1655,810 @@ class CursorBinaryDiscoveryTests(unittest.TestCase):
         self.assertEqual((0, ""), (result.returncode, result.stderr))
         parsed = parse_pairs(result.stdout)
         self.assertEqual((str(self.agent), "env"), (parsed["codex_bin"], parsed["codex_bin_source"]))
+
+
+
+AGY_SID = "sess-fixture"
+ZERO_USAGE = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "thinking_tokens": 0,
+    "cache_read_tokens": 0,
+    "total_tokens": 0,
+}
+# What status and result print for a log with no result event (R5.1, R5.2).
+UNKNOWN_DENIALS = "permission_denied: unknown (no result event; agy reports denials only when a run ends)"
+LOST_CONTEXT = (
+    "context_lost: true (round ran without its parent's context; "
+    "resubmit with the full packet)"
+)
+# MUNKNOWN: a model agy rejects at launch is one result event with an empty id.
+REJECTION_ERROR = (
+    'invalid model selection (--model "no-such-model" --effort ""): model no-such-model '
+    "is not recognized as a known model or custom model in settings\n"
+    "Available models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Low)"
+)
+# TIMEOUTR: the only trace of a timed-out run that exits 0 with status SUCCESS.
+TIMEOUT_LINE = "[agy] print timeout after 2s with turn in progress; returning partial output"
+
+
+def agy_usage(input_tokens, output_tokens, thinking_tokens=0, cache_read_tokens=0):
+    """The five snake_case counters agy reports; total is input plus output (P3)."""
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "thinking_tokens": thinking_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "total_tokens": input_tokens + output_tokens,
+    }
+
+
+def agy_init(conversation_id=AGY_SID):
+    return json.dumps({
+        "event": "init",
+        "conversation_id": conversation_id,
+        "init": {"model": "gemini-3.8-flash-low", "cwd": "/r", "permission_mode": "always-proceed"},
+    })
+
+
+def agy_step(index, state, step_type, conversation_id=AGY_SID, **fields):
+    return json.dumps({
+        "event": "step_update",
+        "step_update": {
+            "conversation_id": conversation_id,
+            "step_index": index,
+            "state": state,
+            "step_type": step_type,
+            **fields,
+        },
+    })
+
+
+def agy_tool(index, name, parameters, output=None, error=None, state="DONE",
+             conversation_id=AGY_SID):
+    """The ACTIVE and the closing line of one tool step, paired by step_index (P3)."""
+
+    info = {"name": name, "parameters": parameters}
+    closing = dict(info)
+    if output is not None:
+        closing["output"] = output
+    if error is not None:
+        closing["error"] = error
+    return (
+        agy_step(index, "ACTIVE", "tool", conversation_id, tool_name=name, tool_info=info),
+        agy_step(index, state, "tool", conversation_id, tool_name=name,
+                 duration_seconds=0.3, tool_info=closing),
+    )
+
+
+def agy_result(response="", usage=None, status="SUCCESS", error=None, denied=None,
+               conversation_id=AGY_SID, turns=1):
+    result = {
+        "conversation_id": conversation_id,
+        "status": status,
+        "response": response,
+        "duration_seconds": 1.0,
+        "num_turns": turns,
+        "usage": ZERO_USAGE if usage is None else usage,
+    }
+    if error is not None:
+        result["error"] = error
+    if denied is not None:
+        result["denied_actions"] = denied
+    return json.dumps({"event": "result", "result": result})
+
+
+class AntigravityWorktreeTests(BackendLifecycle, unittest.TestCase):
+    BACKEND = "antigravity"
+    EFFORT = "model"
+    MODEL = "gemini-3.8-flash-low"
+    # agy takes its working directory from the shell and has no workspace flag.
+    WORKDIR_MARKER = 'cd "$WORKDIR"'
+    PERMISSION_MODE = "skip-permissions"
+    DENIED_ACTIONS = [
+        {"action": "write_file", "display_name": "WriteToFile"},
+        {"action": "command", "display_name": "RunCommand"},
+    ]
+    # `result` names a denial by display_name, sorted.
+    DENIED_TOOLS = ["RunCommand", "WriteToFile"]
+    # P3's shapes: init, step_update agent and tool steps with usage, and a result.
+    # The last step carries the final words on its DONE line, as P3's did.
+    LOG_LINES = (
+        agy_init(),
+        agy_step(0, "DONE", "user_input"),
+        agy_step(1, "ACTIVE", "agent_response", text_delta="looking"),
+        agy_step(1, "DONE", "agent_response", text_delta="\n", duration_seconds=1.5,
+                 usage=agy_usage(11, 3)),
+        *agy_tool(2, "run_command", {"CommandLine": "pytest -q"}, output="ok\r\n"),
+        agy_step(3, "ACTIVE", "agent_response", text_delta="work "),
+        agy_step(3, "DONE", "agent_response", text_delta="done", duration_seconds=2.0,
+                 usage=agy_usage(17, 4, 2, 5)),
+        agy_result(response="looking\nwork done", usage=agy_usage(28, 7, 2, 5)),
+    )
+
+    def denied_log_lines(self):
+        # Antigravity reports denials only as a list on its terminal result. P0's
+        # shape is kept: the refused write ends as a DONE tool step with no error,
+        # so only denied_actions can say it was refused.
+        return (
+            *self.LOG_LINES[:-1],
+            *agy_tool(4, "write_to_file", {"TargetFile": "/r/tracked.txt"}),
+            agy_result(response="looking\nwork done", usage=agy_usage(28, 7, 2, 5),
+                       denied=self.DENIED_ACTIONS),
+        )
+
+    def exec_line(self, job_id: str) -> str:
+        return (self.job_dir(job_id) / "run.sh").read_text(encoding="utf-8")
+
+    def bare_submit(self, *arguments: str):
+        """A submit with neither the class's --backend, --effort, nor --model."""
+
+        return self.delegate(
+            "submit", "--repo", str(self.repo), "--prompt-file", str(self.prompt), *arguments
+        )
+
+    def no_jobs(self) -> bool:
+        return not any((self.repo / ".handoff" / "jobs").glob("job-*"))
+
+    def on_path(self, *directories: Path) -> dict[str, str]:
+        env = dict(self.env)
+        env.pop("HANDOFF_ANTIGRAVITY_BIN")
+        env["PATH"] = os.pathsep.join([*map(str, directories), "/usr/bin", "/bin"])
+        return env
+
+    def submit_with(self, env: dict[str, str], *extra: str):
+        return run_delegate(
+            env, "submit", "--repo", str(self.repo), "--prompt-file", str(self.prompt),
+            "--backend", "antigravity", "--effort", "model", "--model", self.MODEL, *extra,
+        )
+
+    def install_worker(self, body: str):
+        """Replace the fake agy that HANDOFF_ANTIGRAVITY_BIN names."""
+
+        write_fake(Path(self.env["HANDOFF_ANTIGRAVITY_BIN"]), antigravity_shim() + body)
+
+    def install_rejecting_worker(self):
+        """MUNKNOWN: one result with an empty id on stdout, the message on stderr, exit 1."""
+
+        stdout = self.root / "rejection.stdout"
+        stderr = self.root / "rejection.stderr"
+        stdout.write_text(agy_result(status="ERROR", error=REJECTION_ERROR, conversation_id="",
+                                     turns=0) + "\n", encoding="utf-8")
+        stderr.write_text(f"error: {REJECTION_ERROR}\n", encoding="utf-8")
+        self.install_worker(f'cat "{stdout}"\ncat "{stderr}" >&2\nexit 1\n')
+
+    def finish_with(self, job_id: str, lines, stderr: str | None = None,
+                    exit_code: str | None = None) -> Path:
+        """Like finish(), with a log the test chooses (an empty tuple leaves it empty)."""
+
+        job = self.job_dir(job_id)
+        self.assertTrue(self.await_exit(job), "fake worker never exited")
+        (job / "log.jsonl").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+        (job / "session_id").unlink(missing_ok=True)
+        if stderr is not None:
+            (job / "stderr.log").write_text(stderr, encoding="utf-8")
+        if exit_code is not None:
+            (job / "exit_code").write_text(f"{exit_code}\n", encoding="utf-8")
+        return job
+
+    def status_text(self, job_id: str) -> str:
+        return self.delegate("status", job_id, "--repo", str(self.repo)).stdout
+
+    def result_text(self, job_id: str) -> str:
+        return self.delegate("result", job_id, "--repo", str(self.repo)).stdout
+
+    def result_json(self, job_id: str) -> dict:
+        result = self.delegate("result", job_id, "--repo", str(self.repo), "--json")
+        self.assertEqual(0, result.returncode, result.stderr)
+        return json.loads(result.stdout)
+
+    def worker_tokens(self, job_id: str) -> list[str]:
+        lines = [line for line in self.exec_line(job_id).splitlines()
+                 if line.startswith('"$CODEX_BIN"')]
+        self.assertEqual(1, len(lines))
+        return shlex.split(lines[0])
+
+    # --- submit -----------------------------------------------------------
+
+    def test_a_role_less_antigravity_job_gets_the_only_effort(self):
+        result = self.bare_submit("--backend", "antigravity", "--model", self.MODEL, "--dry-run")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        self.assertEqual("model", parse_pairs(result.stdout)["effort"])
+        # Unlike cursor, no model means no job: its resume passes the model again.
+        for extra in (("--dry-run",), ()):
+            with self.subTest(extra=extra):
+                result = self.bare_submit("--backend", "antigravity", *extra)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("handoff-config.py set", result.stderr)
+        self.assertTrue(self.no_jobs())
+
+    def test_submit_refuses_a_wrong_effort_and_an_empty_or_auto_model(self):
+        result = self.bare_submit("--backend", "antigravity", "--model", self.MODEL,
+                                  "--effort", "high")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid --effort for antigravity: high", result.stderr)
+        self.assertIn("Antigravity carries effort in the model id", result.stderr)
+        self.assertIn("handoff-config.py set", result.stderr)
+        for model, message in (("", "model is empty on an antigravity job"),
+                               ("auto", "'auto' is refused on an antigravity job")):
+            with self.subTest(model=model):
+                result = self.bare_submit("--backend", "antigravity", "--model", model)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(message, result.stderr)
+                self.assertIn("handoff-config.py set", result.stderr)
+        self.assertTrue(self.no_jobs())
+        # The same refusals through an identity.
+        self.configure_posture("default")
+        config = self.repo / ".handoff" / "config.toml"
+        original = config.read_text(encoding="utf-8")
+        for old, new, message in (
+            ('effort = "model"', 'effort = "high"', "invalid --effort for antigravity: high"),
+            ('model = "fixture"', 'model = "auto"', "'auto' is refused on an antigravity job"),
+        ):
+            with self.subTest(config=new):
+                config.write_text(original.replace(old, new), encoding="utf-8")
+                result = self.bare_submit("--role", "fast_worker")
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(message, result.stderr)
+                self.assertIn("handoff-config.py set", result.stderr)
+        config.write_text(original, encoding="utf-8")
+        result = self.bare_submit("--role", "fast_worker", "--model", "")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("model is empty on an antigravity job", result.stderr)
+        self.assertIn("handoff-config.py set --role fast_worker", result.stderr)
+        self.assertTrue(self.no_jobs())
+
+    def test_a_backend_that_contradicts_the_role_is_refused_both_ways(self):
+        self.configure_posture("default")  # fast_worker is antigravity-backed
+        result = self.bare_submit("--role", "fast_worker", "--backend", "cursor")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "contradicts identity fast_worker, configured as backend=antigravity", result.stderr)
+        (self.repo / ".handoff" / "config.toml").write_text(
+            'schema_version = 2\nrevision = 0\n'
+            '[fast_worker]\n'
+            'backend = "cursor"\nmodel = "gpt-5.4-mini-low"\neffort = "model"\n',
+            encoding="utf-8",
+        )
+        result = self.bare_submit("--role", "fast_worker", "--backend", "antigravity")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "contradicts identity fast_worker, configured as backend=cursor", result.stderr)
+        self.assertTrue(self.no_jobs())
+
+    # --- binary resolution --------------------------------------------------
+
+    def test_the_ide_launcher_named_agy_is_never_resolved(self):
+        ide, cli = self.root / "ide" / "agy", self.root / "cli" / "agy"
+        # Nothing but the decoy: it is refused, and the refusal names the override.
+        result = self.submit_with(self.on_path(ide.parent), "--dry-run")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", result.stderr)
+        self.assertIn(str(ide), result.stderr)
+        # Nothing at all.
+        result = self.submit_with(self.on_path(), "--dry-run")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("agy CLI not found", result.stderr)
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", result.stderr)
+        self.assertFalse((self.repo / ".handoff").exists())
+        # The decoy first, the real CLI later: discovery walks past the decoy.
+        result = self.submit_with(self.on_path(ide.parent, cli.parent))
+        self.assertEqual(0, result.returncode, result.stderr)
+        meta = self.read_meta(result.stdout.strip())
+        self.assertEqual((str(cli), "path"), (meta["codex_bin"], meta["codex_bin_source"]))
+
+    def test_an_antigravity_override_that_fails_the_identity_check_is_refused(self):
+        for name, prologue in (
+            ("no-flags", help_shim("Usage: agy\n  --model  A model\n")),
+            ("non-zero-exit", help_shim(ANTIGRAVITY_HELP, exit_code=3)),
+        ):
+            with self.subTest(candidate=name):
+                candidate = write_fake(self.root / name / "agy",
+                                       version_shim("1.3.5") + prologue + "exit 0\n")
+                env = dict(self.env)
+                env["HANDOFF_ANTIGRAVITY_BIN"] = str(candidate)
+                result = self.submit_with(env, "--dry-run")
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("HANDOFF_ANTIGRAVITY_BIN does not point at Antigravity CLI", result.stderr)
+                self.assertIn(str(candidate), result.stderr)
+                self.assertIn("--conversation", result.stderr)
+        self.assertFalse((self.repo / ".handoff").exists())
+
+    def test_help_on_stdout_or_stderr_passes_the_identity_check(self):
+        """R2.1 reads both streams together, because the real CLI prints on stderr (HELP)."""
+
+        on_stdout = write_fake(
+            self.root / "stdout-help" / "agy",
+            version_shim("1.3.5")
+            + 'if [ "${1:-}" = "--help" ]; then cat <<\'HELP\'\n' + ANTIGRAVITY_HELP + "HELP\nexit 0\nfi\n",
+        )
+        for candidate in (on_stdout, Path(self.env["HANDOFF_ANTIGRAVITY_BIN"])):
+            with self.subTest(candidate=candidate.parent.name):
+                env = dict(self.env)
+                env["HANDOFF_ANTIGRAVITY_BIN"] = str(candidate)
+                result = self.submit_with(env, "--dry-run")
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                self.assertEqual(str(candidate), parse_pairs(result.stdout)["codex_bin"])
+
+    def test_resume_rechecks_a_replaced_parent_binary(self):
+        # A recorded path that still identifies is reused.
+        kept = self.submit()
+        self.finish(kept)
+        reused = self.resume(kept)
+        self.assertEqual(0, reused.returncode, reused.stderr)
+        self.assertEqual("parent", self.read_meta(reused.stdout.strip())["codex_bin_source"])
+        # The same path replaced by the IDE launcher is not: resume resolves afresh.
+        job_id = self.submit()
+        self.finish(job_id)
+        decoy = self.root / "ide" / "agy"
+        meta = self.job_dir(job_id) / "meta"
+        meta.write_text(
+            meta.read_text(encoding="utf-8").replace(self.env["HANDOFF_ANTIGRAVITY_BIN"], str(decoy)),
+            encoding="utf-8",
+        )
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        child = self.read_meta(result.stdout.strip())
+        self.assertEqual((self.env["HANDOFF_ANTIGRAVITY_BIN"], "env"),
+                         (child["codex_bin"], child["codex_bin_source"]))
+
+    # --- command lines and posture -------------------------------------------
+
+    def test_antigravity_command_lines_never_carry_refused_flags(self):
+        refused = ("--effort", "--sandbox", "-c", "--continue", "-i", "--project",
+                   "--new-project", "--add-dir", "--agent", "--remote-control",
+                   "--input-format", "--json-schema", "--log-file")
+        for posture in ("default", "allow-all"):
+            for read_only in (False, True):
+                job_id = self.configured_submit(posture, *(["--read-only"] if read_only else []))
+                self.finish(job_id)
+                child = self.resume(job_id).stdout.strip()
+                for round_id in (job_id, child):
+                    with self.subTest(posture=posture, read_only=read_only, job=round_id == child):
+                        tokens = self.worker_tokens(round_id)
+                        for flag in refused:
+                            self.assertNotIn(flag, tokens)
+                            self.assertFalse(any(token.startswith(f"{flag}=") for token in tokens))
+                        modes = [tokens[i + 1] for i, token in enumerate(tokens) if token == "--mode"]
+                        self.assertEqual(["plan"] if read_only else [], modes)
+                        self.assertFalse("--mode" in tokens and "--dangerously-skip-permissions" in tokens)
+                        timeouts = [tokens[i + 1] for i, token in enumerate(tokens)
+                                    if token == "--print-timeout"]
+                        self.assertEqual(["0s"], timeouts)
+
+    def test_fresh_and_resume_command_lines(self):
+        job_id = self.submit()
+        self.assertIn(
+            '"$CODEX_BIN" -p "$PROMPT" --output-format stream-json --model "$MODEL" '
+            '--print-timeout 0s --dangerously-skip-permissions '
+            '>"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null',
+            self.exec_line(job_id),
+        )
+        self.assertNotIn("--conversation", self.exec_line(job_id))
+        self.finish(job_id)
+        resumed = self.exec_line(self.resume(job_id).stdout.strip())
+        self.assertIn(
+            '"$CODEX_BIN" -p "$PROMPT" --output-format stream-json --conversation "$SESSION_ID" '
+            '--model "$MODEL" --print-timeout 0s --dangerously-skip-permissions '
+            '>"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null',
+            resumed,
+        )
+        self.assertIn(f"MODEL={self.MODEL}\n", resumed)
+        self.assertIn(f"SESSION_ID={AGY_SID}\n", resumed)
+
+    def test_the_bypass_warning_prints_under_default_and_allow_all(self):
+        for posture in ("default", "allow-all"):
+            with self.subTest(posture=posture):
+                self.configure_posture(posture)
+                result = self.submit_raw("--role", "fast_worker")
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertIn("antigravity worker running with permission checks bypassed",
+                              result.stderr)
+                self.assertIn("Antigravity has no narrower posture Handoff can set", result.stderr)
+                self.assertIn("use --read-only for a job that must not write", result.stderr)
+                # stdout stays exactly the jobId, which is what the driver captures.
+                self.assertRegex(result.stdout.strip(), r"^job-[\w.:-]+$")
+                self.finish(result.stdout.strip())
+                resumed = self.resume(result.stdout.strip())
+                self.assertEqual(0, resumed.returncode, resumed.stderr)
+                self.assertIn("antigravity worker running with permission checks bypassed",
+                              resumed.stderr)
+        result = self.submit_raw("--role", "fast_worker", "--read-only")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("permission checks bypassed", result.stderr)
+        self.assertNotIn("Antigravity has no narrower posture", result.stderr)
+
+    def test_handoff_writes_nothing_under_gemini(self):
+        """R3.5: agy keeps its settings and trust list under ~/.gemini; Handoff never touches them."""
+
+        self.env["HOME"] = str(self.root)
+        job_id = self.submit("--worktree", "e2e/G1")
+        self.finish(job_id)
+        child = self.resume(job_id).stdout.strip()
+        self.finish(child)
+        self.assertEqual([], list(self.root.rglob(".gemini")))
+        for job in (job_id, child):
+            for name in ("run.sh", "meta"):
+                self.assertNotIn(".gemini", (self.job_dir(job) / name).read_text(encoding="utf-8"))
+
+    # --- sessions and resume ------------------------------------------------
+
+    def test_a_launch_rejection_has_no_session_and_one_error(self):
+        """MUNKNOWN: one result with an empty id and no init, exit 1."""
+
+        parent = self.submit()
+        self.finish(parent)
+        self.install_rejecting_worker()
+
+        def assert_rejection(job_id: str):
+            self.assertTrue(self.await_exit(self.job_dir(job_id)))
+            status = self.status_text(job_id)
+            self.assertIn("state: FAILED", status)
+            self.assertIn("last_event: result", status)
+            # Usage and denials are known and zero: the result event says so.
+            self.assertNotIn("permission_denied", status)
+            self.assertNotIn("context_lost", status)
+            payload = self.result_json(job_id)
+            self.assertEqual("", payload["session_id"])
+            self.assertEqual(ZERO_USAGE, payload["usage"])
+            self.assertEqual(0, payload["permission_denied"])
+            self.assertEqual([], payload["denied_tools"])
+            self.assertEqual("", payload["agent_message"])
+            self.assertIsNone(payload["context_lost"])
+            self.assertEqual(
+                [{"status_code": None, "error_type": "result_error", "message": REJECTION_ERROR}],
+                payload["errors"],
+            )
+            text = self.result_text(job_id)
+            self.assertIn(f"session_error: result_error: {REJECTION_ERROR}", text)
+            self.assertIn("permission_denied: 0", text)
+            self.assertNotIn("context_lost", text)
+            self.assertEqual(f"error: {REJECTION_ERROR}\n",
+                             (self.job_dir(job_id) / "stderr.log").read_text(encoding="utf-8"))
+            # No init, so no session to continue.
+            refused = self.resume(job_id)
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("no session id found", refused.stderr)
+
+        fresh = self.submit("--model", "no-such-model")
+        assert_rejection(fresh)
+        # A resume round whose model has left the catalogue fails the same way,
+        # and the parent's id it asked for is recorded but is not its session.
+        result = self.resume(parent)
+        self.assertEqual(0, result.returncode, result.stderr)
+        round_id = result.stdout.strip()
+        self.assertEqual(AGY_SID, self.read_meta(round_id)["resumed_session"])
+        assert_rejection(round_id)
+        self.assertFalse(self.job_dir(f"{parent}-r3").exists())
+
+    def test_a_session_read_before_init_is_not_cached_empty(self):
+        job_id = self.submit()
+        job = self.job_dir(job_id)
+        self.assertTrue(self.await_exit(job))
+        self.assertEqual("", (job / "log.jsonl").read_text(encoding="utf-8"))
+        self.assertIn(UNKNOWN_DENIALS, self.status_text(job_id))
+        self.assertEqual("", self.result_json(job_id)["session_id"])
+        # The read left only a newline in the cache, which must not stand as an id.
+        self.assertTrue((job / "session_id").is_file())
+        self.assertEqual("", (job / "session_id").read_text(encoding="utf-8").strip())
+        (job / "log.jsonl").write_text(agy_init("sess-late") + "\n", encoding="utf-8")
+        self.assertEqual("sess-late", self.result_json(job_id)["session_id"])
+        resumed = self.resume(job_id)
+        self.assertEqual(0, resumed.returncode, resumed.stderr)
+        self.assertIn("SESSION_ID=sess-late\n", self.exec_line(resumed.stdout.strip()))
+
+    def test_a_resume_of_a_resume_passes_the_recorded_model(self):
+        first = self.submit()
+        self.finish(first)
+        second = self.resume(first).stdout.strip()
+        self.finish_with(second, [line.replace(AGY_SID, "sess-round-2") for line in self.LOG_LINES])
+        third = self.resume(second)
+        self.assertEqual(0, third.returncode, third.stderr)
+        third = third.stdout.strip()
+        for job_id, asked in ((second, AGY_SID), (third, "sess-round-2")):
+            with self.subTest(job=job_id):
+                meta = self.read_meta(job_id)
+                # The model that ran, never `inherit`, so a chain needs no walk back.
+                self.assertEqual(self.MODEL, meta["model"])
+                self.assertEqual(asked, meta["resumed_session"])
+                run_sh = self.exec_line(job_id)
+                self.assertIn(f"MODEL={self.MODEL}\n", run_sh)
+                self.assertIn(f"SESSION_ID={asked}\n", run_sh)
+                self.assertIn('--model "$MODEL"', run_sh)
+
+    def test_resume_refuses_a_parent_with_no_recorded_model(self):
+        job_id = self.submit()
+        self.finish(job_id)
+        meta = self.job_dir(job_id) / "meta"
+        original = meta.read_text(encoding="utf-8")
+        for broken in ("model=inherit", "model=default", "model="):
+            with self.subTest(broken=broken):
+                meta.write_text(re.sub(r"(?m)^model=.*$", broken, original), encoding="utf-8")
+                result = self.resume(job_id)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("recorded no model", result.stderr)
+                self.assertFalse(self.job_dir(f"{job_id}-r2").exists())
+
+    def test_an_antigravity_resume_does_not_prewrite_the_session_cache(self):
+        job_id = self.submit()
+        self.finish(job_id)
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        child = self.job_dir(result.stdout.strip())
+        # The id it asked for is recorded; the id it ends up on is its own log's init.
+        self.assertFalse((child / "session_id").exists())
+        self.assertEqual(AGY_SID, self.read_meta(child.name)["resumed_session"])
+
+    def test_a_lost_session_is_reported_in_status_text_and_json(self):
+        # The id it asked for is the one it ran on: context intact.
+        kept = self.submit()
+        self.finish(kept)
+        kept_round = self.resume(kept).stdout.strip()
+        self.finish(kept_round)
+        self.assertIs(False, self.result_json(kept_round)["context_lost"])
+        self.assertNotIn("context_lost", self.status_text(kept_round))
+        self.assertNotIn("context_lost", self.result_text(kept_round))
+        # RUNKNOWN: an id agy cannot find is a warning, exit 0, and a new conversation.
+        lost = self.submit()
+        self.finish(lost)
+        lost_round = self.resume(lost).stdout.strip()
+        self.finish_with(
+            lost_round,
+            [line.replace(AGY_SID, "sess-new") for line in self.LOG_LINES],
+            stderr=f'warning: conversation "{AGY_SID}" not found\n',
+        )
+        self.assertIn(LOST_CONTEXT, self.status_text(lost_round))
+        self.assertIn(LOST_CONTEXT, self.result_text(lost_round))
+        payload = self.result_json(lost_round)
+        self.assertIs(True, payload["context_lost"])
+        self.assertEqual("sess-new", payload["session_id"])
+        # A further resume continues the round's own conversation, not the lost parent.
+        further = self.resume(lost_round)
+        self.assertEqual(0, further.returncode, further.stderr)
+        self.assertIn("SESSION_ID=sess-new\n", self.exec_line(further.stdout.strip()))
+        self.assertEqual("sess-new", self.read_meta(further.stdout.strip())["resumed_session"])
+
+    def test_a_cut_off_antigravity_log_reports_unknown_denials(self):
+        # Killed in its first tool call: init, an agent step, and a tool in flight.
+        cut = self.LOG_LINES[:5]
+        for label, lines in (("cut off", cut), ("empty log", ())):
+            with self.subTest(log=label):
+                job_id = self.submit()
+                self.finish_with(job_id, lines, exit_code="137")
+                self.assertIn(UNKNOWN_DENIALS, self.status_text(job_id))
+                text = self.result_text(job_id)
+                self.assertIn(UNKNOWN_DENIALS, text)
+                self.assertNotIn("permission_denied: 0", text)
+                self.assertNotIn("WARNING", text)
+                payload = self.result_json(job_id)
+                self.assertIsNone(payload["permission_denied"])
+                self.assertEqual([], payload["denied_tools"])
+                # Usage is known only once a result event exists.
+                self.assertEqual({}, payload["usage"])
+        # status is polled, so a running job prints no denial line at all.
+        running = self.submit()
+        job = self.finish_with(running, cut)
+        pid, exit_code = (job / "pid").read_text(), (job / "exit_code").read_text()
+        (job / "exit_code").unlink()
+        (job / "pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
+        try:
+            status = self.status_text(running)
+        finally:
+            (job / "pid").write_text(pid, encoding="utf-8")
+            (job / "exit_code").write_text(exit_code, encoding="utf-8")
+        self.assertIn("state: RUNNING", status)
+        self.assertIn("last_event: step_update:tool", status)
+        self.assertNotIn("permission_denied", status)
+
+    def test_a_killed_job_resumes_after_init_and_is_refused_before_any_event(self):
+        """Wiring only: that agy restores the context is KILL and RKILL's evidence."""
+
+        killed = self.submit()
+        self.finish_with(killed, self.LOG_LINES[:5], exit_code="137")
+        result = self.resume(killed)
+        self.assertEqual(0, result.returncode, result.stderr)
+        run_sh = self.exec_line(result.stdout.strip())
+        self.assertIn(f"SESSION_ID={AGY_SID}\n", run_sh)
+        self.assertIn('--conversation "$SESSION_ID"', run_sh)
+        # Killed before any event: nothing to resume, and the usual refusal says so.
+        early = self.submit()
+        self.finish_with(early, (), exit_code="137")
+        refused = self.resume(early)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("no session id found", refused.stderr)
+        self.assertFalse(self.job_dir(f"{early}-r2").exists())
+
+    # --- reading the log ----------------------------------------------------
+
+    def test_the_agent_message_is_the_last_agent_response_step(self):
+        """P3: result.response joins every agent message of the invocation."""
+
+        steps = (
+            agy_step(1, "ACTIVE", "agent_response", text_delta="Step 1: Attempting to edit."),
+            agy_step(1, "DONE", "agent_response", text_delta="\n", usage=agy_usage(11945, 137)),
+            *agy_tool(2, "write_to_file", {"TargetFile": "/r/tracked.txt"}),
+            agy_step(3, "ACTIVE", "agent_response", text_delta="Step "),
+            agy_step(3, "ACTIVE", "agent_response", text_delta="2: Attempting to run `ba"),
+            agy_step(3, "ACTIVE", "agent_response", text_delta="sh check.sh`."),
+            agy_step(3, "DONE", "agent_response", text_delta="\n", usage=agy_usage(12238, 115)),
+            *agy_tool(4, "run_command", {"CommandLine": "bash check.sh"}, output="CHECK_OK\r\n"),
+            agy_step(5, "ACTIVE", "agent_response", text_delta="### Execution"),
+            agy_step(5, "ACTIVE", "agent_response", text_delta=" Report\n\n1. **Edit**"),
+            agy_step(5, "DONE", "agent_response", text_delta="\n   - **Refusals:** None\n",
+                     usage=agy_usage(13248, 355)),
+        )
+        final = "### Execution Report\n\n1. **Edit**\n   - **Refusals:** None\n"
+        everything = ("Step 1: Attempting to edit.\n"
+                      "Step 2: Attempting to run `bash check.sh`.\n" + final)
+        job_id = self.submit()
+        self.finish_with(job_id, (
+            agy_init(), agy_step(0, "DONE", "user_input"), *steps,
+            agy_result(response=everything, usage=agy_usage(36431, 607)),
+        ))
+        payload = self.result_json(job_id)
+        self.assertEqual(final, payload["agent_message"])
+        self.assertNotEqual(everything, payload["agent_message"])
+        self.assertEqual(["bash check.sh"], payload["commands"])
+        text = self.result_text(job_id)
+        self.assertIn(f"--- agent message ---\n{final}", text)
+        self.assertIn("commands_run: 1", text)
+
+    def test_resume_usage_is_the_round_s_own_steps(self):
+        """RSAME: result.usage is cumulative over the conversation, the steps are not."""
+
+        parent = self.submit()
+        self.finish(parent)
+        round_id = self.resume(parent).stdout.strip()
+        self.finish_with(round_id, (
+            agy_init(),
+            agy_step(2, "DONE", "user_input"),
+            agy_step(3, "DONE", "system_message", duration_seconds=0.000285),
+            agy_step(4, "ACTIVE", "agent_response", text_delta="RESUME-TOKEN-7281"),
+            agy_step(4, "DONE", "agent_response", text_delta="\n", duration_seconds=3.19,
+                     usage=agy_usage(12143, 99, 90)),
+            agy_result(response="RESUME-TOKEN-7281\n", usage=agy_usage(23989, 100, 90), turns=2),
+        ))
+        payload = self.result_json(round_id)
+        self.assertEqual(agy_usage(12143, 99, 90), payload["usage"])
+        self.assertEqual("RESUME-TOKEN-7281\n", payload["agent_message"])
+        self.assertEqual([], payload["commands"])
+        self.assertIs(False, payload["context_lost"])
+
+    def test_a_print_timeout_line_becomes_an_error(self):
+        """TIMEOUTR: a timed-out run exits 0 with status SUCCESS and a stderr line."""
+
+        job_id = self.submit()
+        self.finish_with(
+            job_id,
+            (agy_init(), agy_step(0, "DONE", "user_input"), agy_result(turns=1)),
+            stderr=f"warning: something else\n{TIMEOUT_LINE}\n",
+        )
+        payload = self.result_json(job_id)
+        self.assertEqual(
+            [{"status_code": None, "error_type": "print_timeout", "message": TIMEOUT_LINE}],
+            payload["errors"],
+        )
+        self.assertIn(f"session_error: print_timeout: {TIMEOUT_LINE}", self.result_text(job_id))
+        # Alongside a failed result, both are reported, the result's own first.
+        both = self.submit()
+        self.finish_with(
+            both,
+            (agy_init(), agy_result(status="ERROR", error="API error: capacity")),
+            stderr=f"{TIMEOUT_LINE}\n",
+        )
+        self.assertEqual(["result_error", "print_timeout"],
+                         [error["error_type"] for error in self.result_json(both)["errors"]])
+        # A clean run with ordinary stderr reports no error.
+        clean = self.submit()
+        self.finish_with(clean, self.LOG_LINES, stderr="warning: something else\n")
+        self.assertEqual([], self.result_json(clean)["errors"])
+
+    def test_an_unexpected_antigravity_shape_is_skipped_not_fatal(self):
+        odd = (
+            '{"event":"step_update","step_update":null}',
+            '{"event":"step_update","step_update":"agent_response"}',
+            '{"event":"step_update","step_update":[]}',
+            '{"event":"step_update","step_update":{"step_index":null,"step_type":"agent_response",'
+            '"text_delta":"stray"}}',
+            '{"event":"step_update","step_update":{"step_index":6,"state":"ACTIVE","step_type":"tool",'
+            '"tool_name":"run_command","tool_info":null}}',
+            '{"event":"step_update","step_update":{"step_index":7,"state":"ACTIVE","step_type":"tool",'
+            '"tool_name":"run_command","tool_info":{"parameters":"ls"}}}',
+            # A usage that is not an object, or holds no numbers, adds nothing.
+            agy_step(1, "DONE", "agent_response", usage="lots"),
+            agy_step(1, "DONE", "agent_response", usage=[1, 2]),
+            agy_step(1, "DONE", "agent_response", usage=None),
+            agy_step(1, "DONE", "agent_response",
+                     usage={"input_tokens": "many", "output_tokens": True}),
+            "[]", '"text"', "7", "null", '{"event":null}', '{"event":5}', "not json at all",
+        )
+        for label, extra in (
+            ("no denied_actions key", {}),
+            ("a string", {"denied_actions": "WriteToFile"}),
+            ("an object", {"denied_actions": {"action": "write_file"}}),
+            ("a number", {"denied_actions": 3}),
+            ("null", {"denied_actions": None}),
+            ("a usage that is not an object", {"usage": "none"}),
+        ):
+            with self.subTest(result=label):
+                job_id = self.submit()
+                result_line = json.dumps({"event": "result", "result": {
+                    "conversation_id": AGY_SID, "status": "SUCCESS",
+                    "response": "looking\nwork done", "num_turns": 1,
+                    "usage": agy_usage(28, 7, 2, 5), **extra}})
+                self.finish_with(job_id, (*self.LOG_LINES[:4], *odd, *self.LOG_LINES[4:-1], result_line))
+                result = self.delegate("result", job_id, "--repo", str(self.repo), "--json")
+                self.assertEqual(0, result.returncode, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(0, payload["permission_denied"])
+                self.assertEqual([], payload["denied_tools"])
+                self.assertEqual("work done", payload["agent_message"])
+                self.assertEqual(["pytest -q"], payload["commands"])
+                self.assertEqual(agy_usage(28, 7, 2, 5), payload["usage"])
+                status = self.delegate("status", job_id, "--repo", str(self.repo))
+                self.assertEqual(0, status.returncode, status.stderr)
+                self.assertIn("last_event: result", status.stdout)
+                self.assertNotIn("permission_denied", status.stdout)
+        # A result whose payload is not an object is no result at all.
+        job_id = self.submit()
+        self.finish_with(job_id, (*self.LOG_LINES[:-1], '{"event":"result","result":null}'))
+        payload = self.result_json(job_id)
+        self.assertEqual((None, {}), (payload["permission_denied"], payload["usage"]))
+
+    # --- no fall-through (R7.4) --------------------------------------------
+
+    OTHER_BACKENDS_LINES = (
+        '{"type":"system","subtype":"permission_denied","tool_name":"Bash"}',
+        '{"type":"tool.execution_complete","data":{"toolCallId":"c","success":false,'
+        '"error":{"code":"denied","message":"no"}}}',
+        '{"type":"tool_call","subtype":"completed","call_id":"x","tool_call":'
+        '{"shellToolCall":{"result":{"rejected":{"command":"curl"}}}}}',
+        '{"type":"item.completed","item":{"type":"agent_message","text":"codex words"}}',
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"claude words"}]}}',
+        '{"type":"turn.completed","usage":{"input_tokens":99,"output_tokens":9}}',
+        '{"type":"result","subtype":"success","result":"claude result","usage":{"input_tokens":98}}',
+    )
+
+    def test_no_other_backends_event_shape_is_read_as_antigravity_and_none_the_other_way(self):
+        job_id = self.submit()
+        self.finish_with(job_id, (*self.OTHER_BACKENDS_LINES, *self.LOG_LINES))
+        payload = self.result_json(job_id)
+        self.assertEqual(0, payload["permission_denied"])
+        self.assertEqual("work done", payload["agent_message"])
+        self.assertEqual(["pytest -q"], payload["commands"])
+        self.assertEqual(agy_usage(28, 7, 2, 5), payload["usage"])
+        self.assertNotIn("permission_denied", self.status_text(job_id))
+        # An antigravity denial list is not another backend's denial, and its
+        # result event is not another backend's answer.
+        for backend, effort in (("codex", "high"), ("claude", "high"),
+                                ("copilot", "high"), ("cursor", "model")):
+            with self.subTest(backend=backend):
+                other = self.bare_submit("--backend", backend, "--effort", effort)
+                self.assertRegex(other.stdout.strip(), r"^job-", other.stderr)
+                self.finish_with(other.stdout.strip(), self.denied_log_lines())
+                payload = self.result_json(other.stdout.strip())
+                self.assertEqual(0, payload["permission_denied"])
+                self.assertEqual("", payload["agent_message"])
+                self.assertIsNone(payload["context_lost"])
+                self.assertNotIn("permission_denied", self.status_text(other.stdout.strip()))
+
+    def test_context_lost_is_null_on_other_backends(self):
+        for backend, effort, lines in (
+            ("codex", "high", CodexWorktreeTests.LOG_LINES),
+            ("cursor", "model", CursorWorktreeTests.LOG_LINES),
+        ):
+            with self.subTest(backend=backend):
+                submitted = self.bare_submit("--backend", backend, "--effort", effort)
+                self.assertRegex(submitted.stdout.strip(), r"^job-", submitted.stderr)
+                job_id = submitted.stdout.strip()
+                self.finish_with(job_id, lines)
+                payload = self.result_json(job_id)
+                self.assertIn("context_lost", payload)
+                self.assertIsNone(payload["context_lost"])
+                self.assertNotIn("context_lost", self.status_text(job_id))
+                self.assertNotIn("context_lost", self.result_text(job_id))
+
 
 if __name__ == "__main__":
     unittest.main()

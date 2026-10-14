@@ -195,7 +195,7 @@ class BackendValidationTests(unittest.TestCase):
         self.assertIn("backend must be one of claude, codex", str(raised.exception))
 
     def test_every_supported_backend_validates(self):
-        for backend in ("claude", "codex", "copilot", "cursor"):
+        for backend in ("claude", "codex", "copilot", "cursor", "antigravity"):
             with self.subTest(backend=backend):
                 handoff_config.validate_config(
                     self.identity_document(f'backend = "{backend}"\n')
@@ -206,7 +206,10 @@ class BackendValidationTests(unittest.TestCase):
 
         with self.assertRaises(handoff_config.ConfigValidationError) as raised:
             handoff_config.validate_config(self.identity_document('backend = "gemini"\n'))
-        self.assertIn("backend must be one of claude, codex, copilot, cursor", str(raised.exception))
+        self.assertIn(
+            "backend must be one of claude, codex, copilot, cursor, antigravity",
+            str(raised.exception),
+        )
 
 
 class LegacyMigrationTests(unittest.TestCase):
