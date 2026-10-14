@@ -9,7 +9,7 @@
 | [design_agent-identities-and-config.md](design_agent-identities-and-config.md) | Identities, configuration, setup | 1 plan: permission-mode |
 | [design_session-visualisation.md](design_session-visualisation.md) | Session visualisation page | 0 plans |
 | [design_cursor-cli-backend.md](design_cursor-cli-backend.md) | Cursor CLI as the fourth backend | 1 requirements doc, 1 plan |
-| [design_antigravity-cli-backend.md](design_antigravity-cli-backend.md) | Antigravity CLI as the fifth backend | 1 requirements doc, 0 plans |
+| [design_antigravity-cli-backend.md](design_antigravity-cli-backend.md) | Antigravity CLI as the fifth backend | 1 requirements doc, 1 plan |
 
 ## Requirements
 
@@ -33,3 +33,4 @@
 | [plan_per-identity-permission-mode.md](plan_per-identity-permission-mode.md) | Per-identity permission_mode | design_agent-identities-and-config | v3.7.1 | implemented |
 | [plan_review-gates.md](plan_review-gates.md) | Review gates with round caps | design_agent-handoff | v3.8.0 | implemented |
 | [plan_cursor-cli-backend.md](plan_cursor-cli-backend.md) | Cursor CLI as fourth backend | design_cursor-cli-backend | v3.9.0 | implemented |
+| [plan_antigravity-cli-backend.md](plan_antigravity-cli-backend.md) | Antigravity CLI as fifth backend | design_antigravity-cli-backend | v3.10.0 | in progress |
