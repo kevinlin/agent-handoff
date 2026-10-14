@@ -5,7 +5,8 @@ set -euo pipefail
 #
 # The name is historical: this is the delegation primitive for ALL backends.
 # It wraps `codex exec --json`, `claude --print --output-format stream-json`,
-# `copilot -p --output-format json`, and `cursor-agent -p --output-format stream-json`
+# `copilot -p --output-format json`, `cursor-agent -p --output-format stream-json`,
+# and `agy -p --output-format stream-json`
 # as background jobs with durable state under <repo>/.handoff/jobs/<jobId>/ so
 # a Claude Code session (or a /loop tick) can submit work to a worker CLI, poll
 # it, collect the result, and send follow-up fix rounds against the same worker
@@ -22,19 +23,21 @@ set -euo pipefail
 #                copilot, assigned at submit and written before launch
 #   meta         label, backend, effort, mode, permission mode, parent job,
 #                timestamps; permission_posture is requested, permission_mode is
-#                the effective backend mode, permission_posture_source records origin
+#                the effective backend mode, permission_posture_source records origin;
+#                on an antigravity resume, resumed_session is the conversation id it
+#                asked for, which its own init id is compared with
 #   usage.json   copilot only: final usage counters (--usage-output-file)
 #   copilot-logs copilot only: the CLI's own --log-dir output
 
 usage() {
   cat <<'USAGE'
 delegate-codex.sh — background delegation jobs for the Handoff flow
-(the name is historical; it drives the codex, claude, copilot, and cursor backends)
+(the name is historical; it drives the codex, claude, copilot, cursor, and antigravity backends)
 
 Usage:
   delegate-codex.sh submit --repo <path> --prompt-file <file>
                     [--label <name>] [--effort <level>] [--model <model>]
-                    [--backend codex|claude|copilot|cursor]
+                    [--backend codex|claude|copilot|cursor|antigravity]
                     [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
                     [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
@@ -49,7 +52,7 @@ Defaults: --backend codex, --effort high (Handoff default for delegated
 work), permission_mode=default: codex inherits the user's config, claude uses
 dontAsk with Read Glob Grep Edit Write Bash, copilot keeps --allow-all-tools. Use --read-only for review/adversarial
 jobs that must not touch the repo; it maps to `-s read-only` on codex,
-`--permission-mode plan` on claude, and `--mode plan` on copilot and cursor.
+`--permission-mode plan` on claude, and `--mode plan` on copilot, cursor, and antigravity.
 
 On copilot, `--mode plan` and `--allow-all-tools` are never generated together.
 Passing both was probed: plan mode still won on disk, but the worker emitted no
@@ -79,8 +82,8 @@ CLI's superset — which efforts a given copilot model accepts is decided per
 model by the API, and a rejected pair surfaces as Copilot's own error rather
 than being silently downgraded.
 
-`--model auto` is refused on a copilot or cursor job. An identity is a deliberate
-backend + model + effort choice; `auto` hands the model choice back to the
+`--model auto` is refused on a copilot, cursor, or antigravity job. An identity is a
+deliberate backend + model + effort choice; `auto` hands the model choice back to the
 vendor per request, so the job's record would name what Copilot picked rather
 than what the repo configured.
 
@@ -98,6 +101,33 @@ never carries --worktree, --sandbox, --approve-mcps, --api-key,
 The cursor backend's binary is `cursor-agent`, set with HANDOFF_CURSOR_BIN.
 `cursor` on PATH is the Cursor IDE launcher and `agent` is too generic a name,
 so neither is ever resolved.
+
+Antigravity takes one effort, `model`: an Antigravity model id carries its effort
+(gemini-3.8-flash-low), so the id is the whole choice. A role-less antigravity job
+that names no --effort gets `model`. Unlike cursor it must name a --model: an empty
+model and `auto` are refused, because a resume passes the model again and an
+unpinned run would use whatever model the CLI has selected at that moment.
+
+On antigravity the permission posture changes nothing: default and allow-all both
+pass --dangerously-skip-permissions, because no narrower mode let a probed worker
+run its own checks, and every writing antigravity job prints the bypass warning.
+--read-only passes --mode plan and never the skip flag, since the two together
+wrote files. Every antigravity job carries --print-timeout 0s, so a long job is
+not cut short by a print timeout, and never carries --effort, --sandbox,
+--mode auto, or --mode accept-edits.
+
+The antigravity backend's binary is `agy`, set with HANDOFF_ANTIGRAVITY_BIN.
+`antigravity` on PATH is the IDE launcher, so it is never resolved, and an IDE
+launcher has been linked as `agy` before. Every way of resolving an agy binary
+therefore applies the same identity check: its --help output, stdout and stderr
+together, must list both --conversation and --dangerously-skip-permissions.
+PATH discovery walks every match and takes the first that passes; HANDOFF_ANTIGRAVITY_BIN
+is checked too; and a fix round re-checks the parent job's recorded binary.
+
+An antigravity resume records the model it passed, never `inherit`, and the id it
+asked for as resumed_session. Its session id is its own log's init id, so a resume
+that agy could not find a conversation for is reported as context_lost rather than
+continued on a conversation that no longer exists.
 
 A copilot job's session id is assigned at submit rather than extracted at the
 end: Copilot emits `sessionId` only in its terminal event, so a job that dies
@@ -191,6 +221,8 @@ resolve_worker_bin() {
     claude) env_var="HANDOFF_CLAUDE_BIN" ;;
     copilot) env_var="HANDOFF_COPILOT_BIN" ;;
     cursor) env_var="HANDOFF_CURSOR_BIN" ;;
+    # Never `antigravity`: that is the IDE launcher. The CLI is `agy`.
+    antigravity) env_var="HANDOFF_ANTIGRAVITY_BIN"; bin_name="agy" ;;
     *) env_var="HANDOFF_CODEX_BIN" ;;
   esac
   configured="${!env_var:-}"
@@ -212,6 +244,11 @@ resolve_worker_bin() {
     if [ "$backend" = "copilot" ] && ! is_github_copilot_bin "$candidate"; then
       die "$env_var does not point at GitHub Copilot CLI: $candidate reports '$("$candidate" --version 2>/dev/null | head -1 || true)' (AWS Copilot CLI shares the binary name); point $env_var at the GitHub Copilot CLI, or unset it to discover one on PATH"
     fi
+    # agy collides too, though not by name alone: an IDE launcher has been linked
+    # as agy, and --version prints a bare number (VERSION) that tells nothing.
+    if [ "$backend" = "antigravity" ] && ! is_antigravity_bin "$candidate"; then
+      die "$env_var does not point at Antigravity CLI: $candidate does not list both --conversation and --dangerously-skip-permissions in --help (an Antigravity IDE launcher can share the binary name); point $env_var at the agy CLI, or unset it to discover one on PATH"
+    fi
   elif [ "$backend" = "codex" ] && [ "$(uname -s)" = "Darwin" ]; then
     # App-bundle probe is codex-only: app-only models need a compatible client.
     for candidate in "/Applications/ChatGPT.app/Contents/Resources/codex" "/Applications/Codex.app/Contents/Resources/codex"; do
@@ -225,6 +262,10 @@ resolve_worker_bin() {
 
   if [ -z "$candidate" ] && [ "$backend" = "copilot" ]; then
     candidate="$(discover_copilot_bin)" || die "$candidate"
+    CODEX_BIN_SOURCE="path"
+  fi
+  if [ -z "$candidate" ] && [ "$backend" = "antigravity" ]; then
+    candidate="$(discover_antigravity_bin)" || die "$candidate"
     CODEX_BIN_SOURCE="path"
   fi
 
@@ -279,6 +320,52 @@ discover_copilot_bin() {
   return 1
 }
 
+is_antigravity_bin() {
+  # An IDE launcher has been linked as `agy` before (Homebrew), and agy --version
+  # prints only a bare number (VERSION), so neither name nor version identifies
+  # the CLI. What identifies it is the protocol Handoff depends on: its --help
+  # lists both --conversation and --dangerously-skip-permissions. The CLI prints
+  # that help on stderr (HELP), so both streams are read together. python3 holds
+  # the 10 second limit because macOS ships no `timeout`; output goes to a file,
+  # not a pipe, so a launcher that hangs and leaves children behind cannot keep
+  # the call open after the kill. A candidate that fails or times out is refused.
+  python3 - "$1" <<'PY_AGY'
+import subprocess, sys, tempfile
+
+with tempfile.TemporaryFile() as out:
+    try:
+        done = subprocess.run([sys.argv[1], "--help"], stdin=subprocess.DEVNULL,
+                              stdout=out, stderr=subprocess.STDOUT, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        sys.exit(1)
+    out.seek(0)
+    text = out.read().decode("utf-8", "replace")
+ok = done.returncode == 0 and "--conversation" in text and "--dangerously-skip-permissions" in text
+sys.exit(0 if ok else 1)
+PY_AGY
+}
+
+discover_antigravity_bin() {
+  # Prints the first PATH match that identifies as Antigravity CLI. On failure
+  # prints an actionable message and returns 1, so the caller can die with it.
+  # Walking every match matters: the IDE launcher can sit earlier on PATH.
+  local match first=""
+  while IFS= read -r match; do
+    [ -n "$match" ] && [ -x "$match" ] || continue
+    if is_antigravity_bin "$match"; then
+      printf '%s\n' "$match"
+      return 0
+    fi
+    [ -n "$first" ] || first="$match"
+  done < <(type -a -p agy 2>/dev/null || true)
+  if [ -n "$first" ]; then
+    printf '%s\n' "the 'agy' on PATH is not Antigravity CLI: $first does not list both --conversation and --dangerously-skip-permissions in --help (an Antigravity IDE launcher can share the binary name); set HANDOFF_ANTIGRAVITY_BIN to the agy CLI path"
+  else
+    printf '%s\n' "agy CLI not found; install Antigravity CLI or set HANDOFF_ANTIGRAVITY_BIN"
+  fi
+  return 1
+}
+
 validate_effort() {
   # Efforts are per CLI, never one shared enum.
   case "$1" in
@@ -288,6 +375,10 @@ validate_effort() {
     # own error rather than being silently downgraded here.
     copilot) case "$2" in none|minimal|low|medium|high|xhigh|max) ;; *) die "invalid --effort for copilot: $2" ;; esac ;;
     cursor) [ "$2" = "model" ] || die "invalid --effort for cursor: $2 (Cursor carries effort in the model id; name the variant in --model and use --effort model)" ;;
+    # agy has an --effort flag, but it cannot be a routing field: a model id plus
+    # any --effort is refused before a session, and Claude models refuse it
+    # outright (MCONFLICT, MCLAUDE). So the id carries the effort, as on cursor.
+    antigravity) [ "$2" = "model" ] || die "invalid --effort for antigravity: $2 (Antigravity carries effort in the model id; name the variant in --model and use --effort model, with 'handoff-config.py set --role <identity> --backend antigravity --model <model> --effort model')" ;;
     *) case "$2" in minimal|low|medium|high|xhigh|max|ultra) ;; *) die "invalid --effort: $2" ;; esac ;;
   esac
 }
@@ -324,6 +415,16 @@ resolve_cursor_permission_mode() {
   return 0
 }
 
+resolve_antigravity_permission_mode() {
+  # Both postures map to --dangerously-skip-permissions: print mode never prompts
+  # and denies what needs approval, and no narrower mode let a probed worker run
+  # its own checks (P0, P1, P4). Read-only is plan mode and never the skip flag:
+  # plan with the skip flag wrote files (RO2, RO2R).
+  PERMISSION_MODE="skip-permissions"
+  [ "$1" = "true" ] && PERMISSION_MODE="plan"
+  return 0
+}
+
 resolve_codex_permission_mode() {
   PERMISSION_MODE=""
   [ "$2" = "allow-all" ] && PERMISSION_MODE="allow-all"
@@ -343,13 +444,15 @@ resolve_permission_mode() {
 
 warn_permission_bypass() {
   case "$BACKEND:$PERMISSION_MODE" in
-    claude:bypassPermissions|copilot:allow-all-tools|copilot:allow-all|codex:allow-all|cursor:force) ;;
+    claude:bypassPermissions|copilot:allow-all-tools|copilot:allow-all|codex:allow-all|cursor:force|antigravity:skip-permissions) ;;
     *) return 0 ;;
   esac
   echo "WARN $1 is a $BACKEND worker running with permission checks bypassed." >&2
   echo "     A background job has no approval surface; verify its work on disk." >&2
   if [ "$BACKEND" = "cursor" ]; then
     echo "     Cursor has no narrower posture: add deny rules in .cursor/cli.json, or use --read-only for a job that must not write." >&2
+  elif [ "$BACKEND" = "antigravity" ]; then
+    echo "     Antigravity has no narrower posture Handoff can set; use --read-only for a job that must not write." >&2
   elif [ "$BACKEND" = "claude" ] && [ "${HANDOFF_CLAUDE_PERMISSION_MODE:-}" = "bypassPermissions" ]; then
     echo "     Set HANDOFF_CLAUDE_PERMISSION_MODE=dontAsk or unset the override." >&2
   elif [ -n "${PARENT_ID:-}" ]; then
@@ -402,11 +505,17 @@ job_state() {
 
 extract_session_id() {
   # Best-effort session/thread id from the JSONL stream; caches into session_id.
-  if [ -s "$JOB/session_id" ]; then
+  # The backend is passed in, never read from the global: cmd_result runs this
+  # before it knows the backend any other way.
+  local backend="${1:-}"
+  # A cache holding only whitespace is absent. An early read that finds no id
+  # yet prints an empty line, tee caches that newline, and a bare -s test would
+  # then return the empty value for good, whatever the log says afterwards.
+  if [ -s "$JOB/session_id" ] && grep -q '[^[:space:]]' "$JOB/session_id"; then
     cat "$JOB/session_id"
     return 0
   fi
-  python3 - "$JOB/log.jsonl" <<'PY' | tee "$JOB/session_id"
+  python3 - "$JOB/log.jsonl" "$backend" <<'PY' | tee "$JOB/session_id"
 import json, sys
 sid = ""
 try:
@@ -418,6 +527,17 @@ try:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if sys.argv[2] == "antigravity":
+                # Only the top-level id of an init event. A pre-session result
+                # carries an empty id nested under result, and a resumed round
+                # must report its own conversation, not the one it asked for:
+                # agy answers an id it cannot find with a new conversation
+                # (RUNKNOWN), and only init names the one it really ran on.
+                found = event.get("conversation_id") if isinstance(event, dict) and event.get("event") == "init" else ""
+                if isinstance(found, str) and found:
+                    sid = found
+                    break
                 continue
             # sessionId is Copilot's spelling, and it arrives only on the
             # terminal event. A Handoff-submitted copilot job has the cache
@@ -459,7 +579,7 @@ cmd_submit() {
   require_repo
   [ -n "$PROMPT_FILE" ] && [ -f "$PROMPT_FILE" ] || die "--prompt-file is required and must exist"
   case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier) ;; *) die "invalid --role: $ROLE" ;; esac
-  case "$BACKEND" in codex|claude|copilot|cursor) ;; *) die "invalid --backend: $BACKEND" ;; esac
+  case "$BACKEND" in codex|claude|copilot|cursor|antigravity) ;; *) die "invalid --backend: $BACKEND" ;; esac
 
   if [ -n "$WORKTREE_BRANCH" ]; then
     is_git_repo "$REPO" || die "--worktree requires --repo to be a git repository"
@@ -501,15 +621,24 @@ cmd_submit() {
   fi
   [ "$MODEL_EXPLICIT" = "false" ] || MODEL_SOURCE="explicit"
   [ "$EFFORT_EXPLICIT" = "false" ] || EFFORT_SOURCE="explicit"
-  # Cursor has one effort value. A role-less job that named none gets it rather
-  # than the codex-shaped default.
-  if [ "$BACKEND" = "cursor" ] && [ "$EFFORT_EXPLICIT" = "false" ] && [ -z "$ROLE" ]; then EFFORT="model"; fi
+  # Cursor and antigravity have one effort value. A role-less job that named none
+  # gets it rather than the codex-shaped default.
+  if { [ "$BACKEND" = "cursor" ] || [ "$BACKEND" = "antigravity" ]; } && [ "$EFFORT_EXPLICIT" = "false" ] && [ -z "$ROLE" ]; then EFFORT="model"; fi
   if [ "$BACKEND_EXPLICIT" = "true" ] && [ -z "$ROLE" ]; then BACKEND_SOURCE="explicit"; fi
   # An identity is a deliberate backend + model + effort choice, and `auto`
   # hands the model choice back to the vendor per request — which would make
   # this job's record name what Copilot picked, not what the repo configured.
-  if [ "$MODEL" = "auto" ] && { [ "$BACKEND" = "copilot" ] || [ "$BACKEND" = "cursor" ]; }; then
-    die "model 'auto' is refused on a $BACKEND job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend $BACKEND --model <model>'"
+  if [ "$MODEL" = "auto" ] && { [ "$BACKEND" = "copilot" ] || [ "$BACKEND" = "cursor" ] || [ "$BACKEND" = "antigravity" ]; }; then
+    local ARTICLE="a"
+    [ "$BACKEND" = "antigravity" ] && ARTICLE="an"
+    die "model 'auto' is refused on $ARTICLE $BACKEND job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend $BACKEND --model <model>'"
+  fi
+  # Unlike cursor, a role-less antigravity job cannot run on the CLI default
+  # model: without --model, agy runs whatever model is selected at that moment
+  # and init does not name it (MDEFAULT, RMODEL), and a resume has to pass the
+  # same model again because agy carries none over (decision 4).
+  if [ "$BACKEND" = "antigravity" ] && [ -z "$MODEL" ]; then
+    die "model is empty on an antigravity job: name a catalogue model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend antigravity --model <model>'"
   fi
   [[ "$MODEL" != *$'\n'* && "$MODEL" != *$'\r'* ]] || die "model must be a single line"
   validate_effort "$BACKEND" "$EFFORT"
@@ -650,19 +779,36 @@ cmd_resume() {
     PARENT_WORKDIR="$REPO"
   fi
   local SESSION_ID
-  SESSION_ID="$(extract_session_id)"
+  SESSION_ID="$(extract_session_id "$BACKEND")"
   [ -n "$SESSION_ID" ] || die "no session id found in $PARENT_JOB/log.jsonl; cannot resume"
 
   local EFFORT
   EFFORT="$(meta_value effort "$PARENT_JOB")"
   validate_effort "$BACKEND" "${EFFORT:-high}"
+  # Every other backend resumes inside a session that carries its model, so the
+  # round records `inherit` and passes none. agy carries no model over (RMODEL:
+  # an unpinned resume reported the CLI selection, not the parent), so the round
+  # passes the parent recorded one again. It is the real id, never `inherit`,
+  # because submit and every resume write the real one; that is what lets a
+  # resume of a resume read it from its own parent without walking the chain.
+  local ROUND_MODEL="" META_MODEL="inherit"
+  if [ "$BACKEND" = "antigravity" ]; then
+    ROUND_MODEL="$(meta_value model "$PARENT_JOB")"
+    case "$ROUND_MODEL" in
+      ""|inherit|default) die "parent job $PARENT_ID recorded no model, so agy would run whatever model the CLI has selected; resubmit with the full packet on a configured model (handoff-config.py set --role <identity> --backend antigravity --model <model>)" ;;
+    esac
+    META_MODEL="$ROUND_MODEL"
+  fi
   CODEX_BIN="$(meta_value codex_bin "$PARENT_JOB")"
   # The recorded path is reused only if it still identifies as the same tool.
   # On copilot that is not a formality: `copilot` is also AWS Copilot CLI's
   # binary name, so a path that was GitHub Copilot CLI at submit can be a
   # different program by the fix round.
+  # agy gets the same check, for the same reason: a recorded path can be an IDE
+  # launcher by the fix round.
   if [ -n "$CODEX_BIN" ] && [ -x "$CODEX_BIN" ] \
-     && { [ "$BACKEND" != "copilot" ] || is_github_copilot_bin "$CODEX_BIN"; }; then
+     && { [ "$BACKEND" != "copilot" ] || is_github_copilot_bin "$CODEX_BIN"; } \
+     && { [ "$BACKEND" != "antigravity" ] || is_antigravity_bin "$CODEX_BIN"; }; then
     CODEX_BIN_SOURCE="parent"
     CODEX_VERSION="$("$CODEX_BIN" --version 2>/dev/null | head -1 || true)"
     CODEX_VERSION="${CODEX_VERSION:-unknown}"
@@ -675,20 +821,32 @@ cmd_resume() {
   [ -e "$JOB" ] && die "job dir already exists: $JOB"
   mkdir -p "$JOB"
   cp "$PROMPT_FILE" "$JOB/prompt.md"
-  printf '%s' "$SESSION_ID" >"$JOB/session_id"
+  # Not on agy: given an id it cannot find, it warns, exits 0, and runs under a
+  # NEW id (RUNKNOWN), and a round whose model has left the catalogue fails
+  # before init (MUNKNOWN). A pre-written cache would give both a session id
+  # that is the parent one, and extract_session_id returns the cache first. The
+  # id it asked for goes in meta as resumed_session instead, and the round
+  # session id is whatever its own log init names.
+  if [ "$BACKEND" != "antigravity" ]; then
+    printf '%s' "$SESSION_ID" >"$JOB/session_id"
+  fi
 
   {
-    printf 'label=resume\neffort=%s\nmodel=inherit\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
-      "${EFFORT:-high}" "${PARENT_ROLE:-none}" "$BACKEND" \
+    printf 'label=resume\neffort=%s\nmodel=%s\nrole=%s\nbackend=%s\nbackend_source=parent\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nread_only=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\nsubmitted_at=%s\nmode=resume\nparent=%s\n' \
+      "${EFFORT:-high}" "$META_MODEL" "${PARENT_ROLE:-none}" "$BACKEND" \
       "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$READ_ONLY" "$PERMISSION_MODE" "$PERMISSION_POSTURE" "$PERMISSION_POSTURE_SOURCE" "$(now_utc)" "$PARENT_ID"
   } >"$JOB/meta"
+
+  if [ "$BACKEND" = "antigravity" ]; then
+    printf 'resumed_session=%s\n' "$SESSION_ID" >>"$JOB/meta"
+  fi
 
   if [ "$PARENT_WORKDIR" != "$REPO" ]; then
     printf 'worktree=%s\n' "$PARENT_WORKDIR" >>"$JOB/meta"
   fi
 
   WORKDIR="$PARENT_WORKDIR"
-  write_run_script "$JOB" "${EFFORT:-high}" "" "$READ_ONLY" "$SESSION_ID"
+  write_run_script "$JOB" "${EFFORT:-high}" "$ROUND_MODEL" "$READ_ONLY" "$SESSION_ID"
   warn_permission_bypass "$JOB_ID"
   launch_job "$JOB"
   echo "$JOB_ID"
@@ -715,6 +873,8 @@ write_run_script() {
       write_copilot_exec_line "$effort" "$model" "$read_only" "$session_id"
     elif [ "$BACKEND" = "cursor" ]; then
       write_cursor_exec_line "$model" "$read_only" "$session_id"
+    elif [ "$BACKEND" = "antigravity" ]; then
+      write_antigravity_exec_line "$model" "$read_only" "$session_id"
     elif [ -n "$session_id" ]; then
       # `codex exec resume` accepts no -C/-s flags: cwd comes from the shell,
       # sandbox and effort go through -c config overrides.
@@ -824,6 +984,31 @@ write_cursor_exec_line() {
   printf '"$CODEX_BIN" -p "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
 }
 
+write_antigravity_exec_line() {
+  local model="$1" read_only="$2" session_id="$3"
+  # agy takes its working directory from the shell and has no workspace flag
+  # (P0, WORKTREE), so the cd carries it; init.cwd records where it landed.
+  # Never passed: --effort (the model id carries it), --sandbox, --mode auto,
+  # --mode accept-edits, -c/--continue, -i, --project, --new-project, --add-dir,
+  # --agent, --remote-control, --input-format, --json-schema, --log-file. No env
+  # scrubbing either: bogus ANTHROPIC_* and CLAUDE_CODE_* values had no effect (ENV).
+  local args="--output-format stream-json"
+  # A resume passes --conversation, and also the model and the posture again:
+  # neither carries over from the parent (RKILL, RMODEL, MODERESUME).
+  [ -n "$session_id" ] && args="$args --conversation \"\$SESSION_ID\""
+  # --print-timeout 0s on every line: help says unlimited and the docs page says
+  # five minutes, and a timed-out run exits 0 with status SUCCESS and partial
+  # output (TIMEOUTR), so an unpinned default could truncate a job silently (DRV_PT0).
+  args="$args --model \"\$MODEL\" --print-timeout 0s"
+  if [ "$read_only" = "true" ]; then
+    args="$args --mode plan"
+  else
+    args="$args --dangerously-skip-permissions"
+  fi
+  echo 'cd "$WORKDIR"'
+  printf '"$CODEX_BIN" -p "$PROMPT" %s >"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null\n' "$args"
+}
+
 launch_job() {
   local job="$1"
   nohup bash "$job/run.sh" >/dev/null 2>&1 &
@@ -831,15 +1016,15 @@ launch_job() {
   disown || true
 }
 
-# Reads a job log once and prints the last event type and the denial count, one
-# per line. Held as a string rather than a heredoc so it can run inside a
+# Reads a job log once and prints the last event type, the denial count, and
+# whether that count is known, one per line. Held as a string rather than a heredoc so it can run inside a
 # command substitution. Keep apostrophes out of the block, comments included:
 # bash 3.2 (macOS) mis-parses one in a quoted heredoc nested inside $(...).
 STATUS_SCAN_PY="$(cat <<'SCAN'
 import json, sys
 
 path, backend = sys.argv[1], sys.argv[2]
-last, denied = "", 0
+last, denied, result_seen = "", 0, False
 with open(path, encoding="utf-8") as fh:
     for line in fh:
         line = line.strip()
@@ -848,6 +1033,26 @@ with open(path, encoding="utf-8") as fh:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if backend == "antigravity":
+            # The discriminator is event, not type. Denials are the denied_actions
+            # list of the terminal result and nowhere else: the same refused write
+            # ended as a DONE tool step with no error in P0. Every shape is checked,
+            # so an unexpected one is skipped and nothing is counted from it.
+            kind = event.get("event") if isinstance(event, dict) else None
+            if not isinstance(kind, str) or not kind:
+                continue
+            step = event.get("step_update")
+            step_type = step.get("step_type") if isinstance(step, dict) else None
+            if kind == "step_update" and isinstance(step_type, str) and step_type:
+                last = "step_update:" + step_type
+            else:
+                last = kind
+            payload = event.get("result")
+            if kind == "result" and isinstance(payload, dict):
+                result_seen = True
+                actions = payload.get("denied_actions")
+                denied = len(actions) if isinstance(actions, list) else 0
             continue
         etype = event.get("type", "")
         # The cursor reasoning stream, hundreds of events a job, would bury the
@@ -873,6 +1078,9 @@ with open(path, encoding="utf-8") as fh:
             denied += 1
 print(last)
 print(denied)
+# Antigravity reports denials only when a run ends, so before a result event the
+# count is unknown rather than zero. Every other backend reports as it goes.
+print("unknown" if backend == "antigravity" and not result_seen else "known")
 SCAN
 )"
 
@@ -906,11 +1114,16 @@ cmd_status() {
   # count. Counting denials by grep would miss valid JSON with whitespace after
   # a colon and would match an unrelated `code` field anywhere on the line; the
   # denial shapes also differ per backend, which a pattern cannot tell apart.
-  local last_event="" denied=0 scan=""
+  local last_event="" denied=0 scan="" denial_known="known" third=""
+  # Initialised outside the log guard: a terminal antigravity job with an empty
+  # or missing log has no result event either, so its count is unknown too.
+  [ "$BACKEND" != "antigravity" ] || denial_known="unknown"
   if [ -s "$JOB/log.jsonl" ]; then
     scan="$(python3 -c "$STATUS_SCAN_PY" "$JOB/log.jsonl" "$BACKEND" 2>/dev/null || true)"
     last_event="$(printf '%s\n' "$scan" | sed -n 1p)"
     denied="$(printf '%s\n' "$scan" | sed -n 2p)"
+    third="$(printf '%s\n' "$scan" | sed -n 3p)"
+    [ -z "$third" ] || denial_known="$third"
   fi
   echo "job: $JOB_ID"
   echo "state: $state"
@@ -920,6 +1133,22 @@ cmd_status() {
   # stays quiet. A blocked check does not move the exit code, so this is the
   # only signal the monitor gets that the worker could not verify its work.
   [ "${denied:-0}" -gt 0 ] && echo "permission_denied: $denied (worker blocked; its self-report is not evidence)"
+  # A finished antigravity job with no result event cannot say what it was denied.
+  # A running one prints nothing, as a clean job does, because status is polled.
+  if [ "$denial_known" = "unknown" ] && [ "$state" != "RUNNING" ]; then
+    echo "permission_denied: unknown (no result event; agy reports denials only when a run ends)"
+  fi
+  if [ "$BACKEND" = "antigravity" ]; then
+    local asked observed
+    asked="$(meta_value resumed_session)"
+    # Measured only when the log names a session: a resume rejected before init
+    # has no observed id, so nothing was lost that anyone can show.
+    if [ -n "$asked" ]; then
+      observed="$(extract_session_id "$BACKEND")"
+      [ -z "$observed" ] || [ "$observed" = "$asked" ] \
+        || echo "context_lost: true (round ran without its parent's context; resubmit with the full packet)"
+    fi
+  fi
   if [ "$state" = "RUNNING" ] && [ "$WAIT" = "true" ]; then
     echo "note: timed out after ${TIMEOUT}s while still running"
     return 2
@@ -939,12 +1168,15 @@ cmd_result() {
   done
   require_repo
   require_job "$JOB_ID"
-  extract_session_id >/dev/null || true
 
   BACKEND="$(meta_value backend)"
   BACKEND="${BACKEND:-codex}"
+  extract_session_id "$BACKEND" >/dev/null || true
 
-  python3 - "$JOB/log.jsonl" "$JOB/session_id" "$AS_JSON" "$BACKEND" <<'PY'
+  # stderr.log and the id the round asked for are inputs of the antigravity branch
+  # only: a print timeout leaves nothing but a stderr line, and a lost session is
+  # the log init id differing from resumed_session. Both are empty elsewhere.
+  python3 - "$JOB/log.jsonl" "$JOB/session_id" "$AS_JSON" "$BACKEND" "$JOB/stderr.log" "$(meta_value resumed_session)" <<'PY'
 import json, sys
 
 # The backend is an input, never sniffed from the event shape: Copilot's
@@ -953,9 +1185,14 @@ import json, sys
 # user, and result type names with Claude, so the parser needs the backend.
 log_path, sid_path, as_json = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
 backend = sys.argv[4]
+stderr_path, resumed_session = sys.argv[5], sys.argv[6]
 messages, commands, reasoning, usage, denied = [], [], [], {}, []
 errors = []
 copilot_tools = {}
+# Antigravity state. Denials and usage are known only once a result event exists,
+# so None means unknown, never zero.
+agent_steps, step_usage, final_result, init_id = {}, {}, None, ""
+denied_known, context_lost = True, None
 try:
     with open(log_path, encoding="utf-8") as fh:
         for line in fh:
@@ -965,6 +1202,39 @@ try:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if backend == "antigravity":
+                # The discriminator is event, not type, and every shape is checked
+                # so an unexpected one is skipped and nothing is counted from it.
+                kind = event.get("event") if isinstance(event, dict) else None
+                payload = event.get(kind) if isinstance(kind, str) else None
+                if kind == "init" and not init_id and isinstance(event.get("conversation_id"), str):
+                    init_id = event["conversation_id"]
+                elif kind == "step_update" and isinstance(payload, dict):
+                    index, step_type = payload.get("step_index"), payload.get("step_type")
+                    if step_type == "agent_response" and isinstance(index, int) and not isinstance(index, bool):
+                        # Deltas fold by step_index, in log order. The answer is the
+                        # last such step, never result.response, which joins every
+                        # agent message of the invocation (P3).
+                        delta = payload.get("text_delta")
+                        agent_steps.setdefault(index, []).append(delta if isinstance(delta, str) else "")
+                    elif step_type == "tool" and payload.get("tool_name") == "run_command" \
+                            and payload.get("state") == "ACTIVE":
+                        # agy logs no exit code for a command (EXIT7), so none is shown.
+                        info = payload.get("tool_info")
+                        parameters = info.get("parameters") if isinstance(info, dict) else None
+                        command = parameters.get("CommandLine") if isinstance(parameters, dict) else None
+                        if isinstance(command, str) and command:
+                            commands.append(command)
+                    # This log's own steps, never result.usage: that one is cumulative
+                    # over the whole conversation (RSAME: 23989 against a step sum of 12143).
+                    counters = payload.get("usage")
+                    if isinstance(counters, dict):
+                        for name, count in counters.items():
+                            if isinstance(count, (int, float)) and not isinstance(count, bool):
+                                step_usage[name] = step_usage.get(name, 0) + count
+                elif kind == "result" and isinstance(payload, dict):
+                    final_result = payload
                 continue
             etype = event.get("type", "")
             if backend == "copilot":
@@ -1064,18 +1334,55 @@ try:
 except FileNotFoundError:
     session_id = ""
 
+if backend == "antigravity":
+    if agent_steps:
+        # The last step to appear, its deltas joined literally: an empty last
+        # message is still the last.
+        messages.append("".join(agent_steps[list(agent_steps)[-1]]))
+    if final_result is not None:
+        usage = {name: step_usage.get(name, 0) for name in (
+            "input_tokens", "output_tokens", "thinking_tokens", "cache_read_tokens", "total_tokens")}
+        actions = final_result.get("denied_actions")
+        for action in actions if isinstance(actions, list) else []:
+            name = action.get("display_name") if isinstance(action, dict) else None
+            denied.append(name if isinstance(name, str) and name else "unknown")
+        if final_result.get("status") == "ERROR":
+            error = final_result.get("error")
+            errors.append({
+                "status_code": None,
+                "error_type": "result_error",
+                "message": error if isinstance(error, str) else ("" if error is None else json.dumps(error)),
+            })
+    else:
+        denied_known = False
+    try:
+        with open(stderr_path, encoding="utf-8", errors="replace") as fh:
+            timeout_line = next((text.rstrip("\r\n") for text in fh if "print timeout after" in text), None)
+    except FileNotFoundError:
+        timeout_line = None
+    if timeout_line is not None:
+        # A timed-out run exits 0 with status SUCCESS and partial output (TIMEOUTR);
+        # this stderr line is the only trace, so the job must not read as clean.
+        errors.append({"status_code": None, "error_type": "print_timeout", "message": timeout_line})
+    # Measured only when the log names a session. A resume rejected before init
+    # has no observed id, so nothing is reported either way.
+    if resumed_session and init_id:
+        context_lost = init_id != resumed_session
+
 if as_json:
     print(json.dumps({
         "session_id": session_id,
         "agent_message": messages[-1] if messages else "",
         "commands": [c for c in commands if c],
-        "permission_denied": len(denied),
+        "permission_denied": len(denied) if denied_known else None,
         "denied_tools": sorted(set(denied)),
         "usage": usage,
         # Copilot's API failures can arrive with an empty stderr, so a JSON
         # consumer has nowhere else to see them. Present on every backend so the
         # payload shape does not vary by vendor.
         "errors": errors,
+        # Measured only on an antigravity resume; null wherever it is not.
+        "context_lost": context_lost,
     }, ensure_ascii=False))
 else:
     print(f"session_id: {session_id or 'unknown'}")
@@ -1090,8 +1397,13 @@ else:
               + f": {error['message']}")
     # Always printed, including the zero: the driver needs positive evidence
     # that nothing was blocked, not merely the absence of a warning.
-    print(f"permission_denied: {len(denied)}"
-          + (f" ({', '.join(sorted(set(denied)))})" if denied else ""))
+    if not denied_known:
+        print("permission_denied: unknown (no result event; agy reports denials only when a run ends)")
+    else:
+        print(f"permission_denied: {len(denied)}"
+              + (f" ({', '.join(sorted(set(denied)))})" if denied else ""))
+    if context_lost:
+        print("context_lost: true (round ran without its parent's context; resubmit with the full packet)")
     if denied:
         print("WARNING: the worker was blocked from actions it attempted, so it could not")
         print("verify its own work. Treat this job as failed whatever its exit code says,")
