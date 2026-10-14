@@ -378,10 +378,38 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     return { ...base, kind: 'tool' };
   }
 
+  // P3, RO1: antigravity names what a tool acts on by parameter, not by tool
+  // name. run_command takes CommandLine, write_to_file and
+  // replace_file_content both take TargetFile, view_file takes AbsolutePath.
+  // Keying on the parameter keeps a tool the probes never saw readable.
+  function mapAntigravityTool(name, params) {
+    const base = { tool: name, args: params };
+    if (typeof params.CommandLine === 'string')
+      return { ...base, kind: 'command', command: params.CommandLine, output: '' };
+    if (typeof params.TargetFile === 'string')
+      // Provisional, as in the other branches: a refused write is not a change.
+      return { ...base, kind: 'file_change', pending_edit: true,
+               changes: [{ path: params.TargetFile, kind: 'update' }] };
+    if (typeof params.AbsolutePath === 'string')
+      return { ...base, kind: 'tool', target: params.AbsolutePath };
+    return { ...base, kind: 'tool' };
+  }
+
+  // An antigravity payload (step_update, init, tool_info, usage) can be
+  // missing, null, or the wrong type in a damaged log. Anything that is not a
+  // plain object reads as empty, so one bad line never blanks the transcript.
+  function plainObject(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  }
+
   // Copilot's terminal event is `type: "result"`, the same type name claude
   // stream-json uses with a different payload. Cursor's `system`, `user`,
   // `assistant`, and `result` also collide with claude's. Only unique types,
   // including Cursor's `tool_call` and `thinking`, identify a dropped log.
+  // Antigravity discriminates on a top-level `event` key instead of `type`
+  // (P3, RMODEL), so any one line carrying it names the backend, from line one.
+  // The value must be a string: claude's partial-message `stream_event` also
+  // has an `event` key, but holds an object there.
   HV.inferBackend = function inferBackend(logText) {
     const lines = String(logText == null ? '' : logText).split('\n');
     for (const line of lines) {
@@ -393,6 +421,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         return 'copilot';
       if (type.indexOf('item.') === 0) return 'codex';
       if (type === 'tool_call' || type === 'thinking') return 'cursor';
+      if (event && typeof event.event === 'string') return 'antigravity';
     }
     return null;
   };
@@ -402,6 +431,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     const byItemId = new Map();
     const byToolUseId = new Map();
     const byToolCallId = new Map();
+    const byStepIndex = new Map();   // antigravity: one row per step_index
     const lines = String(logText == null ? '' : logText).split('\n');
     const format = backend || HV.inferBackend(logText);
     let partial = false;
@@ -548,6 +578,130 @@ if(__exports != exports)module.exports = exports;return module.exports}));
           return add({ kind: 'lifecycle', pos: index, label: 'result',
                        usage: event.usage, raw: event });
         add({ kind: 'unknown', pos: index, type, raw: event });
+        return;
+      }
+
+      // --- Antigravity stream-json ----------------------------------------
+      // Every line discriminates on `event`, never `type`, and no event name
+      // collides with another backend's, so the branch is only ever chosen by
+      // the declared or inferred backend. init, step_update, and result nest
+      // their payload under a key of the same name; command_result nests it
+      // under `command` (RMODEL).
+      if (format === 'antigravity') {
+        const kind = typeof event.event === 'string' ? event.event : '';
+        const text = (value) => (typeof value === 'string' ? value : '');
+        const joined = (parts) => parts.filter(Boolean).join(' · ');
+
+        if (kind === 'init') {
+          const init = plainObject(event.init);
+          const mode = text(init.permission_mode);
+          // A resumed turn's init carries no model (RSAME), so each part is optional.
+          return add({ kind: 'lifecycle', pos: index, label: 'session start',
+                       detail: joined([text(init.model), text(init.cwd),
+                                       mode && `permission ${mode}`]),
+                       raw: event });
+        }
+
+        if (kind === 'step_update') {
+          const step = plainObject(event.step_update);
+          const stepType = text(step.step_type);
+          // user_input carries no text (P3), so it would be an empty prompt
+          // row; the page shows prompt.md instead.
+          if (stepType === 'user_input') return;
+          // The step index is the only join key. Without an integer one a
+          // line stands alone rather than folding into an unrelated step.
+          const key = Number.isInteger(step.step_index) ? step.step_index : null;
+          const prior = key === null ? undefined : byStepIndex.get(key);
+          const remember = (row) => {
+            if (key !== null) byStepIndex.set(key, row);
+            return row;
+          };
+
+          if (stepType === 'agent_response') {
+            const delta = text(step.text_delta);
+            // Each step streams as text_delta chunks; the chunks join in order (P3).
+            if (prior && prior.kind === 'agent') {
+              prior.text += delta;
+              return;
+            }
+            // RO1: a step can carry only usage and no text, which would be an
+            // empty agent box in the page.
+            if (!delta.trim()) return;
+            remember(add({ kind: 'agent', pos: index, text: delta, raw: event }));
+            return;
+          }
+
+          if (stepType === 'tool') {
+            const info = plainObject(step.tool_info);
+            const created = !(prior && typeof prior.tool === 'string');
+            const row = created
+              ? remember(add({ pos: index, raw: event,
+                  ...mapAntigravityTool(text(step.tool_name) || text(info.name),
+                                        plainObject(info.parameters)) }))
+              : prior;
+            // Only DONE and ERROR end a step. ACTIVE, or a state no probe saw,
+            // leaves it pending.
+            if (step.state !== 'DONE' && step.state !== 'ERROR') return;
+            const error = plainObject(info.error);
+            // renderRow prints JSON.stringify(row.raw), so keep both halves.
+            row.raw = created ? event : { started: row.raw, completed: event };
+            row.outcome = step.state;
+            row.is_error = step.state === 'ERROR';
+            row.output = row.is_error
+              ? (text(error.message) || text(error.type) || 'tool call failed')
+              : text(info.output);
+            // A refused write is not a change (RO1), as in the other branches.
+            if (row.pending_edit && row.is_error) {
+              row.kind = 'error';
+              row.text = row.output;
+            }
+            delete row.pending_edit;
+            return;
+          }
+
+          // Anything else is shown once, however many events the step sends.
+          if (prior) return;
+          // RSAME: a resumed turn opens with a system_message that carries no text.
+          if (stepType === 'system_message')
+            return remember(add({ kind: 'lifecycle', pos: index, label: 'system message',
+                                  detail: text(step.text_delta) || undefined, raw: event }));
+          // RO1: an error_message step carries no text either; the failure's
+          // words are in the result event, so this row only marks where it hit.
+          if (stepType === 'error_message')
+            return remember(add({ kind: 'lifecycle', pos: index, label: 'error message',
+                                  detail: text(step.text_delta) || undefined,
+                                  is_error: true, raw: event }));
+          return remember(add({ kind: 'unknown', pos: index,
+                                type: stepType || 'step_update', raw: event }));
+        }
+
+        if (kind === 'command_result') {
+          const name = text(plainObject(event.command).name);
+          return add({ kind: 'lifecycle', pos: index, label: 'command result',
+                       detail: name ? `/${name}` : undefined, raw: event });
+        }
+
+        if (kind === 'result') {
+          const res = plainObject(event.result);
+          const status = text(res.status);
+          const error = text(res.error);
+          // denied_actions is the only record of a refusal: the same refused
+          // write ended as DONE in P0 and as ERROR in P2R, so tool rows never
+          // decide it.
+          const denied = (Array.isArray(res.denied_actions) ? res.denied_actions : [])
+            .map(d => text(plainObject(d).display_name) || text(plainObject(d).action))
+            .filter(Boolean);
+          return add({ kind: 'lifecycle', pos: index, label: 'result',
+                       detail: joined([status, error && `error: ${error}`,
+                                       denied.length && `denied: ${denied.join(', ')}`]),
+                       // RSAME: usage is cumulative over a resumed conversation,
+                       // so it is shown as reported and never summed here.
+                       usage: res.usage,
+                       ...(status === 'ERROR' ? { is_error: true } : {}),
+                       raw: event });
+        }
+
+        add({ kind: 'unknown', pos: index, type: kind, raw: event });
         return;
       }
 
@@ -771,7 +925,8 @@ if(__exports != exports)module.exports = exports;return module.exports}));
     if (row.kind === 'file_change')
       return (row.changes || []).map(c => `${c.kind} ${c.path}`).join(', ');
     if (row.kind === 'mcp') return `${row.server || '?'}.${row.tool || '?'}`;
-    if (row.kind === 'tool') return row.tool || 'tool';
+    // An antigravity read names its file in `target`; no other backend sets it.
+    if (row.kind === 'tool') return `${row.tool || 'tool'}${row.target ? ' ' + row.target : ''}`;
     if (row.kind === 'web_search') return (row.queries || []).join(' | ');
     if (row.kind === 'lifecycle') return row.label + (row.detail ? ` ${row.detail}` : '');
     if (row.kind === 'unparsed') return `unparsed line ${row.line}`;
