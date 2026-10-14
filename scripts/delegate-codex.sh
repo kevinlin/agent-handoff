@@ -447,7 +447,7 @@ warn_permission_bypass() {
     claude:bypassPermissions|copilot:allow-all-tools|copilot:allow-all|codex:allow-all|cursor:force|antigravity:skip-permissions) ;;
     *) return 0 ;;
   esac
-  echo "WARN $1 is a $BACKEND worker running with permission checks bypassed." >&2
+  echo "WARN $1: $BACKEND worker running with permission checks bypassed." >&2
   echo "     A background job has no approval surface; verify its work on disk." >&2
   if [ "$BACKEND" = "cursor" ]; then
     echo "     Cursor has no narrower posture: add deny rules in .cursor/cli.json, or use --read-only for a job that must not write." >&2

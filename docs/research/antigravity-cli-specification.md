@@ -359,6 +359,15 @@ agy -p "<prompt>" --output-format stream-json --model gemini-3.8-flash-low <post
 
 The three `DRV_` rows were run by the Handoff driver after the matrix, from a fresh `git init` directory, to close points the design rests on.
 
+## 12. Handoff end-to-end run (2026-10-14)
+
+Recorded by Task 7 of `docs/specs/plan_antigravity-cli-backend.md`. It drove `agy` 1.3.5 on `gemini-3.8-flash-low` through `delegate-codex.sh`, from a scratch repo under a long session scratch path.
+
+- **[probed] Plan mode refuses a read-only shell command too, and the turn ends there.** A read-only job asked to write a file first ran `ls -la`. The tool step ended `ERROR` with `tool_info.error.type: TOOL_ERROR` ("permission check failed for unsandboxed \"ls -la\""). `result` was `SUCCESS` with an empty `response` and `denied_actions: [{"action": "command", "display_name": "RunCommand"}]`. Exit was 0, and stderr carried the headless auto-deny notice that RO1R showed. RO1's read ran through a file tool, so plan mode allows file reads but no shell command of any kind. A read-only antigravity job cannot run `git diff`, `grep`, or a test, and the first attempt ends its turn.
+- **[probed] A resumed round's shell runs in the parent's directory.** The `-r2` round ran `pwd` and printed the scratch repo, the parent's directory, and recalled a token from the parent. This closes the open question for Handoff's case only: Handoff always resumes from the parent's directory. CWDRESUME and RCWD2 remain unexplained.
+- **[probed] Per-invocation usage holds on a real resume.** The round's `step_update.usage` sums to 27,179 tokens; its `result.usage` reports 77,907, which covers the whole conversation. This matches RSAME.
+- **[probed] No worker commit and no workspace files.** None of the four jobs committed or wrote outside the requested files. The worktree job's commit was the driver's.
+
 ## References
 
 - **[probed]** Local raw evidence: `.handoff/probes/agy/`, ids listed in section 11; the ignored `probe_runner.py` records the supervisor and fixture construction.

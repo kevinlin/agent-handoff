@@ -375,7 +375,23 @@ Requirements: R9.3.
 
 ## Verification record
 
-Filled in by Task 7.
+Run by the driver on 2026-10-14 against a scratch repo. `fast_worker` was set to antigravity / `gemini-3.8-flash-low` / `model` with `permission_mode` unset, so the default posture applied. The other core identities were on codex, where smoke runs only a dry run. Job ids below are from that repo's `.handoff/jobs/`.
+
+| R9.3 item | Evidence |
+|---|---|
+| Installed revision and helper paths | `~/.claude/skills/agent-handoff` is a symlink to this checkout, so `install.sh` was not run. Revision `2955304` on a clean tree. Helpers from this checkout's `scripts/`: `delegate-codex.sh`, `handoff-config.py`, `handoff-setup.py`, `make-receipt.py`, `validate-receipt.py`, `render-cost-receipt.py`, `render-transcript.py`. Worker: `/Users/keli/.local/bin/agy` 1.3.5, found on `PATH` (`codex_bin_source=path`). |
+| Smoke (R6.5) | `fast_worker: PASS (id in agy models, run accepted by Antigravity)`. The whole smoke took 8.5 s, and it wrote `verified=true`. |
+| One expected edit on disk | `job-2026-10-15T00-32-17-45949-e2e-edit`: `tracked.txt` went from `alpha` to `beta`, and nothing else changed. |
+| A named repo check ran, output in `log.jsonl` | The same job's `run_command` step for `bash check.sh` ended `DONE` with `tool_info.output` `CHECK_OK`. `result --json` lists `commands: ["bash check.sh"]`. |
+| `meta` records `backend=antigravity` | Edit job `meta`: `backend=antigravity`, `effort=model`, `permission_mode=skip-permissions`, `permission_posture=default`. `run.sh` carries `--model "$MODEL" --print-timeout 0s --dangerously-skip-permissions`. The submit printed the bypass warning with the Antigravity remedy line. |
+| `resume` on the same conversation, usage counted once, `pwd` in the parent's directory | `...-e2e-edit-r2`: `meta` has `mode=resume` and `resumed_session=8a216b6b-3e68-4bf5-a250-db3a41c7f778`. `run.sh` re-passes `--conversation`, `--model` and the posture. Its `init` names the same conversation id, and `result --json` reports `context_lost: false`. The round's `pwd` printed the scratch repo, and it recalled the token `ZEBRA-4417` from the parent. Usage: 27,179 tokens summed from the round's steps against 77,907 cumulative in its `result`, so the round is counted once. |
+| `--worktree` job pins its base and cleans up | `job-2026-10-15T00-33-39-48214-e2e-wt`: `base_commit=1fa1da0fc8e18d76de48a8115976725dc9917bce`, and `init.cwd` is the worktree. `notes.txt` was created only in the worktree, and the main tree stayed clean. The driver committed it on `e2e-wt` as `0d40bcd`, then `cleanup` removed the worktree. |
+| `--read-only` job leaves the tree unchanged | `job-2026-10-15T00-34-14-49239-e2e-ro`: `meta` has `read_only=true` and `permission_mode=plan`. `run.sh` carries `--mode plan` and no skip flag, and no bypass warning was printed. `git status` was clean before and after, and `readonly-probe.txt` is absent. `agy` denied the job's first action, `ls -la`, and the turn ended with an empty response. `status` and `result` both report one denial (`RunCommand`) and the blocked-worker warning. |
+| Receipt counts the jobs under `antigravity_jobs` | `receipt-20261014T163449Z.md`: `antigravity_jobs: 4` with four measured durations, `receipt_schema_version: 8`, `validate-receipt.py` PASS. |
+| Cost receipt shows tokens, reasoning included | Four antigravity rows with input, cache read, output and reasoning (0 on this model), cache write `unknown`, and the cost cell "n/a - no cost figure". The Antigravity meter sentence appears, and the denial count is 1. The resume round's row shows its own 26,948 input tokens, not the cumulative figure. The meter's input total of 127,234 is the sum of the four rows. |
+| Transcript viewer on real logs | The four `log.jsonl` files run through the shipped `viewer-normalize` block: `inferBackend` returns `antigravity`, with no unknown or unparsed rows. Each `run_command` folds into one command row with its output, and the denied `ls -la` row has outcome `ERROR`. `render-transcript.py` wrote the pages. |
+
+Two results added to the research doc (section 12). First, plan mode refuses even a read-only shell command, so a read-only antigravity job ends at its first shell call. Second, a resumed round's shell runs in the parent's directory. One defect found and fixed: the bypass warning read "a antigravity worker". It now reads `WARN <jobId>: <backend> worker running with permission checks bypassed.`, which keeps the substring the tests assert.
 
 ## Not doing
 
