@@ -143,9 +143,9 @@ and removal stay with the driver. `cleanup <jobId>` removes the worktree and
 refuses one holding uncommitted changes. --repo always names the main repo,
 never a worktree.
 
-Worker binary: set HANDOFF_CODEX_BIN, HANDOFF_CLAUDE_BIN, or
-HANDOFF_COPILOT_BIN to an executable path or command name to override
-discovery. On macOS the ChatGPT/Codex app-bundled CLI is preferred when present
+Worker binary: set HANDOFF_CODEX_BIN, HANDOFF_CLAUDE_BIN, HANDOFF_COPILOT_BIN,
+HANDOFF_CURSOR_BIN, or HANDOFF_ANTIGRAVITY_BIN to an executable path or
+command name to override discovery. On macOS the ChatGPT/Codex app-bundled CLI is preferred when present
 so app-only models use a compatible client; otherwise PATH is used.
 
 `copilot` is also the binary name of AWS Copilot CLI, an unrelated ECS

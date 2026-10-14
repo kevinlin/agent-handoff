@@ -1184,7 +1184,7 @@ class IdentityLayoutTests(unittest.TestCase):
 
 
 class RetiredRoutingSectionTests(unittest.TestCase):
-    """[routing] held one key that nothing read. Since 3.10.0 it is an unknown section."""
+    """[routing] held one key that nothing read. Since 3.9.5 it is an unknown section."""
 
     HEAD = "schema_version = 2\nrevision = 0\n\n"
     IDENTITIES = {"fast_worker": {"backend": "codex", "model": "gpt-test", "effort": "medium"}}
