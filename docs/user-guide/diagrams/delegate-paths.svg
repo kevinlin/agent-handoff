@@ -99,12 +99,16 @@
 
   <!-- CLIs -->
   <text x="1100" y="112" class="head" fill="#64748b" text-anchor="middle">THE CONFIGURED BACKEND</text>
-  <rect x="1000" y="140" width="200" height="52" rx="26" fill="#f1f5f9" stroke="#334155" stroke-width="1.5"/>
-  <text x="1100" y="172" class="line m" fill="#334155" text-anchor="middle">codex exec</text>
-  <rect x="1000" y="204" width="200" height="52" rx="26" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
-  <text x="1100" y="236" class="line m" fill="#c2410c" text-anchor="middle">claude --print</text>
-  <rect x="1000" y="268" width="200" height="52" rx="26" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
-  <text x="1100" y="300" class="line m" fill="#1d4ed8" text-anchor="middle">copilot -p</text>
+  <rect x="1000" y="130" width="200" height="46" rx="23" fill="#f1f5f9" stroke="#334155" stroke-width="1.5"/>
+  <text x="1100" y="158" class="line m" fill="#334155" text-anchor="middle">codex exec</text>
+  <rect x="1000" y="184" width="200" height="46" rx="23" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
+  <text x="1100" y="212" class="line m" fill="#c2410c" text-anchor="middle">claude --print</text>
+  <rect x="1000" y="238" width="200" height="46" rx="23" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="1100" y="266" class="line m" fill="#1d4ed8" text-anchor="middle">copilot -p</text>
+  <rect x="1000" y="292" width="200" height="46" rx="23" fill="#f0fdf4" stroke="#15803d" stroke-width="1.5"/>
+  <text x="1100" y="320" class="line m" fill="#15803d" text-anchor="middle">cursor-agent -p</text>
+  <rect x="1000" y="346" width="200" height="46" rx="23" fill="#fdf4ff" stroke="#a21caf" stroke-width="1.5"/>
+  <text x="1100" y="374" class="line m" fill="#a21caf" text-anchor="middle">agy -p</text>
 
   <rect x="710" y="428" width="490" height="96" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
   <text x="734" y="458" class="name">the jobId goes back into the row</text>

@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Solo developers running Claude Code on their own machine who want their driver quota and context window to go further by delegating execution to a worker CLI (Codex, a second Claude Code, GitHub Copilot, or Cursor). They open the UI pages locally: the config wizard on first run or when they swap identities, and the session view right after a run, to check what ran where, what failed, and what it cost.
+Solo developers running Claude Code on their own machine who want their driver quota and context window to go further by delegating execution to a worker CLI (Codex, a second Claude Code, GitHub Copilot, Cursor, or Antigravity). They open the UI pages locally: the config wizard on first run or when they swap identities, and the session view right after a run, to check what ran where, what failed, and what it cost.
 
 ## Product Purpose
 
@@ -31,7 +31,7 @@ The driver never accepts delegated work on a worker's summary. It reviews the co
 ## Capabilities and Constraints
 
 - Five identities, each a backend + model + effort triple: core `deep_reasoner`, `fast_worker`, `arbiter`; optional `e2e_specifier`, `e2e_verifier`.
-- Four backends: `codex`, `claude`, `copilot`, `cursor`. Cursor effort is always `model`.
+- Five backends: `codex`, `claude`, `copilot`, `cursor`, `antigravity`. Cursor and Antigravity effort is always `model`.
 - Config writes are atomic with backups, and the wizard shows the exact diff before confirming.
 - Pages are self-contained. They load no CDN scripts or web fonts.
 - Prose (`SKILL.md`, `README.md`, `references/*.md`) is product surface gated by CI (`scripts/check-skill-repo.sh`).

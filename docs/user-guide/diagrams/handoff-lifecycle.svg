@@ -161,24 +161,28 @@
 
   <!-- the job -->
   <rect x="578" y="400" width="418" height="140" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
-  <text x="787" y="426" class="name" text-anchor="middle">One background job per row, one jobId</text>
-  <rect x="623" y="438" width="100" height="26" rx="13" fill="#f1f5f9" stroke="#334155"/>
-  <text x="673" y="456" class="tag m" fill="#334155" text-anchor="middle">codex</text>
-  <rect x="737" y="438" width="100" height="26" rx="13" fill="#fff7ed" stroke="#c2410c"/>
-  <text x="787" y="456" class="tag m" fill="#c2410c" text-anchor="middle">claude</text>
-  <rect x="851" y="438" width="100" height="26" rx="13" fill="#eff6ff" stroke="#2563eb"/>
-  <text x="901" y="456" class="tag m" fill="#1d4ed8" text-anchor="middle">copilot</text>
+  <text x="787" y="421" class="name" text-anchor="middle">One background job per row, one jobId</text>
+  <rect x="623" y="430" width="100" height="24" rx="12" fill="#f1f5f9" stroke="#334155"/>
+  <text x="673" y="446" class="tag m" fill="#334155" text-anchor="middle">codex</text>
+  <rect x="737" y="430" width="100" height="24" rx="12" fill="#fff7ed" stroke="#c2410c"/>
+  <text x="787" y="446" class="tag m" fill="#c2410c" text-anchor="middle">claude</text>
+  <rect x="851" y="430" width="100" height="24" rx="12" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="901" y="446" class="tag m" fill="#1d4ed8" text-anchor="middle">copilot</text>
+  <rect x="680" y="458" width="100" height="24" rx="12" fill="#f0fdf4" stroke="#15803d"/>
+  <text x="730" y="474" class="tag m" fill="#15803d" text-anchor="middle">cursor</text>
+  <rect x="794" y="458" width="100" height="24" rx="12" fill="#fdf4ff" stroke="#a21caf"/>
+  <text x="844" y="474" class="tag m" fill="#a21caf" text-anchor="middle">antigravity</text>
 
-  <rect x="610" y="478" width="92" height="24" rx="12" fill="#eff6ff" stroke="#2563eb"/>
-  <text x="656" y="494" class="tag m" fill="#1d4ed8" text-anchor="middle">RUNNING</text>
-  <line x1="702" y1="490" x2="722" y2="490" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
-  <rect x="726" y="478" width="64" height="24" rx="12" fill="#ecfdf5" stroke="#059669"/>
-  <text x="758" y="494" class="tag m" fill="#047857" text-anchor="middle">DONE</text>
-  <rect x="798" y="478" width="72" height="24" rx="12" fill="#fff1f2" stroke="#e11d48"/>
-  <text x="834" y="494" class="tag m" fill="#be123c" text-anchor="middle">FAILED</text>
-  <rect x="878" y="478" width="96" height="24" rx="12" fill="#f8fafc" stroke="#94a3b8"/>
-  <text x="926" y="494" class="tag m" fill="#475569" text-anchor="middle">CANCELLED</text>
-  <text x="787" y="526" class="small" text-anchor="middle">state comes from files: <tspan class="m">pid, exit_code, cancelled</tspan></text>
+  <rect x="610" y="490" width="92" height="22" rx="11" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="656" y="505" class="tag m" fill="#1d4ed8" text-anchor="middle">RUNNING</text>
+  <line x1="702" y1="501" x2="722" y2="501" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
+  <rect x="726" y="490" width="64" height="22" rx="11" fill="#ecfdf5" stroke="#059669"/>
+  <text x="758" y="505" class="tag m" fill="#047857" text-anchor="middle">DONE</text>
+  <rect x="798" y="490" width="72" height="22" rx="11" fill="#fff1f2" stroke="#e11d48"/>
+  <text x="834" y="505" class="tag m" fill="#be123c" text-anchor="middle">FAILED</text>
+  <rect x="878" y="490" width="96" height="22" rx="11" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="926" y="505" class="tag m" fill="#475569" text-anchor="middle">CANCELLED</text>
+  <text x="787" y="530" class="small" text-anchor="middle">state comes from files: <tspan class="m">pid, exit_code, cancelled</tspan></text>
 
   <!-- 4 · full review -->
   <line x1="994" y1="250" x2="1060" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>

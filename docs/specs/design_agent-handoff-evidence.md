@@ -6,7 +6,7 @@
 
 Why any of this is a design and not a rendering detail: the flow's headline claim is that delegated work executed on another meter and stayed out of the driver's context. A driver can assert that in one sentence at the end of a run, and a summary is exactly what an unverified claim looks like. Everything here exists so the claim can be checked against files nobody typed.
 
-This document replaces two earlier ones: `design_transcript-viewer.md` (shipped 3.6.0) and `design_cost-receipt.md` (shipped 3.6.1). Each described half of one flow. Both predate the copilot and cursor backends and receipt schema v7.
+This document replaces two earlier ones: `design_transcript-viewer.md` (shipped 3.6.0) and `design_cost-receipt.md` (shipped 3.6.1). Each described half of one flow. Both predate the copilot, cursor, and antigravity backends and receipt schemas v7 and v8.
 
 ### Scope
 
@@ -54,11 +54,11 @@ Nothing in Phase 5 collects anything the run did not already write. Each job's o
 | --- | --- | --- |
 | `prompt.md` | at submit | the transcript's first row |
 | `run.sh` | at submit | audit: the command actually executed |
-| `meta` | at submit, `key=value` | role, backend, model, effort, each value's source, `submitted_at`, `parent`, `mode` |
+| `meta` | at submit, `key=value` | role, backend, model, effort, each value's source, `submitted_at`, `parent`, `mode`, and on an antigravity resume `resumed_session` |
 | `log.jsonl` | streamed by the worker | transcript rows, usage folding, denial counts |
 | `stderr.log` | streamed by the worker | the anomaly rule in Phase 3 |
 | `pid`, `exit_code`, `cancelled` | at submit, at exit, on cancel | `job_state()` |
-| `session_id` | extracted at the end, or assigned at submit on copilot | `resume` |
+| `session_id` | extracted at the end (an antigravity id from `init`'s `conversation_id`), or assigned at submit on copilot | `resume` |
 | `usage.json` | copilot only, at exit | the copilot token and credit columns |
 
 `job_state()` lives once, in `scripts/handoff_runtime.py`, mirroring `delegate-codex.sh`. Absence of `exit_code` is never `RUNNING` on its own: a worker that died without writing one is `FAILED`. Both renderers import that single implementation rather than re-deriving it.
@@ -91,9 +91,9 @@ A role with `verified: false` is listed with the flag as it stands. Dropping it,
 
 The probe ends in a file rather than a message. The receipt is on disk under `.handoff/receipts/` before the session ends, which is what lets the three readers in the next flows find the run at all.
 
-### Four telemetry shapes under one layout
+### Five telemetry shapes under one layout
 
-All four backends produce the same job directory. What differs is the shape inside `log.jsonl`, and that difference is contained in the readers:
+All five backends produce the same job directory. What differs is the shape inside `log.jsonl`, and that difference is contained in the readers:
 
 | Backend | Terminal record | Tokens | Cost or credits | Denials |
 | --- | --- | --- | --- | --- |
@@ -101,10 +101,13 @@ All four backends produce the same job directory. What differs is the shape insi
 | claude | `type: result` | `usage`, plus `output_tokens_details.thinking_tokens` | `total_cost_usd`, `costBasis: list` | `permission_denials[]` |
 | copilot | `type: result` in the log; `usage.json` beside it | `tokenDetails` and `modelMetrics` in `usage.json` | premium requests and nano-AIU: AI credits, no currency | typed `tool.execution_complete` with `error.code == "denied"` |
 | cursor | last `type: result` with `usage`; `session_id` starts on line one | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`; no reasoning count | no cost figure or credits | completed `tool_call` with a typed `result.rejected` |
+| antigravity | `event: result` with `status`, `error` and `denied_actions`; `init` carries `conversation_id` on line one | the sum of each `step_update`'s `usage`: input, output, cache read, and reasoning from `thinking_tokens`; no cache-write count | no cost figure or credits | `result.denied_actions`, and only there |
 
 Copilot's file carries two meters with two different scopes. `tokenDetails` and `modelMetrics` are per invocation, so a parent job and its fix round add up. `totalPremiumRequestCost` and `totalNanoAiu` at the top level are cumulative for the whole Copilot session, so summing those across a resume double-counts the parent. The per-invocation figures under `modelMetrics` are the ones read. An absent `usage.json` is `unknown`; a file of zeros is a measured zero.
 
 Cursor's `result.usage` is per invocation, so a parent and its fix round add up. The last `assistant` event supplies the agent message; `result.result` repeats the whole narration. `shellToolCall.args.command` supplies commands, and `system/init` supplies the display model name. A job without `result` has unknown usage.
+
+Antigravity's `result.usage` and `result.duration_seconds` are cumulative over the whole conversation: in the resume probe, `result` reported 23,989 input tokens against 12,143 on its own steps, the parent's 11,846 plus the round's. So the cost reader sums the `usage` on this log's own `step_update` events, which is per invocation, and a parent and its fix round add up. The step sum equalled `result.usage` on every fresh run checked and the per-invocation delta on every resume. The last `agent_response` step supplies the agent message, the text chunks of one `step_index` joined in order, because `result.response` joins every agent message of the invocation. `run_command`'s `CommandLine` supplies commands, and `agy` logs no exit code for one, so a command carries no status. `init.model` echoes the selector Handoff passed, so the model comes from `meta`. A job without `result` has unknown usage and an unknown denial count, never zero.
 
 ### There is no per-event clock, and only two formats pretend otherwise
 
@@ -140,29 +143,30 @@ Every row keeps the **source position** of the line that first produced it, and 
 - claude content blocks are separate rows inside their event, joined on `tool_use_id`. A `tool_result` arrives inside a `user` event; joining fills in the row's output and keeps the call's name and input. A result never replaces a call.
 - copilot folds `tool.execution_start` and `tool.execution_complete` on `toolCallId`, and drops `ephemeral: true` deltas: one small job produced 82 of them.
 - cursor folds `tool_call` `started` and `completed` on `call_id`; typed `rejected` results mark denials. `thinking` events are skipped.
+- antigravity folds `step_update` events on `step_index`: an `agent_response` step's `text_delta` chunks join into one agent row, and a `tool` step becomes one tool row that its `DONE` or `ERROR` state completes. A `user_input` step carries no text and is dropped.
 
-| Normalized kind | codex `exec --json` | claude `stream-json` | copilot JSON | cursor `stream-json` |
-| --- | --- | --- | --- | --- |
-| `user` | — | — | `user.message` | `user` text blocks |
-| `agent` | `agent_message` | `assistant` text blocks | `assistant.message` with `phase: final_answer` | `assistant` text blocks |
-| `reasoning` | `reasoning` | `thinking` blocks | — | — (`thinking` skipped) |
-| `command` | `command_execution` | `tool_use` on a shell tool | `tool.execution_start` for `bash`/`shell` | `shellToolCall` started |
-| `tool` | — | any other `tool_use` | any other tool call | other `tool_call` kinds |
-| `file_change` | `file_change` | a *successful* edit or write tool | a *successful* `create`/`edit`/`str_replace`/`write` | a successful `editToolCall` |
-| `mcp` | `mcp_tool_call` | `mcp__*` tool names | — | — |
-| `web_search` | `action.queries` where present, else the truncated `query` | — | — | — |
-| `error` | `error` items and the top-level `error` | `is_error` on a result | `session.error`, a failed call, `error.code == "denied"` | failed edit; unmatched completion (other failed calls retain their tool kind) |
-| `lifecycle` | `thread.started`, `turn.*` | `system` init, `result` | `assistant.turn_start`/`turn_end`, `result` | `system/init`, `result` |
+| Normalized kind | codex `exec --json` | claude `stream-json` | copilot JSON | cursor `stream-json` | antigravity `stream-json` |
+| --- | --- | --- | --- | --- | --- |
+| `user` | — | — | `user.message` | `user` text blocks | — (`user_input` carries no text) |
+| `agent` | `agent_message` | `assistant` text blocks | `assistant.message` with `phase: final_answer` | `assistant` text blocks | `agent_response` steps, chunks joined |
+| `reasoning` | `reasoning` | `thinking` blocks | — | — (`thinking` skipped) | — |
+| `command` | `command_execution` | `tool_use` on a shell tool | `tool.execution_start` for `bash`/`shell` | `shellToolCall` started | a `tool` step with a `CommandLine` parameter |
+| `tool` | — | any other `tool_use` | any other tool call | other `tool_call` kinds | any other `tool` step |
+| `file_change` | `file_change` | a *successful* edit or write tool | a *successful* `create`/`edit`/`str_replace`/`write` | a successful `editToolCall` | a successful `tool` step with a `TargetFile` parameter |
+| `mcp` | `mcp_tool_call` | `mcp__*` tool names | — | — | — |
+| `web_search` | `action.queries` where present, else the truncated `query` | — | — | — | — |
+| `error` | `error` items and the top-level `error` | `is_error` on a result | `session.error`, a failed call, `error.code == "denied"` | failed edit; unmatched completion (other failed calls retain their tool kind) | failed edit (other failed calls retain their tool kind) |
+| `lifecycle` | `thread.started`, `turn.*` | `system` init, `result` | `assistant.turn_start`/`turn_end`, `result` | `system/init`, `result` | `init`, `command_result`, `system_message`, `error_message`, `result` |
 
-Two rules in that table earned their place. A file-change row from claude, copilot, or cursor is **provisional** until its result arrives: a failed Edit or a refused write is demoted to an error row, because a refused write rendering as a completed file change is the viewer lying about the repository. Copilot's denial is read from the typed `error.code`, and cursor's from `result.rejected`, never pattern-matched out of a message string.
+Two rules in that table earned their place. A file-change row from claude, copilot, cursor, or antigravity is **provisional** until its result arrives: a failed Edit or a refused write is demoted to an error row, because a refused write rendering as a completed file change is the viewer lying about the repository. Copilot's denial is read from the typed `error.code`, cursor's from `result.rejected`, and antigravity's from `result.denied_actions`, never pattern-matched out of a message string. Antigravity's tool-step states cannot stand in for it: the same refused write ended as a `DONE` step with no error in one probe and as an `ERROR` step in another, and both times it was listed in `denied_actions`.
 
 ### The backend is declared, or inferred from a type unique to one format
 
-Copilot's terminal event is `type: "result"`, the same type name claude and cursor `stream-json` use with different payloads. So the branch is chosen by the declared `meta.backend` on a generated page, and on a dropped log by scanning for a type only one format emits (`assistant.turn_start` or `tool.execution_start` for copilot, an `item.` prefix for codex, `tool_call` or `thinking` for cursor). Shared types do not seed the guess, and a test asserts that one `result` line parses differently under each declared backend. A metadata-free cursor log containing only shared types cannot be identified and reaches the shared parser.
+Copilot's terminal event is `type: "result"`, the same type name claude and cursor `stream-json` use with different payloads. So the branch is chosen by the declared `meta.backend` on a generated page, and on a dropped log by scanning for a type only one format emits (`assistant.turn_start` or `tool.execution_start` for copilot, an `item.` prefix for codex, `tool_call` or `thinking` for cursor, a top-level `event` key holding a string for antigravity, because claude's partial-message `stream_event` also has an `event` key but holds an object there). Shared types do not seed the guess, and a test asserts that one `result` line parses differently under each declared backend. A metadata-free cursor log containing only shared types cannot be identified and reaches the shared parser. No antigravity event name collides with another backend's, because it discriminates on `event` and the others on `type`.
 
 ### The prompt row
 
-`log.jsonl` does not carry the job's prompt on codex or claude, so the payload carries `prompt_text` from `prompt.md` and the page renders it as the first row. A copilot log carries the prompt itself as `user.message`, so the injected prompt is suppressed when it duplicates one already in the stream. Exactly one prompt row, whichever backend ran.
+`log.jsonl` does not carry the job's prompt on codex or claude, so the payload carries `prompt_text` from `prompt.md` and the page renders it as the first row. A copilot log carries the prompt itself as `user.message`, so the injected prompt is suppressed when it duplicates one already in the stream. An antigravity `user_input` step carries no text, so the page drops it and keeps the injected prompt. Exactly one prompt row, whichever backend ran.
 
 ### Nothing is dropped, and nothing disappears without a mark
 
@@ -194,15 +198,15 @@ The argument is optional. Resolution stops at the first match: a path or existin
 
 ### It indexes the run; it does not summarize it
 
-The Handoff Session Receipt (`docs/receipt-schema.json`, schema v7) records phase, session id, wall-clock duration, checks, anomalies, four job counts with four matching duration lists, config scope and source, and `roles_used`. Those fields settle *which* jobs belong to the run and *what* executed them. No token or cost figure appears in the receipt at all. That omission is deliberate, and Flow 4 is what fills it.
+The Handoff Session Receipt (`docs/receipt-schema.json`, schema v8) records phase, session id, wall-clock duration, checks, anomalies, five job counts with five matching duration lists, config scope and source, and `roles_used`. Those fields settle *which* jobs belong to the run and *what* executed them. No token or cost figure appears in the receipt at all. That omission is deliberate, and Flow 4 is what fills it.
 
 ### One count per backend, read from the job's own meta
 
-The four pairs are `codex_jobs` / `codex_job_durations`, `cc_jobs` / `cc_job_durations`, `copilot_jobs` / `copilot_job_durations`, and `cursor_jobs` / `cursor_job_durations`, with durations keyed by jobId and fix rounds included. `make-receipt.py` partitions the job directories by each `meta`'s `backend=` line: a directory with no such line predates backend dispatch and is codex by construction, and so is one naming a backend this version does not know. A cursor job is never folded into another count. In `roles_used`, `host` is the CLI that executed the role, unrelated to the runtime that loaded `SKILL.md`.
+The five pairs are `codex_jobs` / `codex_job_durations`, `cc_jobs` / `cc_job_durations`, `copilot_jobs` / `copilot_job_durations`, `cursor_jobs` / `cursor_job_durations`, and `antigravity_jobs` / `antigravity_job_durations`, with durations keyed by jobId and fix rounds included. `make-receipt.py` partitions the job directories by each `meta`'s `backend=` line: a directory with no such line predates backend dispatch and is codex by construction, and so is one naming a backend this version does not know. A copilot, cursor, or antigravity job is never folded into another count, and `roles_used[].host` accepts `antigravity`. `--antigravity-jobs` defaults to `0`. In `roles_used`, `host` is the CLI that executed the role, unrelated to the runtime that loaded `SKILL.md`.
 
 ### Validated before it is written
 
-`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `7`; a v6 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
+`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `8`; a v7 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
 
 ### The save is the default, because the readers were already promised it
 
@@ -214,7 +218,7 @@ The guard moves from prose into the script, the direction the rest of this docum
 
 ### Arbitration rides in `anomalies`
 
-An escalation ruling reaches the receipt as `arbitration: <task> approve|reject (<jobId>)` in the free-text `anomalies` field. Approvals are recorded too, because an approval that overruled the driver is the ruling a reader most needs to find. A dedicated field would need schema v7, a breaking change for `validate-receipt.py`, `make-receipt.py`, the cost reader's version check, the session page, and every example, to carry a fact the receipt already indexes: the arbiter job is in its backend's job count, its duration list, and `roles_used`. The evidence for the ruling is that job's log; the receipt line only points at it.
+An escalation ruling reaches the receipt as `arbitration: <task> approve|reject (<jobId>)` in the free-text `anomalies` field. Approvals are recorded too, because an approval that overruled the driver is the ruling a reader most needs to find. A dedicated field would need a new schema version, a breaking change for `validate-receipt.py`, `make-receipt.py`, the cost reader's version check, the session page, and every example, to carry a fact the receipt already indexes: the arbiter job is in its backend's job count, its duration list, and `roles_used`. The evidence for the ruling is that job's log; the receipt line only points at it.
 
 All rulings share one line with the other anomalies, joined with `; `. `make-receipt.py` writes `--anomalies` into the block verbatim, and a second line would read back as an unknown field and fail validation.
 
@@ -262,6 +266,7 @@ Each backend's counters go into the five shared columns: input, cache read, cach
 - Codex usage is summed across turns, over `turn.completed` and `turn.failed` alike.
 - For claude, only the last `result` is authoritative; an earlier one is a repeat, taken once and flagged in the row.
 - For cursor, only the last `result.usage` in an invocation is read. Its four camelCase counters map to input, output, cache read, and cache write; reasoning stays unknown. The job row uses the `system/init` display model when present, otherwise the configured slug.
+- For antigravity, only the `usage` on this log's own `step_update` events is read and summed, never `result.usage`, which is cumulative over the conversation. Input, output, and cache read are known, reasoning comes from `thinking_tokens`, and cache writes stay unknown because `agy` reports none. Denials are the length of `result.denied_actions`. The job row's model is the slug in `meta`.
 - A resumed job writes `model=inherit`, so its model is resolved by walking `parent=` to the originating job, and reads `inherit (unresolved)` when that walk fails rather than naming a guessed model.
 
 ### Degraded states are named
@@ -273,9 +278,11 @@ Each backend's counters go into the five shared columns: input, cache read, cach
 | one counter absent from an otherwise valid record | `unknown` for that cell only |
 | copilot job with no `usage.json` | `unknown` tokens and credits; denials still counted from the log |
 | cursor job with no `result` | `unknown` usage; typed denials still counted from the log |
+| antigravity job with no `result` | `unknown` usage and an `unknown` denial count; `result --json` gives `null`, never zero |
+| antigravity cache writes | `unknown` for that cell only; `agy` reports none |
 | driver transcript not found | `unavailable` |
 | driver interval not derivable | `unscoped` |
-| codex, copilot, or cursor cost column | `n/a - subscription`, `n/a - AI credits`, or `n/a - no cost figure`; there is nothing there to read |
+| codex, copilot, cursor, or antigravity cost column | `n/a - subscription`, `n/a - AI credits`, or `n/a - no cost figure`; there is nothing there to read |
 
 A partial total is never presented as a total: when any row in a column is unmeasured, the column reads `≥ <subtotal> (n of m jobs measured)`. A run with no claude-backed job says so, rather than reporting `unknown`, because `unknown` claims a reading was attempted and failed.
 
@@ -292,9 +299,10 @@ What the summary reports instead is one figure per meter, then a total whose pop
 - **Ran on a Codex subscription** — token counters for codex-backed jobs, no cost figure, because the CLI emits none.
 - **Ran on the Copilot AI-credit meter** — premium requests and nano-AIU for copilot-backed jobs, stated as AI credits and never as currency.
 - **Ran on the Cursor meter** — token counters for cursor-backed jobs and no cost figure. Shown only when a cursor job ran.
+- **Ran on the Antigravity meter** — token counters for antigravity-backed jobs, reasoning included, and no cost figure, because `agy` reports tokens but no cost. Shown only when an antigravity job ran.
 - **Ran outside the driver session** — token counters for all delegated jobs on any backend, plus the summed CLI-reported cost of the claude-backed ones.
 
-The outside-driver figure comes last because it counts the codex and cursor jobs a second time. On the HTML page it is also the only summary card that sets its counters in the large serif face. A partial total keeps its `≥` there, with the measured-job count underneath. The per-meter cards use plain monospace. The caveat directly below it names that overlap and says the figures are not addends; tests assert that no line equals their sum. A further line reports permission denials across claude-backed, copilot-backed, and cursor-backed jobs, because a denied tool call does not move a job's exit code: a job can report success on checks it was refused.
+The outside-driver figure comes last because it counts the codex, cursor, and antigravity jobs a second time. On the HTML page it is also the only summary card that sets its counters in the large serif face. A partial total keeps its `≥` there, with the measured-job count underneath. The per-meter cards use plain monospace. The caveat directly below it names that overlap and says the figures are not addends; tests assert that no line equals their sum. A further line reports permission denials across claude-backed, copilot-backed, cursor-backed, and antigravity-backed jobs, because a denied tool call does not move a job's exit code: a job can report success on checks it was refused.
 
 ### The export boundary is enumerated
 
@@ -312,6 +320,7 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | No invalid receipt reaches disk | `make-receipt.py` validates before printing | format drift and optimistic fields |
 | A written receipt still matches the schema | `validate-receipt.py`, also in CI | a receipt nobody re-read |
 | A job is counted under the backend that ran it | `meta` `backend=`, checked again by the cost reader | a copilot job folded into another count |
+| No antigravity log is read by another backend's parser, and none of theirs by antigravity's | an explicit antigravity branch in each of the five parsers, chosen by `meta.backend` or, in the viewer, by a string `event` key | a denied action counted as zero, or a log that reads as `unknown` rows |
 | A jobId cannot escape the jobs directory | path-segment check before any open | a receipt reading arbitrary files |
 | Counts and duration lists agree | cost reader cross-check | a receipt describing more than it indexes |
 | The run's receipt reaches disk | `make-receipt.py` writes unless `--no-save` | a run whose cost receipt and session page have no input |
@@ -329,6 +338,7 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 
 - **The shipped example is checked for existence only.** `check-skill-repo.sh` asserts that `examples/v3.6.1-conversation-cost-receipt.{md,html}` are present. The 3.6.1 design intended a further test tying the example's totals to its source job logs, and that test does not exist, so the example can drift from the logs it reports while CI stays green. The ledger precedent is the cheapest fix: regenerate in CI and diff.
 - **Claude Code's transcript layout is not a published contract.** The glob avoids the slug rule but still assumes the location, the `message.usage` shape, and the `timestamp` field the interval filter depends on. When it moves, the driver row degrades to `unavailable` and the delegated half is unaffected.
+- **Antigravity's cumulative `result.usage` invites the wrong read.** Reading it instead of the step sum would double-count a fix round's parent with no visible symptom; a resume fixture whose `result.usage` is cumulative pins the distinction. The step sum matched `result.usage` on every fresh run and equalled the per-invocation delta on every resume probed, on one `agy` build, one account, and one machine.
 - **Copilot's `usage.json` shape is likewise unpublished**, and it holds two meters at two scopes. Reading the session-cumulative pair instead of the per-invocation one would double-count a fix round with no visible symptom. One test pins the distinction.
 - **Codex multi-turn additivity is assumed.** Every job observed so far has one turn. A two-turn fixture asserts the behaviour this design chose; it does not prove the CLI emits cumulative rather than incremental counts. A real multi-turn job is the check, and a human has to produce one.
 - **Fixture tests prove arithmetic, not telemetry.** The suites read synthetic logs. Whether real CLI output still carries these fields is only observable by running a real job.
@@ -342,7 +352,7 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 - **Diff bodies for file changes.** `file_change` events carry paths and kind, no content. A diff would make the page depend on repo state instead of the log.
 - **A nested view of subagent threads.** `parent_tool_use_id` is retained and labelled; a tree UI on top of it is speculative until a real log needs one.
 - **Search, export, or a two-pane outline in the viewer.** Browser find covers search at this page size.
-- **A price table, or any cost figure for the driver, codex, copilot, or cursor.** A repriced token is the fabrication the repo rules out, and a checked-in rate card would go stale silently.
+- **A price table, or any cost figure for the driver, codex, copilot, cursor, or antigravity.** A repriced token is the fabrication the repo rules out, and a checked-in rate card would go stale silently.
 - **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-codex.sh` were needed to add it.
 - **Aggregation across runs.** One receipt in, one cost receipt out.
 - **A `references/*.md` flow document for either command.** Each is one command with one optional argument; `SKILL.md` carries both directly.
