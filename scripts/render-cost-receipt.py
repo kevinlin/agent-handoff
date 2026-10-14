@@ -3,9 +3,9 @@
 
 Numbers come only from measurement: codex jobs yield token counters, claude
 jobs yield the CLI's own cost figure, copilot jobs yield token counters plus an
-AI-credit meter, cursor jobs yield token counters and no cost figure, and the
-driver row is scoped to the run interval. Nothing is estimated, and no saving
-is computed.
+AI-credit meter, cursor and antigravity jobs yield token counters and no cost
+figure, and the driver row is scoped to the run interval. Nothing is
+estimated, and no saving is computed.
 """
 
 from __future__ import annotations
@@ -26,17 +26,18 @@ from handoff_runtime import inject, job_state, read_meta  # noqa: E402
 
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "cost-receipt.html"
 RECEIPT_HEADER = "[Handoff session receipt]"
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "8"
 FIELD_LINE = re.compile(r"^([a-z_]+):\s*(.+)$")
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-# Backend -> its receipt count and durations fields. A fourth backend is a row.
+# Backend -> its receipt count and durations fields. A sixth backend is a row.
 BACKEND_FIELDS = {
     "codex": ("codex_jobs", "codex_job_durations"),
     "claude": ("cc_jobs", "cc_job_durations"),
     "copilot": ("copilot_jobs", "copilot_job_durations"),
     "cursor": ("cursor_jobs", "cursor_job_durations"),
+    "antigravity": ("antigravity_jobs", "antigravity_job_durations"),
 }
 
 
@@ -140,6 +141,14 @@ USAGE_FIELDS = {
         "cache_read": "cacheReadTokens",
         "cache_write": "cacheWriteTokens",
         "output": "outputTokens",
+    },
+    # Antigravity reports no cache-write count. P3: step_update.usage carries
+    # input, output, thinking, cache_read, and total tokens, and nothing else.
+    "antigravity": {
+        "input": "input_tokens",
+        "cache_read": "cache_read_tokens",
+        "output": "output_tokens",
+        "reasoning": "thinking_tokens",
     },
 }
 CREDITS = ("premium_requests", "nano_aiu")
@@ -259,11 +268,60 @@ def _fold_cursor(events: list[dict]) -> dict:
             "credits": {key: None for key in CREDITS}}
 
 
+def _fold_antigravity(events: list[dict]) -> dict:
+    """Tokens are the sum of this log's step usage, denials the last result's list.
+
+    result.usage is cumulative over the whole conversation (RSAME: 23,989
+    input tokens on a resume whose own steps used 12,143), so it is never
+    read. Each log's step usage is per invocation, so a parent and its fix
+    round sum correctly. Usage is known only once a result event exists; a
+    log cut off before it keeps every counter unknown, never zero. Cache
+    writes stay unknown because agy reports none. Antigravity reports no
+    cost figure, and init.model echoes the selector Handoff passed (MBASE),
+    so the model column keeps the slug from meta.
+    """
+    usage = _blank_usage()
+    result = None
+    seen_terminal = 0
+    step_usages: list[dict] = []
+    for event in events:
+        # Not every line of a damaged log is an object; skip what is not one.
+        if not isinstance(event, dict):
+            continue
+        if event.get("event") == "result":
+            result = event.get("result")
+            seen_terminal += 1
+        elif event.get("event") == "step_update":
+            step = event.get("step_update")
+            raw = step.get("usage") if isinstance(step, dict) else None
+            if isinstance(raw, dict):
+                step_usages.append(raw)
+    if seen_terminal:
+        # A result with no steps (a launch rejection, MUNKNOWN) is a measured
+        # zero: agy itself reported zero tokens.
+        for counter in USAGE_FIELDS["antigravity"]:
+            usage[counter] = 0
+        for raw in step_usages:
+            for counter, field in USAGE_FIELDS["antigravity"].items():
+                value = raw.get(field)
+                if not isinstance(value, bool):
+                    _add(usage, counter, value)
+    denied = result.get("denied_actions") if isinstance(result, dict) else None
+    # P0: denials are listed on the terminal result and nowhere else, and a
+    # clean run omits the key. No result event at all means unknown.
+    denials = (len(denied) if isinstance(denied, list) else 0) if seen_terminal else None
+    return {"usage": usage, "cost_usd": None, "denials": denials,
+            "models": [], "repeated": seen_terminal > 1,
+            "credits": {key: None for key in CREDITS}}
+
+
 def fold_usage(events: list[dict], backend: str, usage_json: dict | None = None) -> dict:
     if backend == "copilot":
         return _fold_copilot(events, usage_json)
     if backend == "cursor":
         return _fold_cursor(events)
+    if backend == "antigravity":
+        return _fold_antigravity(events)
 
     usage = _blank_usage()
     cost_usd = None
@@ -453,18 +511,21 @@ def _credit_figure(rows: list[dict]) -> dict:
 
 
 def summarize(rows: list[dict]) -> dict:
-    """Token figures whose populations overlap by design: codex and cursor jobs
-    are each in their own figure and again in the outside-driver one. They are
-    never added together, and none is a saving. The copilot credit meter is a
-    different kind of reading, in none of them. Cursor reports no cost."""
+    """Token figures whose populations overlap by design: codex, cursor, and
+    antigravity jobs are each in their own figure and again in the
+    outside-driver one. They are never added together, and none is a saving.
+    The copilot credit meter is a different kind of reading, in none of them.
+    Cursor and Antigravity report no cost."""
     codex_rows = [r for r in rows if r["backend"] == "codex"]
     cursor_rows = [r for r in rows if r["backend"] == "cursor"]
+    antigravity_rows = [r for r in rows if r["backend"] == "antigravity"]
     denials = [r["denials"] for r in rows if r["denials"] is not None]
     return {
         "codex_subscription": _figure(codex_rows, with_cost=False),
         "outside_driver": _figure(rows, with_cost=True),
         "copilot_credits": _credit_figure(rows),
         "cursor_meter": _figure(cursor_rows, with_cost=False),
+        "antigravity_meter": _figure(antigravity_rows, with_cost=False),
         "denials": sum(denials) if denials else None,
     }
 
@@ -587,6 +648,7 @@ def render_markdown(payload: dict) -> str:
 
     codex, outside = summary["codex_subscription"], summary["outside_driver"]
     cursor = summary["cursor_meter"]
+    antigravity = summary["antigravity_meter"]
     out += [f"**Ran on a Codex subscription** ({_job_count(codex['jobs'])}). "
             "No cost figure: the Codex CLI emits none.",
             "", *_figure_table(codex), ""]
@@ -595,17 +657,22 @@ def render_markdown(payload: dict) -> str:
         out += [f"**Ran on the Cursor meter** ({_job_count(cursor['jobs'])}). "
                 "Cursor reports tokens but no cost figure, so none is shown.",
                 "", *_figure_table(cursor), ""]
-    # The outside figure comes last because it holds the codex and cursor jobs
-    # again; the caveat right below it says so.
+    if antigravity["jobs"]:
+        out += [f"**Ran on the Antigravity meter** ({_job_count(antigravity['jobs'])}). "
+                "Antigravity reports tokens but no cost figure, so none is shown.",
+                "", *_figure_table(antigravity), ""]
+    # The outside figure comes last because it holds the codex, cursor, and
+    # antigravity jobs again; the caveat right below it says so.
     out += [f"**Ran outside the driver session** ({_job_count(outside['jobs'])}). "
             f"{_cost_sentence(outside)}",
             "", *_figure_table(outside), "",
-            "Codex and Cursor jobs are counted in their own figure and again in the "
+            "Codex, Cursor, and Antigravity jobs are counted in their own figure and again in the "
             "outside-driver figure. The figures are **not addends**, and no "
             "difference between them is a saving.",
             ""]
     if summary["denials"] is not None:
-        out += ["Permission denials across claude-backed, copilot-backed, and cursor-backed jobs: "
+        out += ["Permission denials across claude-backed, copilot-backed, cursor-backed, "
+                "and antigravity-backed jobs: "
                 f"**{summary['denials']}**. "
                 "A denied tool call does not move a job's exit code.", ""]
 
@@ -616,11 +683,12 @@ def render_markdown(payload: dict) -> str:
             "|---|---|---|---|---|" + "---|" * (len(COUNTERS) + 3)]
     for job in payload["jobs"]:
         counters = " | ".join(md_cell(job["usage"][c]) for c in COUNTERS)
-        # Codex, Copilot, and Cursor report no currency figure, so their cells
-        # are not unknown readings: there is nothing there to read.
+        # Codex, Copilot, Cursor, and Antigravity report no currency figure, so
+        # their cells are not unknown readings: there is nothing there to read.
         cost_cell = {"codex": "n/a - subscription",
                      "copilot": "n/a - AI credits",
-                     "cursor": "n/a - no cost figure"}.get(job["backend"]) or (
+                     "cursor": "n/a - no cost figure",
+                     "antigravity": "n/a - no cost figure"}.get(job["backend"]) or (
             repr(job["cost_usd"]) if job["cost_usd"] is not None else "unknown")
         credits = " | ".join(
             "n/a" if job["backend"] != "copilot" else md_cell(job[key])

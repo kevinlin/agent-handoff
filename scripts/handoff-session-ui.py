@@ -220,6 +220,20 @@ def denials(job, backend):
         return {'state': 'reported', 'items': [
             {'tool': kind, 'command': rejected.get('command', 'details unavailable')}
             for kind, rejected in cost.cursor_rejections(events)]}
+    if backend == 'antigravity':
+        # Denials are the terminal result's denied_actions list and nowhere else:
+        # the same denied write ended as a DONE tool step in P0 and an ERROR step
+        # in P2R. Before a result exists the count is unknown, so say that rather
+        # than report none.
+        results = [event for event in events if event.get('event') == 'result']
+        if not results:
+            return {'state': 'not reported (antigravity)', 'items': []}
+        result = results[-1].get('result')
+        denied = result.get('denied_actions') if isinstance(result, dict) else None
+        return {'state': 'reported', 'items': [
+            {'tool': item.get('display_name', 'details unavailable'),
+             'action': item.get('action', 'details unavailable')}
+            for item in (denied if isinstance(denied, list) else []) if isinstance(item, dict)]}
     if backend != 'copilot':
         return {'state': f'not reported ({backend})', 'items': []}
     starts = {}

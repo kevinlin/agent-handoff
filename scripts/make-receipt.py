@@ -10,14 +10,15 @@ Usage:
     python3 make-receipt.py --start --repo PATH        # Phase 0: stamp the start
     python3 make-receipt.py --phase "final fix" --claude-session abc123 \
         --checks "npm test; bash lint.sh" --codex-jobs 2 --cc-jobs 1 \
-        --copilot-jobs 1 --cursor-jobs 1 \
+        --copilot-jobs 1 --cursor-jobs 1 --antigravity-jobs 1 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
         [--anomalies none] [--started-at ISO8601] [--ended-at ISO8601] \
         [--no-save] [--repo PATH]
 
-Tip: get --codex-jobs, --cc-jobs, --copilot-jobs and --cursor-jobs from the job directories under
-<repo>/.handoff/jobs/ instead of recalling how many were submitted; each job's
-meta names the backend that executed it.
+Tip: get --codex-jobs, --cc-jobs, --copilot-jobs, --cursor-jobs and
+--antigravity-jobs from the job directories under <repo>/.handoff/jobs/ instead
+of recalling how many were submitted; each job's meta names the backend that
+executed it.
 
 Duration is wall clock: --start writes <repo>/.handoff/session-start, and the
 receipt run measures against it, so time blocked on a human approval counts.
@@ -27,12 +28,12 @@ Per-job durations come from each job's meta submitted_at and the mtime of its
 exit_code, partitioned by that job's backend; only jobs submitted inside the
 [start, end] window count, so an earlier or later run is left out.
 
-The declared --codex-jobs, --cc-jobs, --copilot-jobs and --cursor-jobs counts are checked
-against those measured durations and a mismatch refuses to emit. A count that
-disagrees with the job directories means the window is wrong -- most often a
-session-start marker stamped after the run's first job -- and a receipt that
-indexes fewer jobs than it counts is the one failure the downstream cost
-renderer cannot work around.
+The declared --codex-jobs, --cc-jobs, --copilot-jobs, --cursor-jobs and
+--antigravity-jobs counts are checked against those measured durations and a
+mismatch refuses to emit. A count that disagrees with the job directories means
+the window is wrong -- most often a session-start marker stamped after the run's
+first job -- and a receipt that indexes fewer jobs than it counts is the one
+failure the downstream cost renderer cannot work around.
 """
 
 from __future__ import annotations
@@ -70,7 +71,7 @@ def format_duration(seconds: float) -> str:
     return f"{whole // 60}min {whole % 60:02d}sec"
 
 
-BACKENDS = ("codex", "claude", "copilot", "cursor")
+BACKENDS = ("codex", "claude", "copilot", "cursor", "antigravity")
 
 
 def job_durations(repo: str, started: datetime, ended: datetime) -> dict[str, str]:
@@ -157,6 +158,7 @@ def main() -> int:
     parser.add_argument("--cc-jobs", default="0", help="Number of claude-backed delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--copilot-jobs", default="0", help="Number of copilot-backed delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--cursor-jobs", default="0", help="Number of cursor-backed delegate-codex.sh jobs including fix rounds.")
+    parser.add_argument("--antigravity-jobs", default="0", help="Number of antigravity-backed delegate-codex.sh jobs including fix rounds.")
     parser.add_argument("--scope", default="n/a", help="project | global | n/a (default: n/a, when no configured role was touched).")
     parser.add_argument("--config-source", default="n/a", help="session | project | global | default | n/a.")
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
@@ -215,10 +217,12 @@ def main() -> int:
         "copilot_job_durations": durations["copilot"],
         "cursor_jobs": args.cursor_jobs,
         "cursor_job_durations": durations["cursor"],
+        "antigravity_jobs": args.antigravity_jobs,
+        "antigravity_job_durations": durations["antigravity"],
         "scope": args.scope,
         "config_source": args.config_source,
         "roles_used": args.roles_used,
-        "receipt_schema_version": "7",
+        "receipt_schema_version": "8",
     }
 
     validator = load_validator()

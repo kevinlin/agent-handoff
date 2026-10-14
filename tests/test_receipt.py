@@ -35,10 +35,12 @@ def fields(**overrides) -> dict:
         "copilot_job_durations": "none",
         "cursor_jobs": "1",
         "cursor_job_durations": "none",
+        "antigravity_jobs": "1",
+        "antigravity_job_durations": "none",
         "scope": "project",
         "config_source": "project",
         "roles_used": "none",
-        "receipt_schema_version": "7",
+        "receipt_schema_version": "8",
     }
     base.update(overrides)
     return base
@@ -91,6 +93,7 @@ class ValidateReceiptTests(unittest.TestCase):
         self.assert_one_failure("cc_jobs must be an integer", cc_jobs="two")
         self.assert_one_failure("copilot_jobs must be an integer", copilot_jobs="two")
         self.assert_one_failure("cursor_jobs must be an integer", cursor_jobs="two")
+        self.assert_one_failure("antigravity_jobs must be an integer", antigravity_jobs="two")
 
     def test_delegated_implementation_is_a_phase(self):
         self.assertEqual([], validate_receipt.validate(fields(phase="delegated implementation")))
@@ -107,7 +110,16 @@ class ValidateReceiptTests(unittest.TestCase):
         self.assert_one_failure("unknown fields: direction", direction="claude")
 
     def test_old_schema_version_fails(self):
-        self.assert_one_failure("receipt_schema_version must be 7", receipt_schema_version="6")
+        self.assert_one_failure("receipt_schema_version must be 8", receipt_schema_version="6")
+        self.assert_one_failure("receipt_schema_version must be 8", receipt_schema_version="7")
+
+    def test_a_v7_receipt_no_longer_validates(self):
+        v7 = fields(receipt_schema_version="7")
+        del v7["antigravity_jobs"]
+        del v7["antigravity_job_durations"]
+        failures = " ".join(validate_receipt.validate(v7))
+        self.assertIn("missing field: antigravity_jobs", failures)
+        self.assertIn("missing field: antigravity_job_durations", failures)
 
     def test_a_v6_receipt_no_longer_validates(self):
         v6 = fields(receipt_schema_version="6")
@@ -141,6 +153,12 @@ class ValidateReceiptTests(unittest.TestCase):
             roles_used='[{"role": "fast_worker", "host": "cursor", '
             '"model": "claude-opus-5-5-high", "effort": "model", "verified": true}]')))
 
+    def test_an_antigravity_host_is_accepted_in_roles_used(self):
+        # The host is the CLI that executed the role, here agy.
+        self.assertEqual([], validate_receipt.validate(fields(
+            roles_used='[{"role": "fast_worker", "host": "antigravity", '
+            '"model": "gemini-3.8-flash-low", "effort": "model", "verified": true}]')))
+
     def test_roles_used_rejects_an_unknown_host(self):
         self.assert_one_failure(
             "unknown host",
@@ -162,7 +180,8 @@ class ValidateReceiptTests(unittest.TestCase):
 
     def test_job_durations_accept_measured_entries_and_reject_junk(self):
         for field in ("codex_job_durations", "cc_job_durations",
-                      "copilot_job_durations", "cursor_job_durations"):
+                      "copilot_job_durations", "cursor_job_durations",
+                      "antigravity_job_durations"):
             with self.subTest(field=field):
                 self.assertEqual(
                     [],
@@ -349,6 +368,37 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertEqual("job-cp=1min 15sec", emitted["copilot_job_durations"])
         self.assertEqual("job-cu=4min 00sec", emitted["cursor_job_durations"])
 
+    def test_jobs_split_five_ways(self):
+        """R7.2: one job directory per backend gives five correct counts."""
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        for offset, backend in enumerate(("codex", "claude", "copilot", "cursor", "antigravity")):
+            self.write_job(repo, f"job-{backend}", started + timedelta(minutes=1 + 2 * offset),
+                           started + timedelta(minutes=2 + 2 * offset), backend=backend)
+
+        counts = ("--codex-jobs", "1", "--cc-jobs", "1", "--copilot-jobs", "1",
+                  "--cursor-jobs", "1", "--antigravity-jobs", "1")
+        emitted = self.make_receipt_fields(repo, "--started-at", stamp(started), *counts)
+        for field, backend in (("codex", "codex"), ("cc", "claude"), ("copilot", "copilot"),
+                               ("cursor", "cursor"), ("antigravity", "antigravity")):
+            self.assertEqual("1", emitted[f"{field}_jobs"], field)
+            self.assertEqual(f"job-{backend}=1min 00sec", emitted[f"{field}_job_durations"], field)
+        self.assertEqual("8", emitted["receipt_schema_version"])
+        checked = subprocess.run(
+            [sys.executable, str(SCRIPT), "-"],
+            input="[Handoff session receipt]\n" + "\n".join(f"{k}: {v}" for k, v in emitted.items()),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(0, checked.returncode, checked.stdout)
+
+        # An antigravity job is never folded into the codex count: declaring it
+        # there, as an engine older than v8 would have counted it, is refused.
+        made = self.run_make("--repo", str(repo), *RECEIPT_ARGS, "--started-at", stamp(started),
+                             "--codex-jobs", "2", "--cc-jobs", "1", "--copilot-jobs", "1",
+                             "--cursor-jobs", "1", "--antigravity-jobs", "0")
+        self.assertEqual(1, made.returncode)
+        self.assertIn("antigravity_jobs is 0 but antigravity_job_durations has 1", made.stderr)
+
     def test_an_unknown_backend_line_buckets_as_codex(self):
         repo = self.temp_repo()
         started = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -359,6 +409,7 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertEqual("job-x=1min 00sec", emitted["codex_job_durations"])
         self.assertEqual("none", emitted["copilot_job_durations"])
         self.assertEqual("none", emitted["cursor_job_durations"])
+        self.assertEqual("none", emitted["antigravity_job_durations"])
 
     def test_ended_at_pins_the_far_end_of_the_duration(self):
         repo = self.temp_repo()
