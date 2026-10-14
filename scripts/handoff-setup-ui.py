@@ -587,6 +587,38 @@ def _cursor_model_options(env: Mapping[str, str]) -> Tuple[List[Dict[str, Any]],
     ], "Read from cursor-agent models"
 
 
+def _antigravity_model_options(
+    binary: Optional[str], env: Mapping[str, str]
+) -> Tuple[List[Dict[str, Any]], str]:
+    """Offer the ids ``agy --output-format json models`` lists, read at page load.
+
+    The call is free and takes about two seconds (MJSONGLOBAL), the same cost
+    profile as Cursor's catalogue. ``binary`` is the one ``build_state`` already
+    resolved: resolving here again would run the ``--help`` identity check a
+    second time, and the page load is pinned to one ``--help``. Nothing is
+    guessed when it fails.
+    """
+
+    if not binary:
+        return [], ("Antigravity CLI not found, or its --help does not list --conversation "
+                    "and --dangerously-skip-permissions. Install it, or set "
+                    "HANDOFF_ANTIGRAVITY_BIN to the agy CLI, then start the wizard again")
+    catalogue, error = engine.antigravity_catalogue(binary, env)
+    if error:
+        return [], error
+    return [
+        {
+            "value": identifier,
+            "label": label or identifier,
+            "description": "",
+            "source": "agy models",
+            "efforts": list(engine.ANTIGRAVITY_EFFORTS),
+            "is_default": False,
+        }
+        for identifier, label in catalogue
+    ], "Read from agy models"
+
+
 def _ensure_model_option(
     options: List[Dict[str, Any]],
     value: str,
@@ -608,9 +640,14 @@ def _ensure_model_option(
     efforts = list(engine.BACKEND_EFFORTS[backend])
     if backend == "copilot":
         efforts = [effort] if effort in engine.BACKEND_EFFORTS[backend] else []
-    # Slugs leave the catalogue between Cursor releases. Keep the configured
-    # one and say so, rather than replace it.
-    label = "Not in the current catalogue" if backend == "cursor" else value
+    # Slugs leave the catalogue between Cursor releases, and ids between
+    # Antigravity's (a retired id fails the first job with agy's own list of
+    # models, MUNKNOWN). Keep the configured one and say so, rather than
+    # replace it.
+    label = {
+        "cursor": "Not in the current catalogue",
+        "antigravity": "Not in `agy models`",
+    }.get(backend, value)
     options.append(
         {
             "value": value,
@@ -688,7 +725,19 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
             env,
             "HANDOFF_CURSOR_BIN" if env.get("HANDOFF_CURSOR_BIN") else "PATH",
         )
+        # Resolved once: antigravity_bin runs the --help identity check, and the
+        # same binary serves the version tile and the catalogue read below, so
+        # opening the page runs exactly --version, --help, and the catalogue.
+        antigravity_binary = engine.antigravity_bin(env)
+        antigravity_cli = _binary_version(
+            antigravity_binary,
+            env,
+            "HANDOFF_ANTIGRAVITY_BIN" if env.get("HANDOFF_ANTIGRAVITY_BIN") else "PATH",
+        )
         copilot_options, copilot_discovery = _copilot_model_options(env)
+        antigravity_options, antigravity_discovery = _antigravity_model_options(
+            antigravity_binary, env
+        )
         cursor_options, cursor_discovery = _cursor_model_options(env)
         latest = {name: future.result() for name, future in latest_futures.items()}
     release_clis = {"codex": codex_cli, "copilot": copilot_cli, "cursor": cursor_cli}
@@ -697,6 +746,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "codex": codex_options,
         "copilot": copilot_options,
         "cursor": cursor_options,
+        "antigravity": antigravity_options,
     }
     # Taken before configured values are added back: a retained model fills
     # the list, and the page must still say that discovery failed.
@@ -721,6 +771,9 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "config_source": resolved["source"],
         "clis": {
             "claude": claude_cli,
+            # No CLI_RELEASES entry, as for Claude: no free, probed source for
+            # agy's latest version exists, so its tile shows the installed one.
+            "antigravity": antigravity_cli,
             **{
                 name: {
                     **probe,
@@ -742,6 +795,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
             "codex": codex_discovery,
             "copilot": copilot_discovery,
             "cursor": cursor_discovery,
+            "antigravity": antigravity_discovery,
         },
         "model_discovery_failed": discovery_failed,
         "presets": presets,
@@ -824,15 +878,16 @@ def normalize_payload(
             # that is not in it is refused here rather than at the first job.
             # `auto` is exempt only so the engine's own reasoned refusal is
             # what the user reads; it is rejected either way.
-            if option is None and backend in ("copilot", "cursor") and model != "auto":
+            if option is None and backend in ("copilot", "cursor", "antigravity") and model != "auto":
                 if backend == "copilot":
                     raise UIError(
                         f"model {model} for {identity} is not in your Copilot model list; "
                         "pick one the list offers, or fix the login it names and start "
                         "the wizard again"
                     )
+                catalogue = "`agy models`" if backend == "antigravity" else "`cursor-agent models`"
                 raise UIError(
-                    f"model {model} for {identity} is not in `cursor-agent models`; "
+                    f"model {model} for {identity} is not in {catalogue}; "
                     "pick one the list offers, or fix what the page names and start "
                     "the wizard again"
                 )

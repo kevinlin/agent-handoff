@@ -131,6 +131,7 @@ class SetupUITests(unittest.TestCase):
         self.env = os.environ.copy()
         self.env.pop("HANDOFF_CURSOR_BIN", None)
         self.env.pop("HANDOFF_COPILOT_BIN", None)
+        self.env.pop("HANDOFF_ANTIGRAVITY_BIN", None)
         # No test reaches npm or cursor.com: a test that needs a release
         # version patches this itself, and the lookups are tested through
         # _release_urlopen instead.
@@ -238,6 +239,7 @@ class SetupUITests(unittest.TestCase):
                 "codex": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
                 "copilot": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
                 "cursor": ["model"],
+                "antigravity": ["model"],
             },
             state["efforts_by_backend"],
         )
@@ -700,7 +702,8 @@ class CopilotSetupUITests(SetupUITests):
         self.assertIn("copilot", state["model_options"])
         self.assertIn("copilot", state["model_discovery"])
         self.assertEqual(
-            {"claude", "codex", "copilot", "cursor"}, set(state["efforts_by_backend"])
+            {"claude", "codex", "copilot", "cursor", "antigravity"},
+            set(state["efforts_by_backend"]),
         )
 
     def test_the_wizard_offers_only_the_models_the_account_can_use(self):
@@ -815,7 +818,8 @@ class CopilotSetupUITests(SetupUITests):
         # approval, and reported efforts Handoff cannot pass are not a reason
         # to offer every effort instead
         self.assertEqual(["sound-model"], offered)
-        self.assertEqual(["claude", "codex", "copilot", "cursor"], sorted(state["model_options"]))
+        self.assertEqual(
+            ["antigravity", "claude", "codex", "copilot", "cursor"], sorted(state["model_options"]))
 
     def test_the_bearer_never_reaches_the_served_state(self):
         with self.catalogue():
@@ -1030,6 +1034,239 @@ class CursorSetupUITests(SetupUITests):
         self.assertIn(".textContent = sourceText(", source)
         # The effort field is locked on cursor.
         self.assertIn("values.backend !== 'cursor'", source)
+        # That line also matches the readiness check, so the lock itself is pinned through the
+        # set both cursor and antigravity belong to.
+        self.assertIn("const MODEL_EFFORT_BACKENDS = ['cursor','antigravity'];", source)
+        self.assertIn("MODEL_EFFORT_BACKENDS.includes(values.backend)", source)
+
+
+AGY_UI_FAKE = """#!/bin/sh
+printf '%s\\n' "$*" >> "$HANDOFF_TEST_AGY_ARGS"
+if [ "$1" = "--version" ]; then
+  printf '1.3.5\\n'
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  printf '  --conversation                  Resume a previous conversation by ID\\n' >&2
+  printf '  --dangerously-skip-permissions  Auto-approve all tool permission requests\\n' >&2
+  exit 0
+fi
+if [ "$1" = "--output-format" ] && [ "$2" = "json" ] && [ "$3" = "models" ]; then
+  printf 'Fetching available models...\\n' >&2
+  if [ -n "${HANDOFF_TEST_AGY_MODELS_ERROR:-}" ]; then
+    printf '%s\\n' "$HANDOFF_TEST_AGY_MODELS_ERROR" >&2
+    exit 1
+  fi
+  if [ -n "${HANDOFF_TEST_AGY_MODELS_STDOUT:-}" ]; then
+    printf '%s\\n' "$HANDOFF_TEST_AGY_MODELS_STDOUT"
+    exit 0
+  fi
+  printf '%s\\n' '{"status":"SUCCESS","command":{"name":"models","data":{"models":[{"id":"gemini-3.8-flash-low","label":"Gemini 3.8 Flash (Low)"},{"id":"claude-sonnet-4-6","label":"Claude Sonnet 4.6 (Thinking)"}]}}}'
+  exit 0
+fi
+exit 0
+"""
+
+# An IDE launcher linked as `agy`: it answers --help without agy's two flags.
+AGY_UI_LAUNCHER = """#!/bin/sh
+printf '%s\\n' "$*" >> "$HANDOFF_TEST_AGY_DECOY_ARGS"
+if [ "$1" = "--help" ]; then
+  printf 'Usage: antigravity [options] [paths...]\\n'
+fi
+exit 0
+"""
+
+RETAINED_ANTIGRAVITY_CONFIG = (
+    "schema_version = 2\nrevision = 0\n\n"
+    "[deep_reasoner]\n"
+    'backend = "claude"\nmodel = "opus"\neffort = "high"\n\n'
+    "[fast_worker]\n"
+    'backend = "antigravity"\nmodel = "gemini-3.5-retired"\neffort = "model"\n\n'
+    "[arbiter]\n"
+    'backend = "codex"\nmodel = "gpt-detected"\neffort = "xhigh"\n'
+)
+
+
+class AntigravitySetupUITests(unittest.TestCase):
+    """The Antigravity model is picked from `agy --output-format json models`, read at page load."""
+
+    def setUp(self):
+        # The same sandbox as SetupUITests, without re-running its tests.
+        SetupUITests.setUp(self)
+        self.agy_log = self.root / "agy-ui-args.txt"
+        self.decoy_log = self.root / "agy-decoy-args.txt"
+        self.install("agy", AGY_UI_FAKE)
+        self.env["HANDOFF_TEST_AGY_ARGS"] = str(self.agy_log)
+        self.env["HANDOFF_TEST_AGY_DECOY_ARGS"] = str(self.decoy_log)
+
+    def install(self, name, script):
+        path = self.bin / name
+        path.write_text(script, encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def agy_calls(self):
+        return self.agy_log.read_text(encoding="utf-8").splitlines() if self.agy_log.exists() else []
+
+    def state(self):
+        return handoff_setup_ui.build_state(self.repo, self.env)
+
+    def antigravity_payload(self, model="gemini-3.8-flash-low", effort="model"):
+        return {
+            "mode": "custom",
+            "identities": {
+                "deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"},
+                "fast_worker": {"backend": "antigravity", "model": model, "effort": effort},
+                "arbiter": {"backend": "codex", "model": "gpt-detected", "effort": "xhigh"},
+            },
+            "review": {"spec_max_rounds": 1, "implementation_max_rounds": 3},
+            "scope": "project",
+            "exclude_choice": "track",
+            "routing_action": "none",
+            "write_agents": False,
+            "smoke": False,
+        }
+
+    def test_opening_the_wizard_runs_version_help_and_the_catalogue_once_each(self):
+        self.state()
+        # `--help` is the identity check, run once and not again for the catalogue read.
+        self.assertEqual(
+            ["--help", "--output-format json models", "--version"], sorted(self.agy_calls()))
+
+    def test_the_catalogue_becomes_the_model_options_and_the_tile_probe(self):
+        state = self.state()
+        options = state["model_options"]["antigravity"]
+        self.assertEqual(["gemini-3.8-flash-low", "claude-sonnet-4-6"], [o["value"] for o in options])
+        self.assertEqual(
+            ["Gemini 3.8 Flash (Low)", "Claude Sonnet 4.6 (Thinking)"], [o["label"] for o in options])
+        self.assertEqual({"agy models"}, {o["source"] for o in options})
+        self.assertEqual([["model"]] * 2, [o["efforts"] for o in options])
+        self.assertEqual(["model"], state["efforts_by_backend"]["antigravity"])
+        self.assertEqual("Read from agy models", state["model_discovery"]["antigravity"])
+        self.assertFalse(state["model_discovery_failed"]["antigravity"])
+        entry = state["clis"]["antigravity"]
+        self.assertEqual({"available", "path", "version", "source"}, set(entry))
+        self.assertTrue(entry["available"])
+        self.assertEqual(str(self.bin / "agy"), entry["path"])
+        self.assertEqual("1.3.5", entry["version"])
+        self.assertEqual("PATH", entry["source"])
+
+    def test_the_tile_has_no_release_lookup(self):
+        asked = []
+        with mock.patch.object(
+                handoff_setup_ui, "_latest_version", side_effect=lambda name: asked.append(name)):
+            state = self.state()
+        self.assertEqual(["codex", "copilot", "cursor"], sorted(asked))
+        self.assertNotIn("antigravity", handoff_setup_ui.CLI_RELEASES)
+        self.assertNotIn("status", state["clis"]["antigravity"])
+        self.assertNotIn("latest", state["clis"]["antigravity"])
+
+    def test_a_configured_override_is_the_source_of_the_tile(self):
+        self.env["HANDOFF_ANTIGRAVITY_BIN"] = str(self.bin / "agy")
+        entry = self.state()["clis"]["antigravity"]
+        self.assertEqual("HANDOFF_ANTIGRAVITY_BIN", entry["source"])
+        self.assertTrue(entry["available"])
+
+    def test_the_only_effort_is_model(self):
+        options = self.state()["model_options"]
+        payload = handoff_setup_ui.normalize_payload(
+            self.antigravity_payload(), repo=self.repo, env=self.env, model_options=options)
+        self.assertEqual("antigravity", payload["identities"]["fast_worker"]["backend"])
+        self.assertEqual("model", payload["identities"]["fast_worker"]["effort"])
+        with self.assertRaises(handoff_setup_ui.UIError) as refusal:
+            handoff_setup_ui.normalize_payload(
+                self.antigravity_payload(effort="high"), repo=self.repo, env=self.env,
+                model_options=options)
+        self.assertIn("allowed values: model", str(refusal.exception))
+
+    def test_a_model_the_catalogue_does_not_offer_is_refused(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        with self.assertRaises(handoff_setup_ui.UIError) as refusal:
+            controller.preview(self.antigravity_payload(model="gemini-3.8-flash"))
+        self.assertIn("not in `agy models`", str(refusal.exception))
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
+    def test_a_missing_cli_offers_no_model_and_names_the_fix(self):
+        (self.bin / "agy").unlink()
+        state = self.state()
+        self.assertEqual([], state["model_options"]["antigravity"])
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", state["model_discovery"]["antigravity"])
+        self.assertTrue(state["model_discovery_failed"]["antigravity"])
+        entry = state["clis"]["antigravity"]
+        self.assertFalse(entry["available"])
+        self.assertIsNone(entry["path"])
+        self.assertEqual("PATH", entry["source"])
+
+    def test_an_override_that_points_at_nothing_names_its_variable(self):
+        self.env["HANDOFF_ANTIGRAVITY_BIN"] = str(self.bin / "no-such-agy")
+        state = self.state()
+        self.assertEqual("HANDOFF_ANTIGRAVITY_BIN", state["clis"]["antigravity"]["source"])
+        self.assertFalse(state["clis"]["antigravity"]["available"])
+        self.assertEqual([], state["model_options"]["antigravity"])
+        # the catalogue is never asked of a binary that was refused
+        self.assertEqual([], self.agy_calls())
+
+    def test_an_ide_launcher_named_agy_is_not_the_cli_and_is_never_asked_for_models(self):
+        self.install("agy", AGY_UI_LAUNCHER)
+        state = self.state()
+        self.assertEqual([], state["model_options"]["antigravity"])
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", state["model_discovery"]["antigravity"])
+        self.assertTrue(state["model_discovery_failed"]["antigravity"])
+        self.assertFalse(state["clis"]["antigravity"]["available"])
+        self.assertEqual(["--help"], self.decoy_log.read_text(encoding="utf-8").splitlines())
+
+    def test_a_failing_catalogue_shows_the_fix_and_offers_nothing(self):
+        self.env["HANDOFF_TEST_AGY_MODELS_ERROR"] = "error: not signed in"
+        state = self.state()
+        self.assertEqual([], state["model_options"]["antigravity"])
+        self.assertIn("error: not signed in", state["model_discovery"]["antigravity"])
+        self.assertIn("running `agy`", state["model_discovery"]["antigravity"])
+        # agy's progress line is not part of the error the tile shows
+        self.assertNotIn("Fetching available models", state["model_discovery"]["antigravity"])
+        self.assertTrue(state["model_discovery_failed"]["antigravity"])
+        # the CLI itself was found, so its tile is not read as missing
+        self.assertTrue(state["clis"]["antigravity"]["available"])
+
+    def test_a_catalogue_that_is_not_json_is_an_error_and_not_an_empty_list(self):
+        self.env["HANDOFF_TEST_AGY_MODELS_STDOUT"] = "gemini-3.8-flash-low - Gemini"
+        state = self.state()
+        self.assertEqual([], state["model_options"]["antigravity"])
+        self.assertIn("something other than JSON", state["model_discovery"]["antigravity"])
+        self.assertTrue(state["model_discovery_failed"]["antigravity"])
+
+    def test_a_retained_id_is_kept_marked_and_a_failure_still_shows(self):
+        config = self.repo / ".handoff" / "config.toml"
+        config.parent.mkdir()
+        config.write_text(RETAINED_ANTIGRAVITY_CONFIG, encoding="utf-8")
+        kept = {o["value"]: o for o in self.state()["model_options"]["antigravity"]}
+        self.assertEqual("Not in `agy models`", kept["gemini-3.5-retired"]["label"])
+        self.assertEqual(["model"], kept["gemini-3.5-retired"]["efforts"])
+        self.assertIn("gemini-3.8-flash-low", kept)
+        self.env["HANDOFF_TEST_AGY_MODELS_ERROR"] = "error: not signed in"
+        state = self.state()
+        self.assertEqual(
+            ["gemini-3.5-retired"], [o["value"] for o in state["model_options"]["antigravity"]])
+        self.assertTrue(state["model_discovery_failed"]["antigravity"])
+        self.assertIn("running `agy`", state["model_discovery"]["antigravity"])
+
+    def test_the_page_wires_the_antigravity_backend(self):
+        source = PAGE.read_text(encoding="utf-8")
+        self.assertIn("antigravity:'Antigravity'", source)
+        self.assertIn("BACKEND_LABELS_ORDER = ['claude','codex','copilot','cursor','antigravity']", source)
+        self.assertIn("backendIcon('antigravity') + 'Antigravity'", source)
+        self.assertIn("antigravity: 'M21.751 22.607", source)
+        self.assertIn("'agy models':'Read from agy models',", source)
+        self.assertIn("antigravity:'agy models'", source)
+        self.assertIn("const MODEL_EFFORT_BACKENDS = ['cursor','antigravity'];", source)
+        self.assertIn("model:'From model'", source)
+        self.assertIn("Antigravity skips permission checks either way", source)
+        self.assertIn("identities run'} on Antigravity", source)
+        self.assertIn("Antigravity models from <code>agy models</code>", source)
+        # six tiles: six columns wide, three on a middle width, so none sits alone
+        self.assertIn("grid-template-columns:repeat(6,minmax(0,1fr))", source)
+        self.assertIn("@media (min-width:781px) and (max-width:1180px)", source)
+        # a missing Antigravity CLI has no status field, so the tile reads `available`
+        self.assertIn("!state.clis[name].available", source)
 
 
 def probe(version, available=True):
@@ -1295,7 +1532,9 @@ class CliInstallStatusTests(unittest.TestCase):
                 controller = handoff_setup_ui.SetupController(self.repo, self.env)
                 with mock.patch.object(handoff_setup_ui, "_latest_version", return_value="9.9.9"):
                     state = handoff_setup_ui.build_state(self.repo, self.env)
-                self.assertEqual({"claude", "codex", "copilot", "cursor"}, set(controller.state()["clis"]))
+                self.assertEqual(
+                    {"claude", "codex", "copilot", "cursor", "antigravity"},
+                    set(controller.state()["clis"]))
                 entry = state["clis"]["cursor" if name == "cursor-agent" else name]
                 self.assertTrue(entry["available"])
                 self.assertEqual("Found, version unreadable", entry["version"])
