@@ -89,7 +89,7 @@
   /* scene 3 */
   .row { display: grid; grid-template-columns: 70px 250px 1fr; align-items: center; height: 96px; padding: 0 30px; border-bottom: 1px solid var(--line); font-size: 27px; }
   .row b { font-weight: 600; color: var(--faint); }
-  .lane { position: absolute; left: 1080px; width: 720px; height: 116px; padding: 0 28px; display: flex; align-items: center; gap: 18px; border-radius: 22px; background: rgba(255,255,255,.75); border: 1px solid var(--line); }
+  .lane { position: absolute; left: 1080px; width: 720px; height: 92px; padding: 0 28px; display: flex; align-items: center; gap: 18px; border-radius: 22px; background: rgba(255,255,255,.75); border: 1px solid var(--line); }
   .lane .name { width: 150px; flex: none; font-size: 30px; font-weight: 700; line-height: 1.15; }
   .lane .name small { display: block; font-size: 17px; font-weight: 500; color: var(--faint); }
   .job { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-radius: 13px; background: #fff; border: 1px solid var(--line); font-size: 19px; white-space: nowrap; box-shadow: 0 10px 24px -14px rgba(27,34,51,.35); }
@@ -113,7 +113,7 @@
   .check { display: flex; align-items: center; gap: 18px; margin-top: 16px; font-size: 29px; }
 
   /* scene 5 */
-  .receipt { position: absolute; left: 120px; top: 150px; width: 900px; height: 780px; padding: 46px 50px; border-radius: 30px; background: var(--navy); color: #eef1f8; font-size: 27px; line-height: 58px; box-shadow: 0 40px 90px -30px rgba(19,26,43,.6); }
+  .receipt { position: absolute; left: 120px; top: 150px; width: 900px; height: 780px; padding: 46px 50px; border-radius: 30px; background: var(--navy); color: #eef1f8; font-size: 27px; line-height: 54px; box-shadow: 0 40px 90px -30px rgba(19,26,43,.6); }
   .receipt k { color: var(--lilac); }
   .receipt .head { color: var(--yellow); }
   .cmd { display: block; width: max-content; margin-top: 16px; padding: 12px 22px; border-radius: 14px; background: #fff; border: 1px solid var(--line); font-size: 25px; }
@@ -183,16 +183,17 @@
 
   <div class="lane a" style="top:300px; --d:10.0"><div class="name mono">codex<small>own meter</small></div>
     <div class="job mono a pop" style="--d:11.75; --t:.4">job-t2 · running</div><div class="job mono a pop" style="--d:12.15; --t:.4">job-t3 · running</div></div>
-  <div class="lane a" style="top:435px; --d:10.1"><div class="name mono">claude<small>own meter</small></div>
+  <div class="lane a" style="top:406px; --d:10.1"><div class="name mono">claude<small>own meter</small></div>
     <div class="job mono a pop" style="--d:11.35; --t:.4">job-t1 · running</div></div>
-  <div class="lane a" style="top:570px; --d:10.2"><div class="name mono">copilot<small>own meter</small></div></div>
-  <div class="lane a" style="top:705px; --d:10.3"><div class="name mono">cursor<small>own meter</small></div></div>
-  <div class="pkt" style="--y:414; --dy:79; --d:10.7">→</div>
-  <div class="pkt" style="--y:510; --dy:-152; --d:11.1">→</div>
-  <div class="pkt" style="--y:606; --dy:-248; --d:11.5">→</div>
+  <div class="lane a" style="top:512px; --d:10.2"><div class="name mono">copilot<small>own meter</small></div></div>
+  <div class="lane a" style="top:618px; --d:10.3"><div class="name mono">cursor<small>own meter</small></div></div>
+  <div class="lane a" style="top:724px; --d:10.4"><div class="name mono" style="width:210px">antigravity<small>own meter</small></div></div>
+  <div class="pkt" style="--y:414; --dy:38; --d:10.7">→</div>
+  <div class="pkt" style="--y:510; --dy:-164; --d:11.1">→</div>
+  <div class="pkt" style="--y:606; --dy:-260; --d:11.5">→</div>
 
   <p class="abs a" style="left:1084px; top:842px; width:720px; font-size:26px; color:var(--soft); --d:12.6">Config picks the CLI for each identity.</p>
-  <p class="abs a" style="left:0; right:0; top:946px; text-align:center; font-size:36px; font-weight:650; --d:13.0">Codex, Claude Code, GitHub Copilot or Cursor.</p>
+  <p class="abs a" style="left:0; right:0; top:946px; text-align:center; font-size:36px; font-weight:650; --d:13.0">Codex, Claude Code, GitHub Copilot, Cursor or Antigravity.</p>
 </section>
 
 <!-- 4 · monitor and full review -->
@@ -235,11 +236,12 @@
     <div class="a fade" style="--d:20.9"><k>cc_jobs:</k> 1</div>
     <div class="a fade" style="--d:21.1"><k>copilot_jobs:</k> 0</div>
     <div class="a fade" style="--d:21.3"><k>cursor_jobs:</k> 0</div>
-    <div class="a fade" style="--d:21.5"><k>checks:</k> unittest; git diff --check</div>
-    <div class="a fade" style="--d:21.7"><k>anomalies:</k> job-t3 took a fix round</div>
-    <div class="a fade" style="--d:21.9"><k>scope:</k> project</div>
-    <div class="a fade" style="--d:22.1"><k>receipt_schema_version:</k> 7</div>
-    <div class="abs a pop" style="right:40px; bottom:36px; display:flex; align-items:center; gap:14px; font-size:24px; line-height:1; --d:22.8; --t:.45"><span class="tick"></span>validated before it is saved</div>
+    <div class="a fade" style="--d:21.5"><k>antigravity_jobs:</k> 0</div>
+    <div class="a fade" style="--d:21.7"><k>checks:</k> unittest; git diff --check</div>
+    <div class="a fade" style="--d:21.9"><k>anomalies:</k> job-t3 took a fix round</div>
+    <div class="a fade" style="--d:22.1"><k>scope:</k> project</div>
+    <div class="a fade" style="--d:22.3"><k>receipt_schema_version:</k> 8</div>
+    <div class="abs a pop" style="right:40px; bottom:36px; display:flex; align-items:center; gap:14px; font-size:24px; line-height:1; --d:23.0; --t:.45"><span class="tick"></span>validated before it is saved</div>
   </div>
 
   <div class="abs" style="left:1100px; top:170px; width:720px">

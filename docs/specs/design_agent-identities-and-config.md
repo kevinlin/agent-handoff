@@ -10,7 +10,7 @@ This document is the design of record for that layer: the identity model, the co
 
 ### Scope
 
-Covered: the five identities and what each takes, the resolution chain from a task row to a running job, the configuration schema and its ownership rules, the setup wizard (detect, preset, preview, apply, smoke, rollback, uninstall), permission posture, the Copilot and Cursor model catalogues, and the CLI install and update prompts.
+Covered: the five identities and what each takes, the resolution chain from a task row to a running job, the configuration schema and its ownership rules, the setup wizard (detect, preset, preview, apply, smoke, rollback, uninstall), permission posture, the Copilot and Antigravity model catalogues, and the CLI install and update prompts.
 
 | Out of scope | Where it lives |
 | --- | --- |
@@ -22,7 +22,7 @@ Covered: the five identities and what each takes, the resolution chain from a ta
 
 ### The invariant everything here rests on
 
-**The identity's configured `backend` decides which CLI runs a job — always.** All four values — `claude`, `codex`, `copilot`, `cursor` — are first-class execution channels. `backend = "claude"` is not a subagent-only marker and `backend = "copilot"` is not a second-class one: `delegate-codex.sh --role <identity>` runs any of them as a background job with the same jobId, job directory, monitoring, fix-round `resume`, worktree lifecycle, and receipt evidence.
+**The identity's configured `backend` decides which CLI runs a job — always.** All five values — `claude`, `codex`, `copilot`, `cursor`, `antigravity` — are first-class execution channels. `backend = "claude"` is not a subagent-only marker and `backend = "copilot"` is not a second-class one: `delegate-codex.sh --role <identity>` runs any of them as a background job with the same jobId, job directory, monitoring, fix-round `resume`, worktree lifecycle, and receipt evidence.
 
 A per-job `--backend` that contradicts a configured identity is refused rather than honoured. Swapping a row onto a cheaper meter is a change to this file, visible in a diff, not a side effect of delegating.
 
@@ -51,7 +51,7 @@ task row names an identity
   → delegate-codex.sh --role <identity>
   → handoff-config.py resolve      (session → project → global → defaults, per field)
   → backend + model + effort + permission_mode
-  → codex exec --json | claude --print --output-format stream-json | copilot -p --output-format json | cursor-agent -p --output-format stream-json
+  → codex exec --json | claude --print --output-format stream-json | copilot -p --output-format json | cursor-agent -p --output-format stream-json | agy -p --output-format stream-json
   → .handoff/jobs/<jobId>/meta     (every value, and where it came from)
 ```
 
@@ -66,9 +66,9 @@ Resolution is per field, so an override for one identity field does not erase un
 | No Handoff config at all | A default model would bill someone silently; the error names `/agent-handoff config` | `delegate-codex.sh` submit |
 | `--backend` contradicting a named role | Moving work onto another vendor is a config change, and the message names the `handoff-config.py set` that would make it legitimate | `delegate-codex.sh` submit |
 | An effort the chosen CLI does not accept | The enums are per vendor, never one shared list | `validate_effort` in `delegate-codex.sh`, `validate_backend_efforts` in `handoff-setup.py` |
-| `model = "auto"` on copilot or cursor | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what the vendor picked rather than what the repo configured | `delegate-codex.sh` submit, and `validate_backend_models` at setup |
+| `model = "auto"` on copilot or cursor, and an empty or `auto` model on antigravity | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what the vendor picked rather than what the repo configured | `delegate-codex.sh` submit, and `validate_backend_models` at setup; the antigravity message names `handoff-config.py set` |
 
-The effort enums, for reference: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor takes only `model`, meaning "set by the model id". Cursor's effort is part of the model slug and is never passed as a separate flag. Copilot's is the CLI's superset. Which efforts a given Copilot model actually accepts is narrower, and the wizard reads that per-model list from the entitlement catalogue.
+The effort enums, for reference: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor and antigravity take only `model`, meaning "set by the model id". Cursor's effort is part of the model slug and is never passed as a separate flag. Antigravity's is part of the catalogue id: `agy` has an `--effort` flag, but an id plus any `--effort` is refused before a session and `claude-sonnet-4-6` refuses it outright, so it never reaches the command line. Copilot's is the CLI's superset. Which efforts a given Copilot model actually accepts is narrower, and the wizard reads that per-model list from the entitlement catalogue.
 
 ## Locations and precedence
 
@@ -87,7 +87,7 @@ The review caps have no session override, because `delegate-codex.sh resume` enf
 
 | File | What it owns | What it must not do |
 | --- | --- | --- |
-| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: comments and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era and a `[routing]` section written before 3.10.0) round-trip byte-for-byte |
+| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: comments and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era and a `[routing]` section written before 3.9.5) round-trip byte-for-byte |
 | `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
 | `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard, whose page is `assets/setup-ui.html`; probes the CLIs for model and effort lists, and reads each worker CLI's version and newest release | implement a second write path; every preview and write delegates to `handoff-setup.py` |
 | `scripts/delegate-codex.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
@@ -101,12 +101,12 @@ Configs written before 3.9.2 use a longer header for identity sections. They sti
 
 `/agent-handoff config` opens a page bound to `127.0.0.1` with a per-run token. Six steps, and everything before apply is reversible.
 
-1. **Detect.** Which CLIs are installed, their versions, the existing config, and each backend's model and effort lists. Codex models and their per-model effort values come from the account-aware CLI `model/list`. Claude aliases come from `claude --help` plus the stable `fable`/`opus`/`sonnet`/`haiku` aliases, with `[1m]`/`1M` context variants normalized and deduplicated. Copilot models come from the account's entitlement API (see *Copilot model catalogue*). Nothing is a hardcoded guess. Copilot availability is decided by reading `--version` for `GitHub Copilot CLI`, because AWS Copilot CLI shares the binary name. Since 3.9.3 the page also reads the newest published release of the Codex, Copilot and Cursor CLIs and compares it with the installed version. A CLI that is missing or outdated gets an install or update prompt (see *CLI install and update prompts*).
+1. **Detect.** Which CLIs are installed, their versions, the existing config, and each backend's model and effort lists. Codex models and their per-model effort values come from the account-aware CLI `model/list`. Claude aliases come from `claude --help` plus the stable `fable`/`opus`/`sonnet`/`haiku` aliases, with `[1m]`/`1M` context variants normalized and deduplicated. Copilot models come from the account's entitlement API (see *Copilot model catalogue*). Nothing is a hardcoded guess. Copilot availability is decided by reading `--version` for `GitHub Copilot CLI`, because AWS Copilot CLI shares the binary name. Cursor models come from `cursor-agent models` and Antigravity models from `agy --output-format json models`, both at page load. Since 3.9.3 the page also reads the newest published release of the Codex, Copilot and Cursor CLIs and compares it with the installed version; `agy` has no such lookup. A CLI that is missing or outdated gets an install or update prompt (see *CLI install and update prompts*).
 2. **Pick a preset.** `balanced` (default), `quality`, or `cost`. Changing any control switches the matrix to `custom` internally; `custom` mode requires an explicit backend, model, and effort for every selected identity. A codex preset model is detected from `${CODEX_HOME:-$HOME/.codex}/config.toml` rather than guessed. If detection fails, setup says so and names the flag instead of inventing a model name.
 3. **Tune.** Per identity: backend → model → effort → permission. Switching backend or model immediately constrains effort to that selection's advertised values. The same page carries the two review caps, because they belong to the configuration and not to a prompt.
 4. **Preview.** `handoff-setup.py --preview` prints exact target paths and unified diffs. Any control change invalidates the preview, and the UI cannot apply a payload that no longer matches its latest one.
 5. **Apply.** One atomic write with a backup under `.handoff/backups/`, which `--rollback` restores. Beginner-safe defaults are fixed rather than asked: current project scope, `.git/info/exclude`, no persistent routing block, generated Claude agents, automatic smoke. Advanced callers use `handoff-setup.py` directly for global scope or explicit overrides.
-6. **Smoke.** Codex identities verify through the delegate dry-run chain. Claude identities start a fresh, tool-free, non-persistent session on the selected model and effort. Copilot identities take the dry-run chain plus one no-tool `copilot -p` run that asks the CLI whether the account can use the configured pair. Only a passing check writes `verified = true` with a shared `verified_at`. A failed check leaves `verified = false` and says so; apply stays applied.
+6. **Smoke.** Codex identities verify through the delegate dry-run chain. Claude identities start a fresh, tool-free, non-persistent session on the selected model and effort. Copilot identities take the dry-run chain plus one no-tool `copilot -p` run that asks the CLI whether the account can use the configured pair. Antigravity identities take the dry-run chain, a free check that the configured id is in the `agy` catalogue, and one real `agy -p` run with no posture flag that must end `SUCCESS` and print the `HANDOFF_SMOKE_OK` sentinel. Only a passing check writes `verified = true` with a shared `verified_at`. A failed check leaves `verified = false` and says so; apply stays applied.
 
 Then `/agent-handoff tryout` runs one small real task per identity and reports which are live on the models chosen. Smoke is the installation probe; tryout is the proof that an identity can complete its intended work.
 
@@ -138,7 +138,7 @@ schema_version = 2
 revision = 0
 
 [deep_reasoner]
-backend = "claude"          # claude | codex | copilot | cursor — which CLI executes
+backend = "claude"          # claude | codex | copilot | cursor | antigravity — which CLI executes
 model = "opus"
 effort = "high"
 permission_mode = "default" # default | allow-all
@@ -181,9 +181,9 @@ implementation_max_rounds = 3
 | `schema_version` | integer | yes | Must be `2`. |
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
 | `<identity>` | table | per configured identity | A top-level table. `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. Files written before 3.9.2 head this table `hosts.claude_code.identities.<identity>`; see *Legacy section headers (3.9.2)*. |
-| `<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, or `cursor`. All four are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
-| `<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot` and `cursor`, `auto` is refused at submit: name a concrete model. The wizard offers account models rather than a text field. |
-| `<identity>.effort` | string | per configured identity | Non-empty reasoning effort for the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor takes only `model` (set by the model id, not passed as a flag). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
+| `<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, `cursor`, or `antigravity`. All five are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
+| `<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. On `copilot` and `cursor`, `auto` is refused at submit: name a concrete model. On `antigravity` an empty model and `auto` are both refused, because a resume passes the model again: name a whole catalogue id. The wizard offers account models rather than a text field. |
+| `<identity>.effort` | string | per configured identity | Non-empty reasoning effort for the selected backend. Efforts are per CLI, never one shared enum: codex takes `minimal|low|medium|high|xhigh|max|ultra`, claude takes `low|medium|high|xhigh|max`, copilot takes `none|minimal|low|medium|high|xhigh|max`, and cursor and antigravity take only `model` (set by the model id, not passed as a flag). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
 | `<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. |
 | `<identity>.verified` | boolean | no | Whether a smoke test or real run verified the identity. |
 | `<identity>.verified_at` | string | no | Verification timestamp supplied by the caller. |
@@ -203,6 +203,7 @@ Most rows below fail closed. An older engine refuses a file it cannot honour, so
 | `e2e_specifier` / `e2e_verifier` | pre-3.2 refuses | `validate_config` raises on an identity name it does not recognise |
 | `backend = "copilot"` | pre-3.7 refuses | `validate_config` gates `backend` on the known tuple |
 | `backend = "cursor"` | pre-3.9 refuses | `validate_config` gates `backend` on the known tuple |
+| `backend = "antigravity"` | pre-3.10 refuses | `validate_config` gates `backend` on the known tuple. The same engine's `make-receipt.py` counts an antigravity job as codex, so scripts and flow prose ship together |
 | `[review]` | pre-3.8 ignores it | an unknown section round-trips rather than failing |
 | bare `[<identity>]` headers | pre-3.9.2 ignores them | the old engine reads only prefixed headers. To it, a bare section is an unknown section: it round-trips, and its identity is invisible. If no other layer configures the role, `delegate-codex.sh` refuses it. If the global config has a legacy-form identity, the old engine runs the global values, and `config_source` still says `project`. That case does not fail closed. |
 
@@ -280,9 +281,9 @@ Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates
 ## Permission posture (v3.7.1)
 
 `default` is the CLI's own normal, bounded posture; on cursor it is the force mode, because no
-narrower Cursor mode let a probed worker run its checks. Nothing prompts (a background
+narrower Cursor mode let a probed worker run its checks, and on antigravity it is `--dangerously-skip-permissions`, because no narrower mode let a probed worker run its checks there either. Nothing prompts (a background
 job has no approval surface), so an unapproved action denies. `allow-all` means *use the provider's native unrestricted mode*,
-not force all CLIs into one security posture. On cursor, the two postures are the same.
+not force all CLIs into one security posture. On cursor and on antigravity, the two postures are the same.
 
 | Backend | `default` | `allow-all` |
 |---|---|---|
@@ -290,10 +291,11 @@ not force all CLIs into one security posture. On cursor, the two postures are th
 | codex (fresh and resume) | No sandbox flag or override; the user's codex config decides | `--dangerously-bypass-approvals-and-sandbox` |
 | copilot | `--allow-all-tools` | `--allow-all-tools --allow-all-paths --allow-all-urls` |
 | cursor | `--force` | `--force` | <!-- risk-ok: Cursor CLI flag name -->
+| antigravity | `--dangerously-skip-permissions` | `--dangerously-skip-permissions` |
 
 Among the three backends supported in v3.7.1, only claude changed behaviour under `default`. Codex and copilot `default` are
 exactly what they emitted before; `allow-all` is a new, opt-in escalation on all
-three. Cursor's two postures use its force mode, so changing the field alone does not narrow it.
+three. Cursor's two postures use its force mode, and Antigravity's both skip every permission check, so changing the field alone narrows neither.
 
 Claude's default set is enough to edit and verify: a `default` worker was
 measured editing a file and running its own check script. Under `dontAsk` a tool
@@ -311,8 +313,10 @@ Precedence: `--read-only` > `HANDOFF_CLAUDE_PERMISSION_MODE` (claude only) >
 config `permission_mode` > `default`. The legacy env override is still
 validated before read-only overrides it. Read-only maps to `-s read-only`
 on fresh codex jobs (`-c 'sandbox_mode="read-only"'` on resume),
-`--permission-mode plan` on claude, and `--mode plan` on copilot and cursor. Copilot
-read-only never carries any allow-all flags; cursor read-only never carries its force flag.
+`--permission-mode plan` on claude, and `--mode plan` on copilot, cursor, and antigravity. Copilot
+read-only never carries any allow-all flags; cursor read-only never carries its force flag; antigravity
+read-only never carries `--dangerously-skip-permissions`, because a probed worker given plan mode and
+the skip flag together wrote files.
 
 Resolution materializes the default after merging: global `allow-all` plus a
 project identity omitting the field keeps `allow-all`. Like `model_source`,
@@ -327,7 +331,7 @@ Job `meta` and dry-run output record requested `permission_posture`, its
 `read-only`, `parent`, or `default`), and the effective concrete
 `permission_mode`. Overrides change the source and effective mode while the
 requested posture remains visible. Warnings use the effective mode. Receipt
-Receipt schema is v7: `roles_used` rejects additional properties, so posture
+schema is v8: `roles_used` rejects additional properties, so posture
 evidence stays in job `meta`.
 
 Changing posture does not invalidate `verified` or `verified_at`. Smoke
@@ -350,6 +354,13 @@ verifies a model/effort pair, not a posture; its plan-mode probes are unchanged.
    permits test execution; the unsolved part is enumerating those commands per
    repo, which Handoff cannot know. `--allow-all-tools` leaves Copilot's path
    and URL verification on; `allow-all` turns those off.
+4. **antigravity `default` is the CLI's unrestricted mode**, where the doc's rule
+   treats unapproved actions as failures and never escalates. On `agy` that rule
+   gives a worker that is denied its first edit, or that can edit but not run
+   its own check. The doc's network-denied and workspace-only-write goals are not
+   met either: the only `agy` posture that confines anything, `--sandbox`, blocks
+   a check's in-repo shell writes and the commit a worker needs, and it left the
+   network open.
 
 ### Stated limitations
 
@@ -365,6 +376,16 @@ verifies a model/effort pair, not a posture; its plan-mode probes are unchanged.
 - **`permission_denied` is advisory, not enforced.** Job state derives DONE
   from the exit code, and status warns but still succeeds. The prompt-shaped
   guard stays prompt-shaped; zero denials cannot prove the checks ran.
+- **Antigravity `default` equals `allow-all`.** Both pass
+  `--dangerously-skip-permissions`, so the posture field changes nothing and
+  Handoff knows of no rule that narrows it. A worker can read outside the repo,
+  reach the network, and commit. Antigravity's denials are counted from the
+  `denied_actions` list on its terminal `result` event, and a run stopped by a
+  denial still exits 0 with `SUCCESS`.
+- **Antigravity read-only rests on plan mode in print mode.** `agy` denies any
+  action that needs approval there. An allow rule in the user's `agy` settings
+  might let a write through (not probed), and Handoff writes no `agy` settings,
+  so the flow tells the driver to check the tree after a read-only job.
 
 ## Copilot model catalogue (v3.8.1)
 
@@ -419,11 +440,46 @@ or a log line. A failed read is not fatal to the rest of the wizard. The catalog
 spawns no `copilot` process. Since 3.9.3 the page runs `copilot --version` to find the
 CLI. That starts no session, so opening the page still costs no premium request.
 
+## Antigravity model catalogue (v3.10.0)
+
+An `antigravity` identity's model is a whole catalogue id, never a base name, and its
+effort is always `model`. `/agent-handoff config` reads the ids at page load and offers
+those.
+
+**Source.** `agy --output-format json models`. The call is free and takes about two
+seconds. The page reads `command.data.models[]`, whose entries carry `id` and `label`.
+The output flag goes before the subcommand, because after it `agy` rejects it. Opening
+the page runs `agy --version`, `agy --help` for the identity check, and this command, and
+no other `agy` command.
+
+**Effort.** The wizard and the terminal wizard set effort to `model` and lock the field.
+Some ids carry an effort inside them (`gemini-3.8-flash-low`) and some carry none
+(`claude-sonnet-4-6`); the catalogue lists no base names. Handoff does not keep a per-model
+table of efforts it cannot discover, and the CLI validates each pair at launch.
+
+**Binary.** `agy` is found with `HANDOFF_ANTIGRAVITY_BIN` first, then on PATH, and never as
+`antigravity`, which is the IDE launcher's name. A candidate passes only when `--help`,
+stdout and stderr together, lists both `--conversation` and `--dangerously-skip-permissions`,
+because an earlier Homebrew cask linked the IDE launcher as `agy`. The same check runs on a
+fix round's recorded parent binary.
+
+**When the catalogue cannot be read** (the CLI is missing, not signed in, times out, or
+prints something other than that JSON), the wizard offers no Antigravity model and names the
+fix: `agy` sign-in, or `HANDOFF_ANTIGRAVITY_BIN`. It does not fall back to a typed name, and
+the engine refuses an antigravity model the served list does not offer. An id already in the
+config stays in the form, marked, and is never silently replaced. The terminal wizard accepts
+a typed id, so catalogue membership on that path rests on smoke.
+
+**Tile and prompt.** The Antigravity tile shows the installed version from `agy --version`
+and says LISTED, NO MODELS or MISSING. `agy` has no `CLI_RELEASES` entry, because no free,
+probed source for its latest version exists, so the tile never says UPDATE and has no install
+or update prompt. No preset names an antigravity identity.
+
 ## CLI install and update prompts (v3.9.3)
 
 Opening `/agent-handoff config` probes the three worker CLIs, reads the newest published
 release of each, and says on the tile when one is missing or out of date. The Claude Code
-tile is unchanged.
+and Antigravity tiles are unchanged: neither has a release lookup.
 
 **Probe.** Codex is found as before: `HANDOFF_CODEX_BIN`, then the ChatGPT/Codex app
 bundle on macOS, then PATH. GitHub Copilot is found by `--version` output that reads

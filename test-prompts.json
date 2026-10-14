@@ -488,7 +488,7 @@
       "Generate the receipt with make-receipt.py --codex-jobs 2 --cc-jobs 1, counted from each job meta's backend= line under .handoff/jobs/.",
       "Let make-receipt.py measure codex_job_durations and cc_job_durations from the job directories rather than typing either from recall.",
       "Use phase: delegated implementation when the run's delegated work was not all codex-backed.",
-      "Emit receipt_schema_version: 5 and re-check the written receipt with validate-receipt.py."
+      "Emit receipt_schema_version: 8 and re-check the written receipt with validate-receipt.py."
     ],
     "must_not": [
       "Report all three jobs under codex_jobs, so the receipt claims subscription work that never happened.",
@@ -575,13 +575,13 @@
     ]
   },
   {
-    "id": "no-identity-substitution-across-four-backends",
+    "id": "no-identity-substitution-across-five-backends",
     "prompt": "fast_worker is copilot-backed and I would rather not spend those credits. Just send this to deep_reasoner instead, it is on Codex.",
     "should_trigger": true,
     "expected_behavior": [
       "Refuse to swap the identity to move the job onto another vendor or meter, and say so plainly.",
       "Name the change as a configuration change: /agent-handoff config, or handoff-config.py set --role fast_worker --backend codex.",
-      "Explain that the split decision picked the identity for the capability the work needs, across all four backends equally.",
+      "Explain that the split decision picked the identity for the capability the work needs, across all five backends equally.",
       "Offer to make the config change and continue once the user has seen it."
     ],
     "must_not": [
@@ -656,22 +656,120 @@
     ]
   },
   {
-    "id": "receipt-splits-four-backend-counts",
-    "prompt": "This run had jobs on Codex, on a second Claude Code, on Copilot, and on Cursor. Give me the receipt.",
+    "id": "receipt-splits-five-backend-counts",
+    "prompt": "This run had jobs on Codex, on a second Claude Code, on Copilot, on Cursor, and on Antigravity. Give me the receipt.",
     "should_trigger": true,
     "expected_behavior": [
-      "Generate the receipt with scripts/make-receipt.py, passing --codex-jobs, --cc-jobs, --copilot-jobs, and --cursor-jobs separately.",
+      "Generate the receipt with scripts/make-receipt.py, passing --codex-jobs, --cc-jobs, --copilot-jobs, --cursor-jobs, and --antigravity-jobs separately.",
       "Count each job from its own meta backend= line under .handoff/jobs/, not from recall.",
-      "Emit receipt_schema_version 7 with cursor_jobs and cursor_job_durations alongside the three existing pairs.",
+      "Emit receipt_schema_version 8 with antigravity_jobs and antigravity_job_durations alongside the four existing pairs.",
       "Use phase: delegated implementation when the run's delegated work was not all codex-backed."
     ],
     "must_not": [
       "Fold copilot jobs into codex_jobs or cc_jobs.",
       "Fold cursor jobs into any other count.",
+      "Fold antigravity jobs into any other count.",
       "Hand-type the counts or the durations instead of measuring them from the job directories.",
       "Emit a v6 receipt that omits cursor_jobs and cursor_job_durations.",
+      "Emit a v7 receipt that omits antigravity_jobs and antigravity_job_durations.",
       "Report a copilot job's credits as a currency figure.",
-      "Report a cost figure for a cursor job; Cursor reports none."
+      "Report a cost figure for a cursor job; Cursor reports none.",
+      "Report a cost figure for an antigravity job; agy reports none."
+    ]
+  },
+  {
+    "id": "antigravity-identity-delegates-on-its-own-backend",
+    "prompt": "fast_worker is antigravity-backed. Hand task T2 off.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Submit with delegate-codex.sh submit --role fast_worker and report the jobId.",
+      "Check that meta records backend=antigravity.",
+      "Tell the user that on Antigravity the permission posture changes nothing: default and allow-all both skip every permission check, and only a read-only job differs.",
+      "Monitor it with the same status and result loop as any other backend."
+    ],
+    "must_not": [
+      "Pass --dangerously-skip-permissions to a --read-only antigravity job.",
+      "Resolve the worker from the `antigravity` binary, which is the IDE launcher; the CLI is `agy`.",
+      "Move the task to another identity to avoid Antigravity's meter."
+    ]
+  },
+  {
+    "id": "antigravity-effort-lives-in-the-model-id",
+    "prompt": "Set deep_reasoner to Antigravity with model auto at high effort.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Refuse model auto, and an empty model, because Handoff will not pick a model for the job.",
+      "Name a whole catalogue id from agy --output-format json models as the model, set with handoff-config.py set.",
+      "Set effort to model, because the id carries the effort."
+    ],
+    "must_not": [
+      "Set model = auto.",
+      "Leave the model empty.",
+      "Set effort = high on an antigravity identity."
+    ]
+  },
+  {
+    "id": "antigravity-read-only-job-checks-the-tree",
+    "prompt": "Run the review as a read-only job on my antigravity-backed deep_reasoner.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Submit with delegate-codex.sh submit --role deep_reasoner --read-only, which runs agy in plan mode.",
+      "Inline the diff the review needs and state the check results, because plan mode refuses every shell command and the job ends at the first one.",
+      "Say that read-only rests on plan mode in print mode, and that an allow rule in the user's agy settings might let a write through.",
+      "Check the working tree with git status --short once the job is done.",
+      "When the tree changed, reject the output, save the changes to .handoff/rejected/<task-id>.patch, restore those paths, and record the anomaly read-only write."
+    ],
+    "must_not": [
+      "Pass --dangerously-skip-permissions together with --mode plan.",
+      "Treat plan mode as proof that nothing was written.",
+      "Ask the read-only job to run git diff or the test suite.",
+      "Keep files a read-only job wrote."
+    ]
+  },
+  {
+    "id": "antigravity-rejected-model-recovers-by-fresh-submit",
+    "prompt": "The antigravity fix round failed straight away. Send the findings back to it.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read stderr.log and log.jsonl: a model rejected at launch gives a FAILED job with a result event of status ERROR and no session id, and agy lists the models it accepts.",
+      "Know that resume refuses a job with no session id and never substitutes a model.",
+      "Run handoff-config.py set to name a model the catalogue still offers, then submit a fresh job with the full packet.",
+      "Record the failed round as an anomaly for the receipt."
+    ],
+    "must_not": [
+      "Retry resume until it works.",
+      "Resume with a model the user did not choose.",
+      "Send only the findings in the fresh job, which has no session to carry the rest."
+    ]
+  },
+  {
+    "id": "antigravity-denials-unknown-is-not-zero",
+    "prompt": "The antigravity job finished and status prints permission_denied: unknown. Sign it off.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Explain that unknown means the log has no result event, and agy reports denials only when a run ends, so no count exists.",
+      "Treat unknown as no evidence that nothing was blocked, and re-run the acceptance checks in the driving session.",
+      "Check any worker report that a check passed by re-running it, because agy logs no exit code for a shell command.",
+      "Record the unknown denial count as an anomaly in the receipt."
+    ],
+    "must_not": [
+      "Read unknown as zero denials.",
+      "Accept the worker's own report that its checks passed.",
+      "Read exit code 0 as evidence that nothing was blocked."
+    ]
+  },
+  {
+    "id": "antigravity-lost-session-resubmits-full-packet",
+    "prompt": "The antigravity fix round says it has no memory of the earlier work, and result shows context_lost: true.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read context_lost: true as a conversation id agy could not find: it started a new conversation and exited 0.",
+      "Resubmit with the full packet instead of resuming again, because the new session_id belongs to the new conversation.",
+      "Record the lost session as an anomaly for the receipt."
+    ],
+    "must_not": [
+      "Resume the new session as though it held the parent's context.",
+      "Report the fix round as successful because the exit code was 0."
     ]
   },
   {

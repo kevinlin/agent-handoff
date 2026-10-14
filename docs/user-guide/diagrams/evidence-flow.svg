@@ -69,17 +69,18 @@
 
   <line x1="630" y1="272" x2="630" y2="300" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
 
-  <rect x="460" y="304" width="340" height="130" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
+  <rect x="460" y="304" width="340" height="148" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
   <text x="630" y="334" class="name" text-anchor="middle">Handoff session receipt</text>
   <text x="482" y="362" class="small m">duration</text>
-  <text x="482" y="384" class="small m">codex_jobs · cc_jobs · copilot_jobs</text>
-  <text x="482" y="406" class="small m">checks · anomalies · roles_used</text>
-  <text x="482" y="426" class="small">one line per fact, and each has a source</text>
+  <text x="482" y="382" class="small m">codex_jobs · cc_jobs · copilot_jobs</text>
+  <text x="482" y="402" class="small m">cursor_jobs · antigravity_jobs</text>
+  <text x="482" y="424" class="small m">checks · anomalies · roles_used</text>
+  <text x="482" y="442" class="small">one line per fact, and each has a source</text>
 
-  <line x1="630" y1="434" x2="630" y2="462" stroke="#059669" stroke-width="1.6" marker-end="url(#arrow-green)"/>
-  <rect x="460" y="466" width="340" height="52" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
-  <text x="630" y="490" class="line" text-anchor="middle">validated, then saved to .handoff/receipts/</text>
-  <text x="630" y="510" class="small" text-anchor="middle">the same check the project's CI runs</text>
+  <line x1="630" y1="452" x2="630" y2="480" stroke="#059669" stroke-width="1.6" marker-end="url(#arrow-green)"/>
+  <rect x="460" y="484" width="340" height="52" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
+  <text x="630" y="508" class="line" text-anchor="middle">validated, then saved to .handoff/receipts/</text>
+  <text x="630" y="528" class="small" text-anchor="middle">the same check the project's CI runs</text>
 
   <!-- readers -->
   <text x="860" y="112" class="head" fill="#475569">WHAT YOU CAN OPEN AFTERWARDS</text>

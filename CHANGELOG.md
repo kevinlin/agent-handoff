@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.10.0 (2026-10-15)
+
+### Antigravity CLI is the fifth backend
+
+- feat: `antigravity` is a fifth `backend` value. An antigravity-backed identity runs `agy -p --output-format stream-json` as a durable job with the same jobId, job directory, monitor loop, bounded `resume`, worktree lifecycle, and receipt evidence as the other four. The binary is `agy`, never `antigravity`, which is the IDE launcher; `HANDOFF_ANTIGRAVITY_BIN` overrides it. Handoff accepts a binary only when its `--help` lists both `--conversation` and `--dangerously-skip-permissions`.
+- feat: an Antigravity model is a whole `agy` catalogue id; effort is always `model`. Setup and submit refuse other efforts, an empty model, and `model = "auto"`, and the refusal names `handoff-config.py set`.
+- feat: the web wizard reads `agy --output-format json models` on page load and has an Antigravity tile that says LISTED, NO MODELS or MISSING. The terminal wizard takes a typed id. Smoke checks the id against the catalogue, then runs one real `agy -p` with no posture flag and requires status `SUCCESS` and the `HANDOFF_SMOKE_OK` sentinel. There is no latest-version lookup, and no preset names an antigravity identity.
+- **breaking**: receipt schema v8 adds `antigravity_jobs` and `antigravity_job_durations`. A v7 receipt no longer validates; regenerate it with `make-receipt.py`, passing `--antigravity-jobs`.
+- feat: the cost receipt shows Antigravity token counters summed from each step's own usage, never from the conversation-wide `result.usage`. Reasoning comes from `thinking_tokens`, cache writes read `unknown`, and the cost reads "n/a - no cost figure". Its card is "Ran on the Antigravity meter".
+- feat: the transcript viewer renders Antigravity logs: one row per step, with a step's text chunks joined and each tool call paired with its outcome. The session view reports the result's denied actions.
+- feat: `status` and `result` take denials only from the `result` event's `denied_actions`. A finished job whose log has no `result` event prints `permission_denied: unknown`, and `result --json` gives `null`. A run stopped by a denial still exits 0 with `SUCCESS`, so the count is the only signal.
+- feat: `result` takes the agent message from the last `agent_response` step and lists commands from `run_command` steps. `agy` logs no exit code for a shell command, so a worker's report that a check passed is checked by re-running it.
+- feat: a resume passes `--conversation <id>` with the parent's model and posture again, and its `meta` records `resumed_session=<id>`. When `agy` cannot find the conversation it exits 0 and starts a new one; `status` and `result` then report `context_lost: true`, and the fix round is resubmitted with the full packet.
+- feat: a model rejected at launch gives a FAILED job with one `result` event of status `ERROR` and no session id. `resume` refuses it and never substitutes a model. Recovery is `handoff-config.py set` naming a catalogue model, then a fresh `submit` with the full packet.
+- feat: every job passes `--print-timeout 0s`. A `print_timeout` line on stderr appears under `errors` in `result --json`, and the driver treats that job as failed.
+- note: on Antigravity, `default` and `allow-all` both pass `--dangerously-skip-permissions`, so the posture field changes nothing and Handoff knows of no rule that narrows it. Handoff warns for each writing job and writes nothing under `~/.gemini/`.
+- note: read-only passes `--mode plan` and never the skip flag, because a probed worker given both wrote files. It therefore rests on plan mode in print mode, and an allow rule in the user's `agy` settings might let a write through (not probed). The driver checks the working tree after a read-only job; on a change it rejects the output, saves it to `.handoff/rejected/<task-id>.patch`, restores the paths, and records the anomaly `read-only write`.
+- docs: the skill, README, user guide, four diagrams, promo page, references and design-of-record docs now describe five backends and receipt v8. The eval case `receipt-contract-splits-four-backends` is renamed `receipt-contract-splits-five-backends`, parses again, and requires schema v8. `test-prompts.json` gains six Antigravity cases.
+
 ## v3.9.5 (2026-10-13)
 
 ### `always_on_host_rules` is removed
