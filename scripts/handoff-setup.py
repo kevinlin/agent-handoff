@@ -52,11 +52,26 @@ CURSOR_EFFORTS = ("model",)
 CURSOR_LOGIN_FIX = (
     "run `cursor-agent login`, or set HANDOFF_CURSOR_BIN to the Cursor CLI, then try again"
 )
+# agy has a real --effort flag, but it cannot be a routing field: the catalogue
+# ids carry the effort (gemini-3.8-flash-low), an id plus --effort is refused
+# before a session (MCONFLICT, MMAX), and Claude ids refuse the flag outright
+# (MCLAUDE). So the one value means "set by the model id", as on Cursor.
+ANTIGRAVITY_EFFORTS = ("model",)
+ANTIGRAVITY_LOGIN_FIX = (
+    "sign in to Antigravity CLI by running `agy`, or set HANDOFF_ANTIGRAVITY_BIN "
+    "to the agy CLI, then try again"
+)
+# Backends whose effort is part of the model id: setup fills it in, never asks.
+MODEL_EFFORT_BACKENDS = ("cursor", "antigravity")
+# Backends where an identity must name a catalogue model: setup refuses an empty
+# one, and refuses `auto`, which hands the choice back to the vendor.
+MODEL_NAMED_BACKENDS = ("copilot", "cursor", "antigravity")
 BACKEND_EFFORTS = {
     "claude": CLAUDE_EFFORTS,
     "codex": CODEX_EFFORTS,
     "copilot": COPILOT_EFFORTS,
     "cursor": CURSOR_EFFORTS,
+    "antigravity": ANTIGRAVITY_EFFORTS,
 }
 BEGIN_MARKER = "<!-- BEGIN HANDOFF MANAGED ROUTING (do not edit; managed by agent-handoff) -->"
 END_MARKER = "<!-- END HANDOFF MANAGED ROUTING -->"
@@ -112,12 +127,15 @@ def validate_backend_efforts(identities: Mapping[str, Mapping[str, Any]]) -> Non
             raise SetupError(
                 f"--role-effort for {identity} with backend={backend} must be one of "
                 f"{', '.join(supported)}"
-                + ("; Cursor carries effort in the model id" if backend == "cursor" else "")
+                + (
+                    f"; {backend.capitalize()} carries effort in the model id"
+                    if backend in MODEL_EFFORT_BACKENDS else ""
+                )
             )
 
 
 def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None:
-    """Refuse ``model = "auto"`` on a copilot or cursor identity, at setup time.
+    """Refuse ``model = "auto"`` on a copilot, cursor, or antigravity identity, at setup time.
 
     ``delegate-codex.sh`` refuses it at submit too, but that is the first real
     job - late enough that a config naming ``auto`` applies cleanly and then
@@ -129,7 +147,7 @@ def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None
 
     for identity, values in identities.items():
         backend = values["backend"]
-        if backend not in ("copilot", "cursor"):
+        if backend not in MODEL_NAMED_BACKENDS:
             continue
         model = str(values.get("model") or "").strip()
         if model == "auto":
@@ -140,11 +158,22 @@ def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None
                 f"'handoff-config.py set --role {identity} --backend {backend} --model <model>'."
             )
         if not model:
+            # The refusal names its fix, as the `auto` one above does.
+            # The parenthetical differs on antigravity because it is untrue
+            # there: agy carries no model over to a resume (RMODEL), so even a
+            # role-less job must name one.
+            latitude = (
+                "(Unlike a role-less copilot or cursor job, a role-less antigravity "
+                "job must name a model too: agy carries no model over, so a resume "
+                "passes it again.)"
+                if backend == "antigravity" else
+                "(A role-less ad-hoc job passes no --model and runs on the CLI's own "
+                "default; a configured identity does not get that latitude.)"
+            )
             raise SetupError(
                 f"--role-model for {identity} with backend={backend} must name a model; "
-                "no model name is guessed. (A role-less ad-hoc job passes no --model "
-                "and runs on the CLI's own default; a configured identity does not get "
-                "that latitude.)"
+                f"no model name is guessed. {latitude} Name one with "
+                f"'handoff-config.py set --role {identity} --backend {backend} --model <model>'."
             )
 
 
@@ -246,19 +275,147 @@ def cursor_catalogue(binary: str, env: Mapping[str, str]) -> Tuple[List[Tuple[st
     return models, ""
 
 
+def is_antigravity_bin(path: str, env: Mapping[str, str]) -> bool:
+    """Mirror of ``is_antigravity_bin`` in ``scripts/delegate-codex.sh``.
+
+    An IDE launcher has been linked as ``agy`` before (Homebrew), and
+    ``agy --version`` prints only a bare number (VERSION), so neither the name
+    nor the version identifies the CLI. What does is the protocol Handoff
+    depends on: its ``--help`` lists both ``--conversation`` and
+    ``--dangerously-skip-permissions``, and the CLI prints that help on stderr
+    (HELP), so both streams are read together. One rule, checked identically
+    here and in the shell, so setup cannot accept an install the worker would
+    refuse. The 10 second limit matches the shell's; the output goes to a file,
+    not a pipe, so a launcher that hangs and leaves children behind cannot keep
+    the call open after the kill.
+    """
+
+    with tempfile.TemporaryFile() as out:
+        try:
+            done = subprocess.run(
+                [path, "--help"], env=dict(env), stdin=subprocess.DEVNULL,
+                stdout=out, stderr=subprocess.STDOUT, check=False, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        out.seek(0)
+        text = out.read().decode("utf-8", "replace")
+    return (
+        done.returncode == 0
+        and "--conversation" in text
+        and "--dangerously-skip-permissions" in text
+    )
+
+
+def antigravity_bin(env: Mapping[str, str]) -> Optional[str]:
+    """Resolve Antigravity's CLI with delegate-codex.sh's precedence.
+
+    ``HANDOFF_ANTIGRAVITY_BIN`` first, which is refused when it fails the
+    identity check, then every ``agy`` on PATH in order rather than only the
+    first, so the real CLI behind an IDE launcher of the same name still
+    resolves - to the same binary the worker will launch. Never
+    ``antigravity``, which is the IDE launcher's own name.
+    """
+
+    configured = env.get("HANDOFF_ANTIGRAVITY_BIN", "")
+    if configured:
+        candidate = (
+            configured
+            if "/" in configured
+            else shutil.which(configured, path=env.get("PATH"))
+        )
+        if not candidate or not os.access(candidate, os.X_OK):
+            return None
+        return candidate if is_antigravity_bin(candidate, env) else None
+    for directory in (env.get("PATH") or "").split(os.pathsep):
+        if not directory:
+            continue
+        candidate = os.path.join(directory, "agy")
+        if (
+            os.path.isfile(candidate)
+            and os.access(candidate, os.X_OK)
+            and is_antigravity_bin(candidate, env)
+        ):
+            return candidate
+    return None
+
+
+def antigravity_catalogue(binary: str, env: Mapping[str, str]) -> Tuple[List[Tuple[str, str]], str]:
+    """Read ``agy --output-format json models``: (id, label) pairs and an error.
+
+    Free, and about two seconds (MJSONGLOBAL). The output flag sits before the
+    subcommand because after it the CLI refuses it with no stdout (MODELJSON).
+    The JSON form needs no line parser: ``command.data.models[]`` carries ``id``
+    and ``label``. ``auto`` and an empty id are dropped, because an identity
+    never names them. Stdout that is not JSON is an error and never an empty
+    list, so a launcher that prints something else cannot read as "no models".
+    The error is empty on success and otherwise ends with the fix.
+    """
+
+    try:
+        result = subprocess.run(
+            [binary, "--output-format", "json", "models"], env=dict(env),
+            stdin=subprocess.DEVNULL, text=True, capture_output=True, check=False,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        return [], f"agy models timed out after 15 seconds; {ANTIGRAVITY_LOGIN_FIX}"
+    except OSError as error:
+        return [], f"agy models could not start: {error}; {ANTIGRAVITY_LOGIN_FIX}"
+    if result.returncode != 0:
+        # agy prints "Fetching available models..." on stderr before every
+        # call, failed or not (MODELS), so the line is progress noise and the
+        # error is whatever follows it.
+        detail = "\n".join(
+            line for line in (result.stderr or result.stdout).strip().splitlines()
+            if line.strip() and line.strip() != "Fetching available models..."
+        ) or f"agy models exited {result.returncode}"
+        return [], f"{detail}; {ANTIGRAVITY_LOGIN_FIX}"
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        return [], f"agy models printed something other than JSON; {ANTIGRAVITY_LOGIN_FIX}"
+    command = payload.get("command") if isinstance(payload, dict) else None
+    data = command.get("data") if isinstance(command, dict) else None
+    entries = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return [], f"agy models printed JSON in an unexpected shape; {ANTIGRAVITY_LOGIN_FIX}"
+    models: List[Tuple[str, str]] = []
+    seen = set()
+    for entry in entries:
+        identifier = entry.get("id") if isinstance(entry, dict) else None
+        if (
+            not isinstance(identifier, str)
+            or identifier == "auto"
+            or identifier in seen
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", identifier)
+        ):
+            continue
+        label = entry.get("label")
+        seen.add(identifier)
+        models.append((identifier, label.strip() if isinstance(label, str) else ""))
+    if not models:
+        return [], f"agy models listed no models; {ANTIGRAVITY_LOGIN_FIX}"
+    return models, ""
+
+
 def cli_available(backend: str, env: Mapping[str, str]) -> bool:
     """True when the backend's CLI resolves the way a job would resolve it.
 
     ``shutil.which`` is enough for codex and claude, which have no name
     collision, but it cannot tell the two ``copilot`` binaries apart, and
     for cursor the backend name is the Cursor IDE launcher's, so the agent
-    is looked up as ``cursor-agent``.
+    is looked up as ``cursor-agent``. Antigravity's backend name is likewise
+    the IDE launcher's, so its CLI is looked up as ``agy`` and must pass the
+    ``--help`` identity check.
     """
 
     if backend == "copilot":
         return copilot_bin(env) is not None
     if backend == "cursor":
         return cursor_bin(env) is not None
+    if backend == "antigravity":
+        return antigravity_bin(env) is not None
     return shutil.which(backend, path=env.get("PATH")) is not None
 
 
@@ -484,6 +641,14 @@ def choose_identities(
             raise SetupError(
                 f"--role-backend changes {identity} from {preset_backend} to {backend}; "
                 f"also pass --role-model {identity}=<model>"
+                # A preset names no model for these backends, so this is the
+                # refusal an empty model meets at the setup entry point, before
+                # validate_backend_models runs. It names the same fix.
+                + (
+                    f" (no model name is guessed; the config equivalent is 'handoff-config.py "
+                    f"set --role {identity} --backend {backend} --model <model>')"
+                    if backend in MODEL_NAMED_BACKENDS else ""
+                )
             )
         if identity in models:
             model = models[identity]
@@ -499,7 +664,7 @@ def choose_identities(
         identities[identity] = {
             "backend": backend,
             "model": model,
-            "effort": efforts.get(identity, "model" if backend == "cursor" else preset_effort),
+            "effort": efforts.get(identity, "model" if backend in MODEL_EFFORT_BACKENDS else preset_effort),
             "permission_mode": permissions.get(identity, "default"),
             "verified": False,
         }
@@ -1048,6 +1213,105 @@ def _cursor_last_assistant_text(stdout: str) -> str:
     return text
 
 
+def validate_antigravity_model(
+    binary: str,
+    model: str,
+    env: Mapping[str, str],
+    *,
+    cwd: Path,
+) -> Tuple[bool, str]:
+    """Smoke one antigravity id: catalogue membership, then one real run.
+
+    Membership is free and comes first, so a typed id from the terminal wizard
+    or ``--role-model`` is caught before any paid call. The run takes no
+    posture flag: in print mode the default posture denies every action that
+    needs approval (P0), and the prompt asks only for a reply, so nothing here
+    can write (DRV_SMOKE, about 12k input tokens on Flash). ``--mode plan`` is
+    left out because it adds a planning instruction a one-line smoke has no
+    use for and was never probed on a reply-only prompt. A pass needs exit 0,
+    a ``result`` with status ``SUCCESS``, and the sentinel in the last
+    ``agent_response`` step. An id agy refuses at launch fails before any
+    session, at no cost, and its stderr is returned verbatim because it lists
+    the models the account can use (MUNKNOWN).
+    """
+
+    catalogue, error = antigravity_catalogue(binary, env)
+    if error:
+        return False, error
+    if model not in {identifier for identifier, _ in catalogue}:
+        return False, (
+            f"{model} is not in `agy models`; name an id the catalogue lists, "
+            "with 'handoff-config.py set --role <identity> --backend antigravity "
+            "--model <model>'"
+        )
+    command = [
+        binary, "-p",
+        "This is a configuration smoke test. Reply with exactly "
+        "HANDOFF_SMOKE_OK and nothing else. Do not use tools.",
+        "--output-format", "stream-json", "--model", model,
+    ]
+    try:
+        result = subprocess.run(
+            command, cwd=cwd, env=dict(env), stdin=subprocess.DEVNULL, text=True,
+            capture_output=True, check=False, timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "antigravity smoke run timed out after 120 seconds"
+    except OSError as error:
+        return False, f"antigravity smoke run could not start: {error}"
+    if result.returncode != 0:
+        return False, (result.stderr or "").strip() or f"agy exited {result.returncode}"
+    # The status is read as well as the exit code: agy reports a failed run as a
+    # `result` of status ERROR (MUNKNOWN, RO1), and exit 0 alone is weak
+    # evidence on this CLI, since a denial-stopped and a timed-out turn both
+    # exit 0 with SUCCESS (P0, TIMEOUTR).
+    final: Dict[str, Any] = {}
+    for line in result.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("event") == "result" \
+                and isinstance(event.get("result"), dict):
+            final = event["result"]
+    if not final:
+        return False, "antigravity smoke run ended without a result event"
+    if final.get("status") != "SUCCESS":
+        detail = final.get("error")
+        return False, (
+            f"antigravity smoke run ended with status {final.get('status')}"
+            + (f": {detail}" if isinstance(detail, str) and detail else "")
+        )
+    if "HANDOFF_SMOKE_OK" not in _antigravity_last_agent_text(result.stdout):
+        return False, "antigravity smoke run returned an unexpected response"
+    return True, ""
+
+
+def _antigravity_last_agent_text(stdout: str) -> str:
+    """The text of the last ``agent_response`` step: its ``text_delta`` values
+    joined in order. Never ``result.response``, which joins every agent
+    message of the invocation (P3), and never an earlier step."""
+
+    steps: Dict[int, List[str]] = {}
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        update = event.get("step_update") if isinstance(event, dict) else None
+        if not isinstance(update, dict) or event.get("event") != "step_update":
+            continue
+        index = update.get("step_index")
+        if update.get("step_type") != "agent_response" \
+                or not isinstance(index, int) or isinstance(index, bool):
+            continue
+        delta = update.get("text_delta")
+        steps.setdefault(index, []).append(delta if isinstance(delta, str) else "")
+    # The last step to appear, as `result` reads it: an empty last message is
+    # still the last.
+    return "".join(steps[list(steps)[-1]]) if steps else ""
+
+
 def apply_plan(
     args: argparse.Namespace,
     env: Mapping[str, str],
@@ -1261,6 +1525,25 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 successes.append(identity)
                 print(f"{identity}: PASS (slug in cursor-agent models, run accepted by Cursor)")
                 continue
+            if configured[identity]["backend"] == "antigravity":
+                # The dry-run above only exercises Handoff's own argument
+                # handling. Membership in the catalogue and one real reply tell
+                # whether this account can run the id.
+                binary = antigravity_bin(env)
+                if not binary:
+                    failures = True
+                    print(f"{identity}: FAIL\nagy CLI not found; install Antigravity CLI "
+                          "or set HANDOFF_ANTIGRAVITY_BIN", file=sys.stderr)
+                    continue
+                passed, detail = validate_antigravity_model(
+                    binary, str(configured[identity]["model"]), env, cwd=args.repo)
+                if not passed:
+                    failures = True
+                    print(f"{identity}: FAIL\n{detail}", file=sys.stderr)
+                    continue
+                successes.append(identity)
+                print(f"{identity}: PASS (id in agy models, run accepted by Antigravity)")
+                continue
             successes.append(identity)
             print(f"{identity}: PASS")
     if successes:
@@ -1388,12 +1671,13 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
         answer = input("Also configure the optional e2e identities? [y/N]: ").strip().lower()
         with_e2e = answer in ("y", "yes")
         for identity in identities_for(with_e2e):
-            backend = input(f"{identity} backend [claude/codex/copilot/cursor]: ").strip()
+            backend = input(f"{identity} backend [claude/codex/copilot/cursor/antigravity]: ").strip()
             identity_backends.append(f"{identity}={backend}")
             identity_models.append(f"{identity}={input(f'{identity} model: ').strip()}")
-            if backend == "cursor":
-                # Cursor carries effort in the model slug; there is nothing to ask.
-                print(f"{identity} effort: model (set by the Cursor model id)")
+            if backend in MODEL_EFFORT_BACKENDS:
+                # Cursor carries effort in the model slug, and Antigravity in the
+                # model id; there is nothing to ask.
+                print(f"{identity} effort: model (set by the {backend.capitalize()} model id)")
                 effort = "model"
             else:
                 effort = input(f"{identity} effort: ").strip()

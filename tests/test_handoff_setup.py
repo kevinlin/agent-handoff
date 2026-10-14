@@ -52,6 +52,9 @@ class SetupTests(unittest.TestCase):
         codex.chmod(0o755)
         self.env = os.environ.copy()
         self.env.pop("HANDOFF_CURSOR_BIN", None)
+        # A developer shell may export it. These suites copy os.environ, and a real agy must
+        # never be reached: the fakes below are found on PATH instead.
+        self.env.pop("HANDOFF_ANTIGRAVITY_BIN", None)
         self.env.update(
             {
                 "HOME": str(self.home),
@@ -1248,7 +1251,7 @@ class CursorSetupTests(SetupTests):
         self.assertIn("cursor-agent login", error)
         self.assertEqual(["models"], self.cursor_calls())
 
-    def test_terminal_wizard_names_four_backends_and_fills_cursor_effort(self):
+    def test_terminal_wizard_names_five_backends_and_fills_cursor_effort(self):
         from unittest.mock import call, patch
         answers = ["4", "1", "n", "n", "", "", "n"]
         for identity in handoff_setup.CORE_IDENTITIES:
@@ -1261,11 +1264,497 @@ class CursorSetupTests(SetupTests):
                 patch("builtins.input", side_effect=answers) as prompt:
             status, output, error = self.run_cli("--interactive", "--repo", str(self.repo))
         self.assertEqual(0, status, error)
-        self.assertIn(call("fast_worker backend [claude/codex/copilot/cursor]: "),
+        self.assertIn(call("fast_worker backend [claude/codex/copilot/cursor/antigravity]: "),
                       prompt.call_args_list)
         self.assertNotIn(call("fast_worker effort: "), prompt.call_args_list)
         self.assertIn("fast_worker: backend=cursor [custom], model=gpt-5.4-mini-low [custom], "
                       "effort=model [custom]", output)
+
+# `agy --help` on agy 1.3.5 (HELP). The real CLI prints it on stderr and exits 0, which is why the
+# identity check reads both streams.
+AGY_HELP = """Usage of agy:
+  --add-dir                       Add a directory to the workspace (repeatable) (default [])
+  --agent                         Agent for the current CLI session
+  -c                              Short alias for --continue
+  --continue                      Continue the most recent conversation
+  --conversation                  Resume a previous conversation by ID
+  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting
+  --disable-slash-commands        Disable slash command and skill expansion in print mode
+  --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)
+  -i                              Short alias for --prompt-interactive
+  --input-format                  Input format for print mode (text, stream-json). stream-json reads one NDJSON message per line from stdin and runs a turn for each; it requires --output-format stream-json (default text)
+  --json-schema                   Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)
+  --log-file                      Override CLI log file path
+  --mode                          Set the agent execution mode for this session (accept-edits, auto, plan)
+  --model                         Model for the current CLI session
+  --new-project                   Create a new project for this session
+  --output-format                 Output format for print mode (text, json, stream-json) (default text)
+  -p                              Short alias for --print
+  --print                         Run a single prompt non-interactively and print the response
+  --print-timeout                 Optional time limit for print mode; 0 waits until the turn completes (default 0s)
+  --project                       Project ID or project name for the current CLI session
+  --prompt                        Alias for --print
+  --prompt-interactive            Run an initial prompt interactively and continue the session
+  --remote-control                Create a remote connection for the CLI session on start up
+  --sandbox                       Run in a sandbox with terminal restrictions enabled
+
+Available subcommands:
+  agent           List available agents
+  agents          List available agents
+  changelog       Show changelog and release notes
+  help            Show help for subcommands
+  install         Configure environment paths and shell settings
+  mcp             Manage MCP servers (add, remove, list, enable, disable)
+  mic-serve       Serve this machine's microphone to a CLI on another host
+  models          List available models
+  plugin          Manage plugins (install, uninstall, list, enable, disable)
+  plugins         Alias for plugin
+  remote-control  Manage the remote-control background daemon (start, status, stop)
+  update          Update CLI
+"""
+
+# `agy --output-format json models`, stdout only (MJSONGLOBAL). The CLI prints "Fetching available
+# models..." on stderr.
+AGY_MODELS_STDOUT = r'''{"conversation_id":"","status":"SUCCESS","response":"gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\nclaude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"command":{"name":"models","data":{"models":[{"id":"gemini-3.8-flash-high","label":"Gemini 3.8 Flash (High)"},{"id":"gemini-3.8-flash-medium","label":"Gemini 3.8 Flash (Medium)"},{"id":"gemini-3.8-flash-low","label":"Gemini 3.8 Flash (Low)"},{"id":"claude-sonnet-4-6","label":"Claude Sonnet 4.6 (Thinking)"},{"id":"claude-opus-4-6-thinking","label":"Claude Opus 4.6 (Thinking)"},{"id":"gpt-oss-120b-medium","label":"GPT-OSS 120B (Medium)"}]}}}
+'''
+
+# A launch rejection (MUNKNOWN): exit 1, one `result` event with an empty conversation_id, and the
+# same message on stderr.
+AGY_REFUSAL_STDOUT = r'''{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"invalid model selection (--model \"no-such-model-xyz\" --effort \"\"): model no-such-model-xyz is not recognized as a known model or custom model in settings\nAvailable models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Sonnet 4.6 (Thinking)\n  Claude Opus 4.6 (Thinking)\n  GPT-OSS 120B (Medium)","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}}
+'''
+AGY_REFUSAL_STDERR = r'''error: invalid model selection (--model "no-such-model-xyz" --effort ""): model no-such-model-xyz is not recognized as a known model or custom model in settings
+Available models:
+  Gemini 3.8 Flash (High)
+  Gemini 3.8 Flash (Medium)
+  Gemini 3.8 Flash (Low)
+  Claude Sonnet 4.6 (Thinking)
+  Claude Opus 4.6 (Thinking)
+  GPT-OSS 120B (Medium)
+'''
+
+# A fake `agy`. A reply run takes DRV_SMOKE's shape: init, a user_input step, one agent_response
+# step as an ACTIVE delta then a DONE one carrying usage, and a result.
+AGY_FAKE = """#!__PYTHON__
+import json, os, sys
+args = sys.argv[1:]
+log = os.environ.get("HANDOFF_TEST_AGY_ARGS")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write(" ".join(args) + "\\n")
+if args == ["--version"]:
+    print("1.3.5")
+    sys.exit(0)
+if args == ["--help"]:
+    sys.stderr.write(__HELP__)
+    sys.exit(0)
+if args == ["--output-format", "json", "models"]:
+    sys.stderr.write("Fetching available models...\\n")
+    if os.environ.get("HANDOFF_TEST_AGY_MODELS_ERROR"):
+        sys.stderr.write(os.environ["HANDOFF_TEST_AGY_MODELS_ERROR"] + "\\n")
+        sys.exit(1)
+    sys.stdout.write(os.environ.get("HANDOFF_TEST_AGY_MODELS_STDOUT") or __MODELS__)
+    sys.exit(0)
+if args[:1] != ["-p"]:
+    sys.exit(0)
+if os.environ.get("HANDOFF_TEST_AGY_REFUSE"):
+    sys.stdout.write(__REFUSAL_STDOUT__)
+    sys.stderr.write(__REFUSAL_STDERR__)
+    sys.exit(1)
+conversation = "8304749a-b8fc-47cf-9745-bfa3584d1ad5"
+steps = json.loads(os.environ.get("HANDOFF_TEST_AGY_STEPS", '["HANDOFF_SMOKE_OK"]'))
+usage = {"input_tokens": 11846, "output_tokens": 7, "thinking_tokens": 0,
+         "cache_read_tokens": 0, "total_tokens": 11853}
+def emit(event):
+    print(json.dumps(event, separators=(",", ":")), flush=True)
+def step(index, state, step_type, **extra):
+    emit({"event": "step_update", "step_update": dict(
+        conversation_id=conversation, step_index=index, state=state, step_type=step_type, **extra)})
+emit({"event": "init", "conversation_id": conversation, "init": {
+    "model": args[args.index("--model") + 1], "cwd": os.getcwd(),
+    "tools": ["run_command", "view_file", "write_to_file"], "permission_mode": "request-review"}})
+step(0, "DONE", "user_input")
+for number, text in enumerate(steps, start=1):
+    step(number, "ACTIVE", "agent_response", text_delta=text)
+    step(number, "DONE", "agent_response", text_delta="\\n", duration_seconds=3.72, usage=usage)
+status = os.environ.get("HANDOFF_TEST_AGY_STATUS", "SUCCESS")
+result = {"conversation_id": conversation, "status": status,
+          "response": os.environ.get("HANDOFF_TEST_AGY_RESPONSE")
+                      or "".join(text + "\\n" for text in steps),
+          "duration_seconds": 3.74, "num_turns": 1, "usage": usage}
+if status == "ERROR":
+    result["error"] = "the model is at capacity"
+emit({"event": "result", "result": result})
+""".replace("__PYTHON__", sys.executable).replace("__HELP__", repr(AGY_HELP)) \
+   .replace("__MODELS__", repr(AGY_MODELS_STDOUT)) \
+   .replace("__REFUSAL_STDOUT__", repr(AGY_REFUSAL_STDOUT)) \
+   .replace("__REFUSAL_STDERR__", repr(AGY_REFUSAL_STDERR))
+
+# What an IDE launcher installed as `agy` plausibly does: help without agy's flags, exit 0. Its own
+# help was never probed (the research doc lists that as open), so the test rests on the two flags.
+AGY_IDE_LAUNCHER = """#!/bin/sh
+printf '%s\\n' "$*" >> "$HANDOFF_TEST_AGY_DECOY_ARGS"
+if [ "$1" = "--help" ]; then
+  printf 'Usage: antigravity [options] [paths...]\\n  --goto <file:line>  Open a file at a line.\\n'
+fi
+exit 0
+"""
+
+
+class AntigravitySetupTests(SetupTests):
+    """The antigravity backend in the setup engine, the terminal wizard, and smoke."""
+
+    def setUp(self):
+        super().setUp()
+        # Outside self.root: every plan runs `agy --help` for the identity check, and a log
+        # inside the root would break the zero-write snapshots the inherited tests take.
+        logs = tempfile.TemporaryDirectory()
+        self.addCleanup(logs.cleanup)
+        self.agy_args_log = Path(logs.name) / "agy-args.txt"
+        self.decoy_log = Path(logs.name) / "decoy-args.txt"
+        agy = self.bin / "agy"
+        agy.write_text(AGY_FAKE, encoding="utf-8")
+        agy.chmod(0o755)
+        self.env["HANDOFF_TEST_AGY_ARGS"] = str(self.agy_args_log)
+        self.env["HANDOFF_TEST_AGY_DECOY_ARGS"] = str(self.decoy_log)
+
+    def agy_choices(self, model="gemini-3.8-flash-low", effort="model"):
+        return {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("antigravity", model, effort),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+        }
+
+    def agy_calls(self):
+        """Invocations other than the --version and --help probes: the catalogue and any run."""
+
+        if not self.agy_args_log.exists():
+            return []
+        return [line for line in self.agy_args_log.read_text(encoding="utf-8").splitlines()
+                if line not in ("--version", "--help")]
+
+    def install_decoy(self, directory, *names):
+        """An IDE launcher under each of ``names`` in ``directory``."""
+
+        directory.mkdir(exist_ok=True)
+        for name in names:
+            path = directory / name
+            path.write_text(AGY_IDE_LAUNCHER, encoding="utf-8")
+            path.chmod(0o755)
+        return directory
+
+    def smoke(self):
+        return self.run_cli("--smoke", "--repo", str(self.repo), "--timestamp", "2026-09-30T01:02:03Z")
+
+    def test_effort_is_the_model_id_and_nothing_else(self):
+        self.assertEqual(("model",), handoff_setup.BACKEND_EFFORTS["antigravity"])
+        status, _, error = self.run_cli(*self.custom_args(self.agy_choices(), action="--preview"))
+        self.assertEqual((0, ""), (status, error))
+        status, _, error = self.run_cli(
+            *self.custom_args(self.agy_choices(effort="high"), action="--preview"))
+        self.assertEqual(2, status)
+        self.assertIn("with backend=antigravity must be one of model", error)
+        self.assertIn("Antigravity carries effort in the model id", error)
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
+    def test_a_preset_override_onto_antigravity_fills_the_effort(self):
+        status, _, error = self.run_cli(*self.claude_args(
+            "--apply", "--role-backend", "fast_worker=antigravity",
+            "--role-model", "fast_worker=gemini-3.8-flash-low"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual("model", self.configured()["fast_worker"]["effort"])
+
+    def test_auto_is_refused_and_the_fix_is_named(self):
+        status, _, error = self.run_cli(
+            *self.custom_args(self.agy_choices(model="auto"), action="--preview"))
+        self.assertEqual(2, status)
+        self.assertIn("'auto', which is refused on antigravity", error)
+        self.assertIn("handoff-config.py set --role fast_worker --backend antigravity --model <model>", error)
+        self.assertEqual([], self.agy_calls())
+
+    def test_a_preset_identity_switched_to_antigravity_without_a_model_is_refused(self):
+        # The real entry point: a preset names no antigravity model, so this is the refusal an
+        # empty model meets before validate_backend_models runs. It names the same fix (R1.3).
+        status, _, error = self.run_cli(*self.claude_args(
+            "--apply", "--role-backend", "fast_worker=antigravity"))
+        self.assertEqual(2, status)
+        self.assertIn("--role-backend changes fast_worker from codex to antigravity", error)
+        self.assertIn("also pass --role-model fast_worker=<model>", error)
+        self.assertIn("handoff-config.py set --role fast_worker --backend antigravity --model <model>", error)
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+        self.assertEqual([], self.agy_calls())
+
+    def test_an_empty_role_model_value_is_refused_first_by_its_own_message(self):
+        status, _, error = self.run_cli(*self.claude_args(
+            "--apply", "--role-backend", "fast_worker=antigravity", "--role-model", "fast_worker="))
+        self.assertEqual(2, status)
+        self.assertIn("--role-model value for fast_worker must be non-empty", error)
+        self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
+    def test_an_empty_model_is_refused_with_the_fix_on_all_three_backends(self):
+        for backend in ("copilot", "cursor", "antigravity"):
+            for empty in ("", "   ", None):
+                with self.subTest(backend=backend, model=empty):
+                    with self.assertRaises(handoff_setup.SetupError) as refusal:
+                        handoff_setup.validate_backend_models(
+                            {"fast_worker": {"backend": backend, "model": empty, "effort": "model"}})
+                    message = str(refusal.exception)
+                    self.assertIn(
+                        f"--role-model for fast_worker with backend={backend} must name a model; "
+                        "no model name is guessed.", message)
+                    self.assertIn(
+                        f"handoff-config.py set --role fast_worker --backend {backend} --model <model>",
+                        message)
+        # The clause about a role-less job is untrue on antigravity, so it says the opposite there.
+        with self.assertRaises(handoff_setup.SetupError) as refusal:
+            handoff_setup.validate_backend_models(
+                {"fast_worker": {"backend": "antigravity", "model": "", "effort": "model"}})
+        self.assertIn("a role-less antigravity job must name a model too", str(refusal.exception))
+        self.assertNotIn("runs on the CLI's own default", str(refusal.exception))
+        with self.assertRaises(handoff_setup.SetupError) as refusal:
+            handoff_setup.validate_backend_models(
+                {"fast_worker": {"backend": "cursor", "model": "", "effort": "model"}})
+        self.assertIn("runs on the CLI's own default", str(refusal.exception))
+        # Codex and Claude identities are not held to this.
+        for backend in ("codex", "claude"):
+            handoff_setup.validate_backend_models(
+                {"fast_worker": {"backend": backend, "model": "", "effort": "high"}})
+
+    def test_no_preset_names_antigravity(self):
+        self.assertNotIn("antigravity", {
+            backend for preset in handoff_setup.PRESETS.values()
+            for backend, _, _ in preset.values()})
+
+    def test_availability_is_the_agy_that_passes_the_help_check(self):
+        self.assertTrue(handoff_setup.cli_available("antigravity", self.env))
+        self.assertEqual(str(self.bin / "agy"), handoff_setup.antigravity_bin(self.env))
+        # an `agy` that fails the check is not availability, however it is named
+        (self.bin / "agy").unlink()
+        self.env["PATH"] = f"{self.install_decoy(self.root / 'ide', 'agy')}:/usr/bin:/bin"
+        self.assertFalse(handoff_setup.cli_available("antigravity", self.env))
+
+    def test_the_ide_launcher_named_agy_is_never_used(self):
+        ide = self.install_decoy(self.root / "ide", "agy", "antigravity")
+        # the launcher comes first on PATH and the CLI later: the later one is resolved
+        self.env["PATH"] = f"{ide}:{self.bin}:/usr/bin:/bin"
+        self.assertEqual(str(self.bin / "agy"), handoff_setup.antigravity_bin(self.env))
+        self.assertTrue(handoff_setup.cli_available("antigravity", self.env))
+        # with only the launcher, nothing resolves, and `antigravity` is never looked up
+        (self.bin / "agy").unlink()
+        self.assertIsNone(handoff_setup.antigravity_bin(self.env))
+        self.assertFalse(handoff_setup.cli_available("antigravity", self.env))
+        # the one thing ever asked of the launcher is --help
+        asked = set(self.decoy_log.read_text(encoding="utf-8").splitlines())
+        self.assertEqual({"--help"}, asked)
+
+    def test_an_override_that_fails_the_check_is_refused_not_skipped(self):
+        ide = self.install_decoy(self.root / "ide", "agy")
+        self.env["HANDOFF_ANTIGRAVITY_BIN"] = str(ide / "agy")
+        self.assertIsNone(handoff_setup.antigravity_bin(self.env))
+        self.assertFalse(handoff_setup.cli_available("antigravity", self.env))
+        self.env["HANDOFF_ANTIGRAVITY_BIN"] = str(self.bin / "agy")
+        self.assertEqual(str(self.bin / "agy"), handoff_setup.antigravity_bin(self.env))
+        self.env["HANDOFF_ANTIGRAVITY_BIN"] = str(self.root / "no-such-agy")
+        self.assertIsNone(handoff_setup.antigravity_bin(self.env))
+
+    def test_the_identity_check_wants_both_flags_a_zero_exit_and_reads_both_streams(self):
+        def stub(name, body):
+            path = self.root / name
+            path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+            path.chmod(0o755)
+            return str(path)
+
+        conversation = "echo '  --conversation  Resume'\n"
+        skip = "echo '  --dangerously-skip-permissions  Skip'\n"
+        self.assertTrue(handoff_setup.is_antigravity_bin(
+            stub("on-stdout", conversation + skip), self.env))
+        self.assertTrue(handoff_setup.is_antigravity_bin(
+            stub("on-stderr", (conversation + skip).replace("'\n", "' >&2\n")), self.env))
+        self.assertFalse(handoff_setup.is_antigravity_bin(stub("one-flag", conversation), self.env))
+        self.assertFalse(handoff_setup.is_antigravity_bin(stub("other-flag", skip), self.env))
+        self.assertFalse(handoff_setup.is_antigravity_bin(
+            stub("fails", conversation + skip + "exit 3\n"), self.env))
+        self.assertFalse(handoff_setup.is_antigravity_bin(str(self.root / "missing"), self.env))
+
+    def test_the_catalogue_reader_parses_the_real_output(self):
+        models, error = handoff_setup.antigravity_catalogue(str(self.bin / "agy"), self.env)
+        self.assertEqual("", error)
+        self.assertEqual(
+            [("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+             ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"),
+             ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
+             ("claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"),
+             ("claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"),
+             ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)")],
+            models,
+        )
+        # MODELJSON: the output flag sits before the subcommand, never after it
+        self.assertEqual(["--output-format json models"], self.agy_calls())
+
+    def test_the_catalogue_reader_drops_auto_blank_duplicate_and_unsafe_ids(self):
+        self.env["HANDOFF_TEST_AGY_MODELS_STDOUT"] = json.dumps({"command": {"name": "models", "data": {
+            "models": [
+                {"id": "auto", "label": "Auto"}, {"id": "", "label": "Blank"},
+                {"id": "gemini-3.8-flash-low", "label": "Low"},
+                {"id": "gemini-3.8-flash-low", "label": "Low again"},
+                "not-an-object", {"id": 7, "label": "Number"}, {"id": "bad id", "label": "Space"},
+                {"id": "claude-sonnet-4-6"},
+            ]}}})
+        models, error = handoff_setup.antigravity_catalogue(str(self.bin / "agy"), self.env)
+        self.assertEqual("", error)
+        self.assertEqual([("gemini-3.8-flash-low", "Low"), ("claude-sonnet-4-6", "")], models)
+
+    def test_non_json_catalogue_output_is_an_error_naming_the_fix(self):
+        self.env["HANDOFF_TEST_AGY_MODELS_STDOUT"] = "Available models:\n  Gemini 3.8 Flash (High)\n"
+        models, error = handoff_setup.antigravity_catalogue(str(self.bin / "agy"), self.env)
+        # an error, never an empty list read as "no models"
+        self.assertEqual([], models)
+        self.assertIn("something other than JSON", error)
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", error)
+        self.assertIn("`agy`", error)
+
+    def test_a_catalogue_in_an_unexpected_shape_or_with_no_models_is_an_error(self):
+        for label, stdout, phrase in (
+            ("a list", "[]", "unexpected shape"),
+            ("no command", json.dumps({"status": "SUCCESS"}), "unexpected shape"),
+            ("models not a list", json.dumps({"command": {"data": {"models": "x"}}}), "unexpected shape"),
+            ("no entries", json.dumps({"command": {"data": {"models": []}}}), "listed no models"),
+            ("only auto", json.dumps({"command": {"data": {"models": [{"id": "auto"}]}}}), "listed no models"),
+        ):
+            with self.subTest(label):
+                self.env["HANDOFF_TEST_AGY_MODELS_STDOUT"] = stdout
+                models, error = handoff_setup.antigravity_catalogue(str(self.bin / "agy"), self.env)
+                self.assertEqual([], models)
+                self.assertIn(phrase, error)
+                self.assertIn("HANDOFF_ANTIGRAVITY_BIN", error)
+
+    def test_an_unreadable_catalogue_quotes_the_cli_and_names_the_fix(self):
+        self.env["HANDOFF_TEST_AGY_MODELS_ERROR"] = "error: not signed in"
+        models, error = handoff_setup.antigravity_catalogue(str(self.bin / "agy"), self.env)
+        self.assertEqual([], models)
+        self.assertIn("not signed in", error)
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", error)
+        # the fake prints agy's own progress line first, as MODELS shows; it is not the error
+        self.assertNotIn("Fetching available models", error)
+        # a failure that says nothing falls back to the exit status
+        self.env["HANDOFF_TEST_AGY_MODELS_ERROR"] = "Fetching available models..."
+        self.assertIn("exited 1", handoff_setup.antigravity_catalogue(str(self.bin / "agy"), self.env)[1])
+
+    def test_smoke_checks_membership_then_runs_one_request_with_no_posture_flag(self):
+        # DRV_SMOKE's shape: a sentinel reply in the last agent_response step, status SUCCESS.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        status, output, error = self.smoke()
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("fast_worker: PASS (id in agy models, run accepted by Antigravity)", output)
+        calls = self.agy_calls()
+        self.assertEqual("--output-format json models", calls[0])
+        self.assertEqual(2, len(calls))
+        self.assertTrue(calls[1].startswith("-p "))
+        self.assertTrue(calls[1].endswith(
+            " --output-format stream-json --model gemini-3.8-flash-low"), calls[1])
+        # print mode denies what needs approval, so the run takes no posture flag
+        self.assertEqual(
+            {"--output-format", "--model"},
+            {token for token in calls[1].split() if token.startswith("--")})
+        self.assertTrue(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_quotes_the_launch_refusal_verbatim(self):
+        # MUNKNOWN's shape: exit 1, an ERROR result with no id, and the message on stderr.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        self.env["HANDOFF_TEST_AGY_REFUSE"] = "1"
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("fast_worker: FAIL", error)
+        self.assertIn(AGY_REFUSAL_STDERR.strip(), error)
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_membership_failure_makes_no_paid_run(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices(model="gemini-3.8-flash-xhigh")))[0])
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("gemini-3.8-flash-xhigh is not in `agy models`", error)
+        self.assertIn("handoff-config.py set", error)
+        self.assertEqual(["--output-format json models"], self.agy_calls())
+        self.assertFalse(any(call.startswith("-p") for call in self.agy_calls()))
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_does_not_verify_an_error_result_that_exits_zero(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        self.env["HANDOFF_TEST_AGY_STATUS"] = "ERROR"
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("ended with status ERROR: the model is at capacity", error)
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_reads_the_sentinel_from_the_last_agent_step_only(self):
+        # The sentinel sits in an earlier step and in result.response, not in the last step.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        self.env["HANDOFF_TEST_AGY_STEPS"] = json.dumps(["HANDOFF_SMOKE_OK", "Sure, happy to help."])
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("unexpected response", error)
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_smoke_does_not_read_the_sentinel_from_result_response(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        self.env["HANDOFF_TEST_AGY_STEPS"] = json.dumps(["Sure, happy to help."])
+        self.env["HANDOFF_TEST_AGY_RESPONSE"] = "HANDOFF_SMOKE_OK\n"
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("unexpected response", error)
+        self.assertFalse(self.configured()["fast_worker"]["verified"])
+
+    def test_the_last_agent_text_joins_the_deltas_of_the_last_step_to_appear(self):
+        def line(index, text, step_type="agent_response"):
+            return json.dumps({"event": "step_update", "step_update": {
+                "step_index": index, "step_type": step_type, "text_delta": text}})
+
+        stdout = "\n".join([
+            line(1, "first"), line(2, "HANDOFF_SMOKE"), line(2, "_OK"), line(2, "\n"),
+            line(3, "tool text", "tool"), "not json", json.dumps({"event": "result", "result": {
+                "response": "first\nHANDOFF_SMOKE_OK\n"}}),
+            json.dumps({"event": "step_update", "step_update": None}),
+            json.dumps({"event": "step_update", "step_update": "text"}),
+        ])
+        self.assertEqual("HANDOFF_SMOKE_OK\n", handoff_setup._antigravity_last_agent_text(stdout))
+        self.assertEqual("", handoff_setup._antigravity_last_agent_text(""))
+
+    def test_smoke_names_the_fix_when_the_catalogue_is_unreadable(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        self.env["HANDOFF_TEST_AGY_MODELS_ERROR"] = "error: not signed in"
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", error)
+        self.assertEqual(["--output-format json models"], self.agy_calls())
+
+    def test_smoke_fails_in_the_dry_run_when_no_agy_resolves(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.agy_choices()))[0])
+        (self.bin / "agy").unlink()
+        status, _, error = self.smoke()
+        self.assertEqual(1, status)
+        self.assertIn("fast_worker: FAIL", error)
+        self.assertIn("HANDOFF_ANTIGRAVITY_BIN", error)
+
+    def test_terminal_wizard_names_five_backends_and_skips_the_antigravity_effort_question(self):
+        from unittest.mock import call, patch
+        answers = ["4", "1", "n", "n", "", "", "n"]
+        for identity in handoff_setup.CORE_IDENTITIES:
+            if identity == "fast_worker":
+                answers.extend(["antigravity", "gemini-3.8-flash-low", ""])  # no effort question
+            else:
+                answers.extend(["claude", "opus", "high", ""])
+        answers.append("n")
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=answers) as prompt:
+            status, output, error = self.run_cli("--interactive", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertIn(call("fast_worker backend [claude/codex/copilot/cursor/antigravity]: "),
+                      prompt.call_args_list)
+        self.assertNotIn(call("fast_worker effort: "), prompt.call_args_list)
+        self.assertIn("fast_worker effort: model (set by the Antigravity model id)", output)
+        self.assertIn("antigravity=True", output)
+        self.assertIn("fast_worker: backend=antigravity [custom], model=gemini-3.8-flash-low [custom], "
+                      "effort=model [custom]", output)
+
 
 if __name__ == "__main__":
     unittest.main()
