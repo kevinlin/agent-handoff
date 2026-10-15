@@ -251,7 +251,7 @@ The prompt asked for `git commit -m probe-commit`; the trailer came from Cursor,
 
 ## 10. Implications for agent-handoff (inference, not observation)
 
-`docs/specs/design_cursor-cli-backend.md` holds the decisions. In short:
+`docs/specs/design_cli-backends.md` holds the decisions. In short:
 
 - Each part of the job primitive has a Cursor equivalent: print mode, a JSONL stream, a session id from line one, `--resume` with context intact after a kill, a typed denial, and per-invocation token usage.
 - Two things do not fit Handoff's existing shapes. Effort is not a routing field, because it lives in the slug. And there is no posture narrower than `--force` in which a worker can still run its checks. <!-- risk-ok: Cursor CLI flag name -->

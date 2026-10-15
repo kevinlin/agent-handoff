@@ -266,7 +266,7 @@ Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-gaun
 
 ## Safety
 
-- Each identity sets `permission_mode` to `default` or `allow-all`. See [the schema](docs/specs/design_agent-identities-and-config.md#permission-posture-v371) for the full mappings and research deviations.
+- Each identity sets `permission_mode` to `default` or `allow-all`. See [the backend design](docs/specs/design_cli-backends.md#permission-posture) for the full mappings and research deviations.
   - Under `default`, Claude runs in `dontAsk` mode with the tools `Read Glob Grep Edit Write Bash`. Codex inherits your own config with no sandbox flags. Copilot runs with `--allow-all-tools` and keeps its path and URL checks. Cursor runs in its force mode under both postures; user or project deny rules in `.cursor/cli.json` are the only narrowing. Every writing Cursor job prints a bypass warning. Antigravity runs with `--dangerously-skip-permissions` under both postures, so the posture field changes nothing there and Handoff knows of no rule that narrows it. Every writing Antigravity job prints a bypass warning. Handoff writes nothing under `~/.gemini/`.
   - Under `allow-all`, each provider uses its own unrestricted mode. The five CLIs do not share one security posture.
   - Read-only overrides both the configured posture and the Claude environment override, though the environment value is still validated first. It drops Claude's worker allowlist and Copilot's allow-all flags; Cursor and Antigravity use `--mode plan`. On Antigravity, read-only rests on plan mode in print mode, and an allow rule in your `agy` settings might let a write through (not probed), so check the tree after a read-only Antigravity job.

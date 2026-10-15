@@ -8,7 +8,7 @@
 
 **Tech Stack:** Bash (`scripts/delegate-codex.sh`), Python 3 stdlib (`unittest`, no third-party packages), vanilla JavaScript in `assets/*.html`, `node --test` for the viewer.
 
-**Spec:** [requirements_cursor-cli-backend.md](requirements_cursor-cli-backend.md) (R1.1 to R9.3) and [design_cursor-cli-backend.md](design_cursor-cli-backend.md) (decisions 1 to 13). Facts: [../research/cursor-cli-specification.md](../research/cursor-cli-specification.md). Executors read all three.
+**Spec:** `requirements_cursor-cli-backend.md` (R1.1 to R9.3) and `design_cursor-cli-backend.md` (decisions 1 to 13). Both have since been folded into [design_cli-backends.md](design_cli-backends.md); the originals this plan cites are at `git show bcd54de:docs/specs/<file>`. Facts: [../research/cursor-cli-specification.md](../research/cursor-cli-specification.md). Executors read all three.
 
 ## Global Constraints
 
