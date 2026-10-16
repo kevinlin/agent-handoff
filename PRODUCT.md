@@ -25,7 +25,7 @@ The driver never accepts delegated work on a worker's summary. It reviews the co
 - Pages are served only on `127.0.0.1`, opened from a Claude Code session (`/agent-handoff config`, `/agent-handoff visualise`, `/agent-handoff transcript`, `/agent-handoff cost-receipt`).
 - Config wizard: `scripts/handoff-setup-ui.py`. It delegates every preview and write to `scripts/handoff-setup.py`. Model/effort lists come from probing local CLIs and the Copilot entitlement API, never hardcoded.
 - Session view: `scripts/handoff-session-ui.py` with `assets/session-view.html`. It shows a timeline with one lane per job, job transcripts, the cost receipt, receipt facts, and denials/anomalies.
-- Other rendered pages: `assets/transcript-viewer.html`, `assets/cost-receipt.html`, `docs/user-guide/agent-handoff.html`, and the promo (`assets/promo.html`).
+- Other rendered pages: `assets/transcript-viewer.html`, `assets/cost-receipt.html`, and `docs/user-guide/agent-handoff.html`.
 - Design focus, in order: session view, then config wizard.
 
 ## Capabilities and Constraints
