@@ -52,7 +52,7 @@ Before first real use, say `/agent-handoff config`. Handoff opens a local page b
 <a href="assets/config-switch-demo.mp4">
 <img src="assets/config-switch-demo.gif" alt="Handoff configuration page demo switching operating mode and each identity's CLI, model, and reasoning effort" width="720" />
 </a>
-<p><a href="assets/config-switch-demo.mp4">Open the full-resolution MP4</a> — one pass through the page: work mode, each role's CLI, model and effort, the two optional add-ons, then the exact diff.</p>
+<p><a href="assets/config-switch-demo.mp4">Open the full-resolution MP4</a> — one pass through the page: work mode, each identity's CLI, model, effort and permission, the optional E2E add-on, then the exact diff.</p>
 </div>
 
 ## Showcase
