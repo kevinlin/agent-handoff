@@ -55,7 +55,7 @@
   <text x="620" y="364" class="small" text-anchor="middle">never rewritten to match the work</text>
 
   <!-- nodes -->
-  <rect x="515" y="118" width="210" height="64" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="515" y="118" width="210" height="64" rx="10" fill="#ffffff" stroke="#D97757" stroke-width="1.5"/>
   <text x="620" y="144" class="name" text-anchor="middle">Plan</text>
   <text x="620" y="166" class="small" text-anchor="middle">acceptance written before the code</text>
 
@@ -91,11 +91,11 @@
   <rect x="266" y="586" width="200" height="44" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
   <text x="366" y="613" class="line" text-anchor="middle">a second model</text>
   <line x1="466" y1="608" x2="488" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
-  <rect x="492" y="586" width="200" height="44" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
-  <text x="592" y="613" class="line" text-anchor="middle">the driver</text>
+  <rect x="492" y="586" width="200" height="44" rx="10" fill="#fdf2ee" stroke="#D97757"/>
+  <text x="592" y="613" class="line" style="fill:#b4532f" text-anchor="middle">the driver</text>
   <line x1="692" y1="608" x2="714" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
   <rect x="718" y="586" width="200" height="44" rx="10" fill="#fdf2f8" stroke="#be185d"/>
-  <text x="818" y="613" class="line m" fill="#be185d" text-anchor="middle">arbiter</text>
+  <text x="818" y="613" class="line m" style="fill:#be185d" text-anchor="middle">arbiter</text>
   <line x1="918" y1="608" x2="940" y2="608" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow-slate)"/>
   <rect x="944" y="586" width="256" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
   <text x="1072" y="613" class="line" text-anchor="middle">you — every hard stop, always</text>

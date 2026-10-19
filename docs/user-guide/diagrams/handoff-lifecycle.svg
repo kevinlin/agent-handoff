@@ -51,17 +51,17 @@
   <text x="24" y="68" class="sub">The driver plans, delegates, watches and reviews. Every other identity runs as a background job, and every step leaves a file behind.</text>
 
   <!-- phase headers -->
-  <circle cx="170" cy="110" r="12" fill="#7c3aed"/>
+  <circle cx="170" cy="110" r="12" fill="#D97757"/>
   <text x="170" y="115" class="badge" text-anchor="middle">1</text>
   <text x="190" y="115" class="phase">Plan &amp; split</text>
-  <text x="158" y="138" class="small">the driver attacks it, <tspan class="m" fill="#4f46e5">deep_reasoner</tspan> reads it</text>
+  <text x="158" y="138" class="small">the driver attacks it, <tspan class="m" style="fill:#4f46e5">deep_reasoner</tspan> reads it</text>
 
-  <circle cx="580" cy="110" r="12" fill="#7c3aed"/>
+  <circle cx="580" cy="110" r="12" fill="#D97757"/>
   <text x="580" y="115" class="badge" text-anchor="middle">2</text>
   <text x="600" y="115" class="phase">Delegate</text>
   <text x="568" y="138" class="small">packet: what · config: where</text>
 
-  <circle cx="810" cy="110" r="12" fill="#7c3aed"/>
+  <circle cx="810" cy="110" r="12" fill="#D97757"/>
   <text x="810" y="115" class="badge" text-anchor="middle">3</text>
   <text x="830" y="115" class="phase">Monitor</text>
   <text x="798" y="138" class="small">read off disk, not remembered</text>
@@ -77,20 +77,20 @@
   <text x="1238" y="138" class="small">a measured receipt</text>
 
   <!-- lanes -->
-  <rect x="24" y="150" width="1352" height="222" rx="10" fill="rgba(124,58,237,0.05)" stroke="#ddd6fe"/>
-  <rect x="24" y="150" width="120" height="222" rx="10" fill="rgba(124,58,237,0.08)"/>
+  <rect x="24" y="150" width="1352" height="222" rx="10" fill="rgba(217,119,87,0.06)" stroke="#f5cdbf"/>
+  <rect x="24" y="150" width="120" height="222" rx="10" fill="rgba(217,119,87,0.10)"/>
   <use href="#ic-claude" x="36" y="212" width="24" height="24"/>
-  <text x="36" y="256" class="lane" fill="#7c3aed">Claude Code</text>
+  <text x="36" y="256" class="lane" style="fill:#b4532f">Claude Code</text>
   <text x="36" y="278" class="lanesub">the driver</text>
 
-  <rect x="24" y="384" width="1352" height="220" rx="10" fill="rgba(217,119,6,0.05)" stroke="#fde68a"/>
-  <rect x="24" y="384" width="120" height="220" rx="10" fill="rgba(217,119,6,0.09)"/>
-  <text x="36" y="490" class="lane" fill="#b45309">Worker CLI</text>
+  <rect x="24" y="384" width="1352" height="220" rx="10" fill="rgba(13,148,136,0.05)" stroke="#99f6e4"/>
+  <rect x="24" y="384" width="120" height="220" rx="10" fill="rgba(13,148,136,0.10)"/>
+  <text x="36" y="490" class="lane" style="fill:#0f766e">Worker CLI</text>
   <text x="36" y="512" class="lanesub">background jobs</text>
 
   <rect x="24" y="616" width="1352" height="100" rx="10" fill="rgba(100,116,139,0.05)" stroke="#cbd5e1"/>
   <rect x="24" y="616" width="120" height="100" rx="10" fill="rgba(100,116,139,0.09)"/>
-  <text x="36" y="662" class="lane m" fill="#475569">.handoff/</text>
+  <text x="36" y="662" class="lane m" style="fill:#475569">.handoff/</text>
   <text x="36" y="684" class="lanesub">state on disk</text>
 
   <!-- phase dividers -->
@@ -107,19 +107,19 @@
   <!-- 1 · plan & split -->
   <line x1="298" y1="250" x2="318" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
   <path d="M 360 208 V 178 H 233 V 212" fill="none" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
-  <text x="296" y="170" class="tag" fill="#e11d48" text-anchor="middle">no: fix the split first</text>
-  <text x="350" y="314" class="tag" fill="#e11d48" text-anchor="end">adversarial gate</text>
-  <text x="368" y="314" class="tag" fill="#059669">yes</text>
+  <text x="296" y="170" class="tag" style="fill:#e11d48" text-anchor="middle">no: fix the split first</text>
+  <text x="350" y="314" class="tag" style="fill:#e11d48" text-anchor="end">adversarial gate</text>
+  <text x="368" y="314" class="tag" style="fill:#059669">yes</text>
   <line x1="360" y1="292" x2="360" y2="402" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
   <text x="368" y="340" class="pkt">spec review</text>
   <text x="368" y="356" class="pkt">packet</text>
   <line x1="492" y1="404" x2="492" y2="290" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="500" y="348" class="tag" fill="#059669">agreed</text>
+  <text x="500" y="348" class="tag" style="fill:#059669">agreed</text>
   <path d="M 440 500 V 562 H 1028" fill="none" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
-  <text x="448" y="540" class="tag" fill="#e11d48">at the cap</text>
+  <text x="448" y="540" class="tag" style="fill:#e11d48">at the cap</text>
   <text x="1000" y="555" class="pkt" text-anchor="end">arbitration packet</text>
 
-  <rect x="168" y="214" width="130" height="72" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="168" y="214" width="130" height="72" rx="8" fill="#ffffff" stroke="#D97757" stroke-width="1.5"/>
   <text x="233" y="244" class="name" text-anchor="middle">Write <tspan class="m">goal.md</tspan></text>
   <text x="233" y="266" class="small" text-anchor="middle">one row, one identity</text>
 
@@ -127,78 +127,78 @@
   <text x="360" y="246" class="tag" text-anchor="middle">split</text>
   <text x="360" y="262" class="tag" text-anchor="middle">holds?</text>
 
-  <rect x="436" y="214" width="112" height="72" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="436" y="214" width="112" height="72" rx="8" fill="#ffffff" stroke="#D97757" stroke-width="1.5"/>
   <text x="492" y="244" class="name" text-anchor="middle">Plan to you</text>
   <text x="492" y="266" class="small" text-anchor="middle">already adjusted</text>
 
   <rect x="330" y="404" width="218" height="96" rx="10" fill="#ffffff" stroke="#4f46e5" stroke-width="1.5"/>
   <text x="346" y="430" class="name">Spec review</text>
-  <text x="346" y="451" class="small m" fill="#4f46e5">deep_reasoner, read-only</text>
+  <text x="346" y="451" class="small m" style="fill:#4f46e5">deep_reasoner, read-only</text>
   <text x="346" y="470" class="small">every plan, 1 round by default</text>
   <text x="346" y="488" class="small">findings only, no edits</text>
 
   <!-- 2 · delegate -->
   <line x1="548" y1="250" x2="576" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="578" y="166" class="tag" fill="#e11d48">refused before a job exists</text>
+  <text x="578" y="166" class="tag" style="fill:#e11d48">refused before a job exists</text>
   <text x="578" y="183" class="small">no config · <tspan class="m">--backend ≠ role</tspan></text>
   <text x="578" y="199" class="small">bad effort · <tspan class="m">model = auto</tspan></text>
 
-  <rect x="578" y="214" width="196" height="72" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="578" y="214" width="196" height="72" rx="8" fill="#ffffff" stroke="#D97757" stroke-width="1.5"/>
   <text x="676" y="240" class="name" text-anchor="middle">Packet + role</text>
   <text x="676" y="260" class="small" text-anchor="middle">packet: what to do</text>
   <text x="676" y="277" class="small" text-anchor="middle"><tspan class="m">--role</tspan>: where it runs</text>
 
   <line x1="640" y1="286" x2="640" y2="398" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="650" y="324" class="tag" fill="#475569">submit</text>
+  <text x="650" y="324" class="tag" style="fill:#475569">submit</text>
   <text x="650" y="342" class="pkt">delegation packet</text>
 
   <!-- 3 · monitor -->
   <line x1="774" y1="250" x2="806" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="808" y="166" class="tag" fill="#e11d48">anomaly</text>
+  <text x="808" y="166" class="tag" style="fill:#e11d48">anomaly</text>
   <text x="808" y="183" class="small">failed, or two quiet ticks</text>
   <text x="808" y="199" class="small">cancel; resubmit or take it back</text>
 
-  <rect x="808" y="214" width="186" height="72" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="808" y="214" width="186" height="72" rx="8" fill="#ffffff" stroke="#D97757" stroke-width="1.5"/>
   <text x="901" y="240" class="name" text-anchor="middle">Monitor</text>
   <text x="901" y="260" class="small" text-anchor="middle">short: <tspan class="m">status --wait</tspan></text>
   <text x="901" y="277" class="small" text-anchor="middle">long: <tspan class="m">/loop</tspan>, every 5 min</text>
 
   <line x1="940" y1="400" x2="940" y2="290" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrow-slate)"/>
-  <text x="932" y="336" class="tag" fill="#475569" text-anchor="end">status</text>
+  <text x="932" y="336" class="tag" style="fill:#475569" text-anchor="end">status</text>
 
   <!-- the job -->
-  <rect x="578" y="400" width="418" height="140" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="578" y="400" width="418" height="140" rx="10" fill="#ffffff" stroke="#0d9488" stroke-width="1.5"/>
   <text x="787" y="421" class="name" text-anchor="middle">One background job per row, one jobId</text>
   <rect x="597" y="430" width="120" height="24" rx="12" fill="#f1f5f9" stroke="#334155"/>
   <use href="#ic-codex" x="606" y="435" width="14" height="14"/>
-  <text x="666" y="446" class="tag m" fill="#334155" text-anchor="middle">codex</text>
+  <text x="666" y="446" class="tag m" style="fill:#334155" text-anchor="middle">codex</text>
   <rect x="727" y="430" width="120" height="24" rx="12" fill="#fff7ed" stroke="#c2410c"/>
   <use href="#ic-claude" x="736" y="435" width="14" height="14"/>
-  <text x="796" y="446" class="tag m" fill="#c2410c" text-anchor="middle">claude</text>
+  <text x="796" y="446" class="tag m" style="fill:#c2410c" text-anchor="middle">claude</text>
   <rect x="857" y="430" width="120" height="24" rx="12" fill="#eff6ff" stroke="#2563eb"/>
   <use href="#ic-copilot" x="866" y="435" width="14" height="14"/>
-  <text x="926" y="446" class="tag m" fill="#1d4ed8" text-anchor="middle">copilot</text>
+  <text x="926" y="446" class="tag m" style="fill:#1d4ed8" text-anchor="middle">copilot</text>
   <rect x="662" y="458" width="120" height="24" rx="12" fill="#f0fdf4" stroke="#15803d"/>
   <use href="#ic-cursor" x="671" y="463" width="14" height="14"/>
-  <text x="731" y="474" class="tag m" fill="#15803d" text-anchor="middle">cursor</text>
+  <text x="731" y="474" class="tag m" style="fill:#15803d" text-anchor="middle">cursor</text>
   <rect x="792" y="458" width="120" height="24" rx="12" fill="#fdf4ff" stroke="#a21caf"/>
   <use href="#ic-antigravity" x="801" y="463" width="14" height="14"/>
-  <text x="861" y="474" class="tag m" fill="#a21caf" text-anchor="middle">antigravity</text>
+  <text x="861" y="474" class="tag m" style="fill:#a21caf" text-anchor="middle">antigravity</text>
 
   <rect x="610" y="490" width="92" height="22" rx="11" fill="#eff6ff" stroke="#2563eb"/>
-  <text x="656" y="505" class="tag m" fill="#1d4ed8" text-anchor="middle">RUNNING</text>
+  <text x="656" y="505" class="tag m" style="fill:#1d4ed8" text-anchor="middle">RUNNING</text>
   <line x1="702" y1="501" x2="722" y2="501" stroke="#64748b" stroke-width="1.4" marker-end="url(#arrow)"/>
   <rect x="726" y="490" width="64" height="22" rx="11" fill="#ecfdf5" stroke="#059669"/>
-  <text x="758" y="505" class="tag m" fill="#047857" text-anchor="middle">DONE</text>
+  <text x="758" y="505" class="tag m" style="fill:#047857" text-anchor="middle">DONE</text>
   <rect x="798" y="490" width="72" height="22" rx="11" fill="#fff1f2" stroke="#e11d48"/>
-  <text x="834" y="505" class="tag m" fill="#be123c" text-anchor="middle">FAILED</text>
+  <text x="834" y="505" class="tag m" style="fill:#be123c" text-anchor="middle">FAILED</text>
   <rect x="878" y="490" width="96" height="22" rx="11" fill="#f8fafc" stroke="#94a3b8"/>
-  <text x="926" y="505" class="tag m" fill="#475569" text-anchor="middle">CANCELLED</text>
+  <text x="926" y="505" class="tag m" style="fill:#475569" text-anchor="middle">CANCELLED</text>
   <text x="787" y="530" class="small" text-anchor="middle">state comes from files: <tspan class="m">pid, exit_code, cancelled</tspan></text>
 
   <!-- 4 · full review -->
   <line x1="994" y1="250" x2="1060" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="1036" y="241" class="tag" fill="#475569" text-anchor="middle">done</text>
+  <text x="1036" y="241" class="tag" style="fill:#475569" text-anchor="middle">done</text>
   <text x="1120" y="176" class="small" text-anchor="middle">denial count first,</text>
   <text x="1120" y="192" class="small" text-anchor="middle">then the whole diff</text>
 
@@ -207,23 +207,23 @@
   <text x="1120" y="262" class="tag m" text-anchor="middle">goal.md?</text>
 
   <line x1="1178" y1="250" x2="1246" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
-  <text x="1212" y="241" class="tag" fill="#059669" text-anchor="middle">pass</text>
+  <text x="1212" y="241" class="tag" style="fill:#059669" text-anchor="middle">pass</text>
 
   <line x1="1080" y1="264" x2="1080" y2="394" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
-  <text x="1088" y="330" class="tag" fill="#e11d48">no</text>
+  <text x="1088" y="330" class="tag" style="fill:#e11d48">no</text>
   <line x1="1160" y1="396" x2="1160" y2="266" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
 
-  <rect x="1030" y="396" width="182" height="82" rx="10" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="1030" y="396" width="182" height="82" rx="10" fill="#ffffff" stroke="#0d9488" stroke-width="1.5"/>
   <text x="1046" y="418" class="name">Fix round</text>
   <text x="1046" y="437" class="small m">resume &lt;jobId&gt;</text>
   <text x="1046" y="454" class="small">same session, backend, tree</text>
   <text x="1046" y="470" class="small">3 passes by default</text>
 
   <line x1="1120" y1="478" x2="1120" y2="506" stroke="#e11d48" stroke-width="1.6" marker-end="url(#arrow-rose)"/>
-  <text x="1128" y="497" class="tag" fill="#e11d48">at the cap</text>
+  <text x="1128" y="497" class="tag" style="fill:#e11d48">at the cap</text>
 
   <rect x="1030" y="508" width="182" height="84" rx="10" fill="#fdf2f8" stroke="#be185d" stroke-width="1.5"/>
-  <text x="1046" y="532" class="name m" fill="#be185d">arbiter</text>
+  <text x="1046" y="532" class="name m" style="fill:#be185d">arbiter</text>
   <text x="1046" y="552" class="small">rules on either gate</text>
   <text x="1046" y="572" class="small">approve · reject</text>
 

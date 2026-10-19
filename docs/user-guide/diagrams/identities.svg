@@ -37,17 +37,17 @@
 
   <rect x="40" y="124" width="330" height="62" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
   <rect x="40" y="124" width="6" height="62" rx="3" fill="#4f46e5"/>
-  <text x="60" y="150" class="name m" fill="#4f46e5">deep_reasoner</text>
+  <text x="60" y="150" class="name m" style="fill:#4f46e5">deep_reasoner</text>
   <text x="60" y="172" class="line">ambiguous work · reviews every plan</text>
 
   <rect x="40" y="196" width="330" height="62" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
   <rect x="40" y="196" width="6" height="62" rx="3" fill="#d97706"/>
-  <text x="60" y="222" class="name m" fill="#b45309">fast_worker</text>
+  <text x="60" y="222" class="name m" style="fill:#b45309">fast_worker</text>
   <text x="60" y="244" class="line">mechanical, spec-complete work</text>
 
   <rect x="40" y="268" width="330" height="62" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
   <rect x="40" y="268" width="6" height="62" rx="3" fill="#be185d"/>
-  <text x="60" y="294" class="name m" fill="#be185d">arbiter</text>
+  <text x="60" y="294" class="name m" style="fill:#be185d">arbiter</text>
   <text x="60" y="316" class="line">second solver · rules on disputes</text>
 
   <text x="40" y="366" class="group">OPTIONAL · --with-e2e</text>
@@ -55,17 +55,17 @@
 
   <rect x="40" y="386" width="330" height="62" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
   <rect x="40" y="386" width="6" height="62" rx="3" fill="#0891b2"/>
-  <text x="60" y="412" class="name m" fill="#0e7490">e2e_specifier</text>
+  <text x="60" y="412" class="name m" style="fill:#0e7490">e2e_specifier</text>
   <text x="60" y="434" class="line">writes the acceptance tests</text>
 
   <rect x="40" y="456" width="330" height="62" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
   <rect x="40" y="456" width="6" height="62" rx="3" fill="#0891b2"/>
-  <text x="60" y="482" class="name m" fill="#0e7490">e2e_verifier</text>
+  <text x="60" y="482" class="name m" style="fill:#0e7490">e2e_verifier</text>
   <text x="60" y="504" class="line">runs them, returns a verdict</text>
 
   <text x="40" y="546" class="group">NOT AN IDENTITY</text>
-  <rect x="40" y="556" width="330" height="76" rx="8" fill="#f5f3ff" stroke="#c4b5fd" stroke-dasharray="6,4"/>
-  <text x="60" y="580" class="name" fill="#6d28d9">the driver itself</text>
+  <rect x="40" y="556" width="330" height="76" rx="8" fill="#fdf2ee" stroke="#f5cdbf" stroke-dasharray="6,4"/>
+  <text x="60" y="580" class="name" style="fill:#b4532f">the driver itself</text>
   <text x="60" y="600" class="line">the split · integration · critical paths · acceptance</text>
   <text x="60" y="619" class="small">runs inline · identity column reads <tspan class="m">-</tspan></text>
 
@@ -80,9 +80,9 @@
   <rect x="450" y="190" width="290" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="470" y="219" class="line">session override</text>
   <rect x="450" y="244" width="290" height="46" rx="8" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
-  <text x="470" y="273" class="line m" fill="#0f172a">.handoff/config.toml</text>
+  <text x="470" y="273" class="line m" style="fill:#0f172a">.handoff/config.toml</text>
   <rect x="450" y="298" width="290" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-  <text x="470" y="327" class="line m" fill="#0f172a">~/.config/handoff/config.toml</text>
+  <text x="470" y="327" class="line m" style="fill:#0f172a">~/.config/handoff/config.toml</text>
   <rect x="450" y="352" width="290" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="470" y="381" class="line">built-in defaults</text>
   <text x="726" y="273" class="small" text-anchor="end">project</text>
@@ -117,27 +117,27 @@
 
   <rect x="1040" y="128" width="170" height="62" rx="31" fill="#f1f5f9" stroke="#334155" stroke-width="1.5"/>
   <use href="#ic-codex" x="1052" y="141" width="18" height="18"/>
-  <text x="1136" y="154" class="chip m" fill="#334155" text-anchor="middle">codex exec</text>
+  <text x="1136" y="154" class="chip m" style="fill:#334155" text-anchor="middle">codex exec</text>
   <text x="1125" y="174" class="small" text-anchor="middle">Codex subscription</text>
 
   <rect x="1040" y="203" width="170" height="62" rx="31" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
   <use href="#ic-claude" x="1052" y="216" width="18" height="18"/>
-  <text x="1136" y="229" class="chip m" fill="#c2410c" text-anchor="middle">claude --print</text>
+  <text x="1136" y="229" class="chip m" style="fill:#c2410c" text-anchor="middle">claude --print</text>
   <text x="1125" y="249" class="small" font-size="11" text-anchor="middle">Claude subscription or API</text>
 
   <rect x="1040" y="278" width="170" height="62" rx="31" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
   <use href="#ic-copilot" x="1052" y="291" width="18" height="18"/>
-  <text x="1136" y="304" class="chip m" fill="#1d4ed8" text-anchor="middle">copilot -p</text>
+  <text x="1136" y="304" class="chip m" style="fill:#1d4ed8" text-anchor="middle">copilot -p</text>
   <text x="1125" y="324" class="small" text-anchor="middle">Copilot AI credits</text>
 
   <rect x="1040" y="353" width="170" height="62" rx="31" fill="#f0fdf4" stroke="#15803d" stroke-width="1.5"/>
   <use href="#ic-cursor" x="1052" y="366" width="18" height="18"/>
-  <text x="1136" y="379" class="chip m" fill="#15803d" text-anchor="middle">cursor-agent -p</text>
+  <text x="1136" y="379" class="chip m" style="fill:#15803d" text-anchor="middle">cursor-agent -p</text>
   <text x="1125" y="399" class="small" text-anchor="middle">Cursor meter</text>
 
   <rect x="1040" y="428" width="170" height="62" rx="31" fill="#fdf4ff" stroke="#a21caf" stroke-width="1.5"/>
   <use href="#ic-antigravity" x="1052" y="441" width="18" height="18"/>
-  <text x="1136" y="454" class="chip m" fill="#a21caf" text-anchor="middle">agy -p</text>
+  <text x="1136" y="454" class="chip m" style="fill:#a21caf" text-anchor="middle">agy -p</text>
   <text x="1125" y="474" class="small" text-anchor="middle">Antigravity meter</text>
 
   <rect x="796" y="516" width="414" height="60" rx="8" fill="#fff1f2" stroke="#fda4af"/>

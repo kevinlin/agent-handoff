@@ -41,9 +41,9 @@
   <text x="762" y="372" class="pkt" text-anchor="middle">e2e packets</text>
 
   <!-- driver -->
-  <rect x="500" y="250" width="240" height="100" rx="12" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
+  <rect x="500" y="250" width="240" height="100" rx="12" fill="#fdf2ee" stroke="#D97757" stroke-width="1.8"/>
   <use href="#ic-claude" x="562" y="273" width="20" height="20"/>
-  <text x="588" y="290" class="name">Claude Code</text>
+  <text x="588" y="290" class="name" style="fill:#b4532f">Claude Code</text>
   <text x="620" y="314" class="line" text-anchor="middle">writes every packet itself,</text>
   <text x="620" y="334" class="line" text-anchor="middle">out of what it already read</text>
 
@@ -61,19 +61,19 @@
 
   <!-- deep_reasoner -->
   <rect x="816" y="110" width="238" height="84" rx="10" fill="#ffffff" stroke="#4f46e5" stroke-width="1.5"/>
-  <text x="836" y="140" class="name m" fill="#4f46e5">deep_reasoner</text>
+  <text x="836" y="140" class="name m" style="fill:#4f46e5">deep_reasoner</text>
   <text x="836" y="164" class="small">the plan, verbatim — and no</text>
   <text x="836" y="182" class="small">permission to change anything</text>
 
   <!-- arbiter -->
   <rect x="962" y="258" width="238" height="84" rx="10" fill="#ffffff" stroke="#be185d" stroke-width="1.5"/>
-  <text x="982" y="288" class="name m" fill="#be185d">arbiter</text>
+  <text x="982" y="288" class="name m" style="fill:#be185d">arbiter</text>
   <text x="982" y="312" class="small">both sides of the argument and</text>
   <text x="982" y="330" class="small">the evidence, nothing withheld</text>
 
   <!-- e2e -->
   <rect x="816" y="396" width="238" height="84" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
-  <text x="836" y="426" class="name m" fill="#0e7490">the e2e pair</text>
+  <text x="836" y="426" class="name m" style="fill:#0e7490">the e2e pair</text>
   <text x="836" y="450" class="small">the spec inline, a named test</text>
   <text x="836" y="468" class="small">target, and a branch of its own</text>
 

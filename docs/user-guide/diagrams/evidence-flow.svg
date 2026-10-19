@@ -28,14 +28,14 @@
   <text x="40" y="68" class="sub">Nothing is collected at the end that the run did not already write down.</text>
 
   <!-- during -->
-  <text x="40" y="112" class="head" fill="#475569">WHILE THE RUN IS GOING</text>
+  <text x="40" y="112" class="head" style="fill:#475569">WHILE THE RUN IS GOING</text>
 
   <rect x="40" y="126" width="360" height="52" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
   <text x="60" y="148" class="line m">session-start</text>
   <text x="60" y="168" class="small">stamped before the first job — the clock</text>
 
   <rect x="40" y="192" width="360" height="96" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
-  <text x="60" y="218" class="name m" fill="#b45309">goal.md</text>
+  <text x="60" y="218" class="name m" style="fill:#b45309">goal.md</text>
   <text x="60" y="242" class="line">every task status as it changed</text>
   <text x="60" y="264" class="small">the review rounds, the rulings, the notes</text>
 
@@ -61,7 +61,7 @@
   <path d="M 400 390 C 430 390, 430 236, 456 236" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <!-- wrap up -->
-  <text x="460" y="112" class="head" fill="#475569">AT WRAP UP</text>
+  <text x="460" y="112" class="head" style="fill:#475569">AT WRAP UP</text>
 
   <rect x="460" y="196" width="340" height="76" rx="9" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
   <text x="630" y="226" class="name" text-anchor="middle">the receipt is generated</text>
@@ -83,7 +83,7 @@
   <text x="630" y="528" class="small" text-anchor="middle">the same check the project's CI runs</text>
 
   <!-- readers -->
-  <text x="860" y="112" class="head" fill="#475569">WHAT YOU CAN OPEN AFTERWARDS</text>
+  <text x="860" y="112" class="head" style="fill:#475569">WHAT YOU CAN OPEN AFTERWARDS</text>
 
   <line x1="800" y1="370" x2="856" y2="370" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
 

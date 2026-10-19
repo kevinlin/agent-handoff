@@ -96,7 +96,7 @@
 
   <!-- tryout -->
   <rect x="320" y="340" width="560" height="104" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
-  <text x="344" y="372" class="step m" fill="#047857">/agent-handoff tryout</text>
+  <text x="344" y="372" class="step m" style="fill:#047857">/agent-handoff tryout</text>
   <text x="344" y="400" class="line">every identity runs one small real task, end to end</text>
   <text x="344" y="424" class="small">the report is what proves they are live on the models you picked</text>
   <path d="M 1185 224 V 392 H 884" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>

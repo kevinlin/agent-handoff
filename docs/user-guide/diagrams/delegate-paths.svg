@@ -33,7 +33,7 @@
   <text x="40" y="68" class="sub">Two paths run down this step and never meet. One row becomes one durable background job.</text>
 
   <!-- prompt path -->
-  <text x="40" y="112" class="head" fill="#b45309">WHAT TO DO</text>
+  <text x="40" y="112" class="head" style="fill:#b45309">WHAT TO DO</text>
   <rect x="40" y="126" width="150" height="76" rx="8" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
   <text x="115" y="158" class="name" text-anchor="middle">one task row</text>
   <text x="115" y="180" class="small" text-anchor="middle">task · acceptance</text>
@@ -56,7 +56,7 @@
   <text x="350" y="245" class="tag" text-anchor="middle">the packet never names a backend, a model or an effort</text>
 
   <!-- config path -->
-  <text x="40" y="298" class="head" fill="#4f46e5">WHERE IT RUNS</text>
+  <text x="40" y="298" class="head" style="fill:#4f46e5">WHERE IT RUNS</text>
   <rect x="40" y="312" width="150" height="76" rx="8" fill="#ffffff" stroke="#4f46e5" stroke-width="1.5"/>
   <text x="115" y="344" class="name m" text-anchor="middle">--role</text>
   <text x="115" y="366" class="small" text-anchor="middle">the row's identity</text>
@@ -104,22 +104,22 @@
   <line x1="960" y1="250" x2="996" y2="250" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
 
   <!-- CLIs -->
-  <text x="1100" y="112" class="head" fill="#64748b" text-anchor="middle">THE CONFIGURED BACKEND</text>
+  <text x="1100" y="112" class="head" style="fill:#64748b" text-anchor="middle">THE CONFIGURED BACKEND</text>
   <rect x="1000" y="130" width="200" height="46" rx="23" fill="#f1f5f9" stroke="#334155" stroke-width="1.5"/>
   <use href="#ic-codex" x="1020" y="143" width="20" height="20"/>
-  <text x="1112" y="158" class="line m" fill="#334155" text-anchor="middle">codex exec</text>
+  <text x="1112" y="158" class="line m" style="fill:#334155" text-anchor="middle">codex exec</text>
   <rect x="1000" y="184" width="200" height="46" rx="23" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
   <use href="#ic-claude" x="1020" y="197" width="20" height="20"/>
-  <text x="1112" y="212" class="line m" fill="#c2410c" text-anchor="middle">claude --print</text>
+  <text x="1112" y="212" class="line m" style="fill:#c2410c" text-anchor="middle">claude --print</text>
   <rect x="1000" y="238" width="200" height="46" rx="23" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
   <use href="#ic-copilot" x="1020" y="251" width="20" height="20"/>
-  <text x="1112" y="266" class="line m" fill="#1d4ed8" text-anchor="middle">copilot -p</text>
+  <text x="1112" y="266" class="line m" style="fill:#1d4ed8" text-anchor="middle">copilot -p</text>
   <rect x="1000" y="292" width="200" height="46" rx="23" fill="#f0fdf4" stroke="#15803d" stroke-width="1.5"/>
   <use href="#ic-cursor" x="1020" y="305" width="20" height="20"/>
-  <text x="1112" y="320" class="line m" fill="#15803d" text-anchor="middle">cursor-agent -p</text>
+  <text x="1112" y="320" class="line m" style="fill:#15803d" text-anchor="middle">cursor-agent -p</text>
   <rect x="1000" y="346" width="200" height="46" rx="23" fill="#fdf4ff" stroke="#a21caf" stroke-width="1.5"/>
   <use href="#ic-antigravity" x="1020" y="359" width="20" height="20"/>
-  <text x="1112" y="374" class="line m" fill="#a21caf" text-anchor="middle">agy -p</text>
+  <text x="1112" y="374" class="line m" style="fill:#a21caf" text-anchor="middle">agy -p</text>
 
   <rect x="710" y="428" width="490" height="96" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
   <text x="734" y="458" class="name">the jobId goes back into the row</text>

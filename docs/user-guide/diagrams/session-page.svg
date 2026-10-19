@@ -50,17 +50,17 @@
   <line x1="392" y1="154" x2="1200" y2="154" stroke="#cbd5e1"/>
 
   <rect x="408" y="120" width="92" height="26" rx="13" fill="#7c3aed"/>
-  <text x="454" y="137" class="tab" fill="#ffffff" text-anchor="middle">Overview</text>
+  <text x="454" y="137" class="tab" style="fill:#ffffff" text-anchor="middle">Overview</text>
   <text x="556" y="137" class="tab" text-anchor="middle">Transcript</text>
   <text x="674" y="137" class="tab" text-anchor="middle">Cost receipt</text>
   <text x="800" y="137" class="tab" text-anchor="middle">Session facts</text>
   <text x="950" y="137" class="tab" text-anchor="middle">Denials &amp; anomalies</text>
 
   <!-- timeline -->
-  <text x="412" y="182" class="head" fill="#64748b">THE RUN, LANE BY LANE</text>
+  <text x="412" y="182" class="head" style="fill:#64748b">THE RUN, LANE BY LANE</text>
 
   <text x="412" y="209" class="small">driver</text>
-  <rect x="500" y="196" width="380" height="18" rx="5" fill="#ddd6fe"/>
+  <rect x="500" y="196" width="380" height="18" rx="5" fill="#f5cdbf"/>
 
   <text x="412" y="249" class="small m">job-t1</text>
   <rect x="530" y="236" width="120" height="18" rx="5" fill="#fcd34d"/>
@@ -81,15 +81,15 @@
   <text x="880" y="380" class="small" text-anchor="middle">02:30</text>
 
   <path d="M 660 268 C 660 220, 556 210, 556 152" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow-violet)"/>
-  <text x="600" y="410" class="small" fill="#6d28d9" text-anchor="middle">click a lane and its transcript opens</text>
+  <text x="600" y="410" class="small" style="fill:#6d28d9" text-anchor="middle">click a lane and its transcript opens</text>
 
   <!-- side notes -->
   <rect x="910" y="176" width="272" height="70" rx="9" fill="#fffbeb" stroke="#d97706" stroke-width="1.4"/>
-  <text x="928" y="202" class="line" fill="#b45309">drawn, not measured</text>
+  <text x="928" y="202" class="line" style="fill:#b45309">drawn, not measured</text>
   <text x="928" y="226" class="small">the timeline's words are nobody's evidence</text>
 
   <rect x="910" y="258" width="272" height="70" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="1.4"/>
-  <text x="928" y="284" class="line" fill="#047857">the other four tabs</text>
+  <text x="928" y="284" class="line" style="fill:#047857">the other four tabs</text>
   <text x="928" y="308" class="small">come straight from the files on disk</text>
 
   <rect x="910" y="340" width="272" height="70" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4"/>
@@ -97,7 +97,7 @@
   <text x="928" y="390" class="small">a lane the files contradict loses its click</text>
 
   <!-- ladder -->
-  <text x="40" y="470" class="head" fill="#64748b">IF THE TIMELINE IS NOT THERE YET</text>
+  <text x="40" y="470" class="head" style="fill:#64748b">IF THE TIMELINE IS NOT THERE YET</text>
   <rect x="40" y="484" width="376" height="56" rx="9" fill="#ffffff" stroke="#e2e8f0"/>
   <text x="60" y="508" class="line">a timeline with lanes</text>
   <text x="60" y="530" class="small">the full page, every lane clickable</text>

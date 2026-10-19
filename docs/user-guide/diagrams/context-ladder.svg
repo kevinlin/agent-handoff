@@ -70,7 +70,7 @@
     <rect x="1040" y="230" width="180" height="170" rx="8" fill="#fff1f2" stroke="#e11d48" stroke-width="1.5" stroke-dasharray="6,4"/>
     <circle cx="1064" cy="254" r="11" fill="#e11d48"/>
     <path d="M 1060 250 l 8 8 M 1068 250 l -8 8" stroke="#ffffff" stroke-width="1.8"/>
-    <text x="1082" y="258" class="name" fill="#be123c">the repository</text>
+    <text x="1082" y="258" class="name" style="fill:#be123c">the repository</text>
     <text x="1058" y="282" class="small">paying a second agent to</text>
     <text x="1058" y="296" class="small">rediscover the repo is the</text>
     <text x="1058" y="310" class="small">cost this whole thing</text>
