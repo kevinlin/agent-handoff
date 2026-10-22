@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1580 1190">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
+.n { fill: #0f172a; font-size: 14px; font-weight: 600; }
+.s { fill: #475569; font-size: 12px; }
+</style>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#f1f5f9" stroke-width="1"/></pattern>
+<marker id="a-direct" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#0891b2"/></marker><marker id="a-trans" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/></marker><marker id="a-import" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#059669"/></marker><marker id="a-none" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/></marker><marker id="a-out" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#e11d48"/></marker><marker id="a-state" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#d97706"/></marker><marker id="a-host" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+</defs>
+<rect width="100%" height="100%" fill="#ffffff"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<text x="30" y="42" fill="#0f172a" font-size="20" font-weight="700">agent-handoff: files the agent harness loads, starting at SKILL.md</text>
+<text x="30" y="66" fill="#475569" font-size="12">Tags name who references or loads each file. install.sh ships every tracked file except .github/, so docs/ and tests/ exist at runtime.</text>
+<rect x="30" y="200" width="300" height="630" rx="12" fill="none" stroke="#0891b2" stroke-width="1.2" stroke-dasharray="8,4"/>
+<text x="44" y="223" fill="#0891b2" font-size="13" font-weight="700">references/  (Read into context)</text>
+<rect x="370" y="200" width="400" height="865" rx="12" fill="none" stroke="#059669" stroke-width="1.2" stroke-dasharray="8,4"/>
+<text x="384" y="223" fill="#059669" font-size="13" font-weight="700">scripts/  (run via Bash)</text>
+<rect x="810" y="200" width="300" height="660" rx="12" fill="none" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="8,4"/>
+<text x="824" y="223" fill="#7c3aed" font-size="13" font-weight="700">assets/  (read by scripts)</text>
+<rect x="1150" y="200" width="400" height="630" rx="12" fill="none" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="4,4"/>
+<text x="1164" y="223" fill="#e11d48" font-size="13" font-weight="700">OUTSIDE root/assets/references/scripts</text>
+<rect x="1165" y="235" width="370" height="125" rx="12" fill="none" stroke="#e11d48" stroke-width="1.2" stroke-dasharray="3,3"/>
+<text x="1179" y="258" fill="#e11d48" font-size="13" font-weight="700">in the skill repo: tests/</text>
+<rect x="1165" y="380" width="370" height="420" rx="12" fill="none" stroke="#d97706" stroke-width="1.2" stroke-dasharray="3,3"/>
+<text x="1179" y="403" fill="#d97706" font-size="13" font-weight="700">target repo / user home (not shipped)</text>
+<path d="M 290,121 L 412,121" fill="none" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a-host)"/>
+<text x="300" y="111" fill="#2563eb" font-size="12">on trigger</text>
+<path d="M 450,152 L 450,176 L 180,176 L 180,194" fill="none" stroke="#0891b2" stroke-width="1.6" marker-end="url(#a-direct)"/>
+<text x="190" y="170" fill="#0891b2" font-size="12">Read: 8 reference docs</text>
+<path d="M 580,152 L 580,194" fill="none" stroke="#059669" stroke-width="1.6" marker-end="url(#a-import)"/>
+<text x="588" y="184" fill="#059669" font-size="12">bash/python3 $HANDOFF_DIR/scripts/*</text>
+<path d="M 750,121 L 1350,121 L 1350,194" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#a-out)"/>
+<text x="780" y="111" fill="#e11d48" font-size="12">reference docs also name files outside these folders</text>
+<path d="M 750,317 L 822,317" fill="none" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a-trans)"/>
+<path d="M 750,587 L 822,587" fill="none" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a-trans)"/>
+<path d="M 750,641 L 822,641" fill="none" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a-trans)"/>
+<path d="M 750,695 L 822,695" fill="none" stroke="#7c3aed" stroke-width="1.6" marker-end="url(#a-trans)"/>
+<text x="752" y="311" fill="#7c3aed" font-size="12">read</text>
+<rect x="40" y="90" width="250" height="61" rx="6" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="52" y="111" class="n">Claude Code harness</text>
+<text x="52" y="128" class="s">~/.claude/skills/agent-handoff/</text>
+<text x="52" y="143" class="s">= $HANDOFF_DIR</text>
+<rect x="420" y="90" width="330" height="61" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="432" y="111" class="n">SKILL.md  (entry point, v3.10.0)</text>
+<text x="432" y="128" class="s">description = trigger; body loads</text>
+<text x="432" y="143" class="s">once the skill fires</text>
+<rect x="50" y="240" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="261" class="n">claude-driven.md</text>
+<text x="62" y="278" class="s">SKILL · 5-phase flow; hub doc</text>
+<rect x="50" y="298" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="319" class="n">fable5-principles.md</text>
+<text x="62" y="336" class="s">SKILL · prompting rules</text>
+<rect x="50" y="356" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="377" class="n">memory-protocol.md</text>
+<text x="62" y="394" class="s">SKILL · wrap-up memory rules</text>
+<rect x="50" y="414" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="435" class="n">handoff-template.md</text>
+<text x="62" y="452" class="s">SKILL · job packets</text>
+<rect x="50" y="472" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="493" class="n">setup.md</text>
+<text x="62" y="510" class="s">SKILL · /agent-handoff config</text>
+<rect x="50" y="530" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="551" class="n">tryout.md</text>
+<text x="62" y="568" class="s">SKILL · /agent-handoff tryout</text>
+<rect x="50" y="588" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="609" class="n">e2e-gauntlet.md</text>
+<text x="62" y="626" class="s">SKILL · opt-in e2e identities</text>
+<rect x="50" y="646" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="62" y="667" class="n">darwin-ratchet.md</text>
+<text x="62" y="684" class="s">SKILL · validation gate</text>
+<rect x="50" y="704" width="260" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="62" y="725" class="n">goal-template.md</text>
+<text x="62" y="742" class="s">via claude-driven, goal-to-pr</text>
+<rect x="50" y="762" width="260" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="62" y="783" class="n">goal-to-pr.md</text>
+<text x="62" y="800" class="s">via claude-driven</text>
+<rect x="390" y="240" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="261" class="n">delegate-codex.sh</text>
+<text x="402" y="278" class="s">SKILL · calls handoff-config resolve</text>
+<rect x="390" y="294" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="315" class="n">handoff-setup-ui.py</text>
+<text x="402" y="332" class="s">SKILL /config · loads handoff-setup</text>
+<rect x="390" y="348" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="369" class="n">handoff-setup.py</text>
+<text x="402" y="386" class="s">SKILL, setup · loads config, runtime</text>
+<rect x="390" y="402" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="423" class="n">handoff-config.py</text>
+<text x="402" y="440" class="s">SKILL, claude-driven, tryout, fable5</text>
+<rect x="390" y="456" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="477" class="n">make-receipt.py</text>
+<text x="402" y="494" class="s">SKILL · loads validate-receipt</text>
+<rect x="390" y="510" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="531" class="n">validate-receipt.py</text>
+<text x="402" y="548" class="s">SKILL (named) · rules hardcoded</text>
+<rect x="390" y="564" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="585" class="n">render-transcript.py</text>
+<text x="402" y="602" class="s">SKILL /transcript · imports runtime</text>
+<rect x="390" y="618" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="639" class="n">render-cost-receipt.py</text>
+<text x="402" y="656" class="s">SKILL /cost-receipt · imports runtime</text>
+<rect x="390" y="672" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="402" y="693" class="n">handoff-session-ui.py</text>
+<text x="402" y="710" class="s">SKILL /visualise · loads renderers</text>
+<rect x="390" y="726" width="360" height="46" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+<text x="402" y="747" class="n">handoff_runtime.py</text>
+<text x="402" y="764" class="s">imported by 4 scripts; no doc names it</text>
+<rect x="390" y="780" width="360" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="402" y="801" class="n">goal-sync.py</text>
+<text x="402" y="818" class="s">claude-driven, goal-to-pr, e2e-gauntlet</text>
+<rect x="390" y="834" width="360" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="402" y="855" class="n">validate-verdict.py</text>
+<text x="402" y="872" class="s">claude-driven, e2e-gauntlet</text>
+<rect x="390" y="888" width="360" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="402" y="909" class="n">check-skill-repo.sh</text>
+<text x="402" y="926" class="s">darwin-ratchet only</text>
+<rect x="390" y="942" width="360" height="46" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,4"/>
+<text x="402" y="963" class="n">run-test-prompts.py</text>
+<text x="402" y="980" class="s">CI tooling, not runtime</text>
+<rect x="390" y="996" width="360" height="46" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,4"/>
+<text x="402" y="1017" class="n">showcase-cost-ledger.py</text>
+<text x="402" y="1034" class="s">CI only; never reached</text>
+<rect x="830" y="294" width="260" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="842" y="315" class="n">setup-ui.html</text>
+<text x="842" y="332" class="s">← handoff-setup-ui.py</text>
+<rect x="830" y="564" width="260" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="842" y="585" class="n">transcript-viewer.html</text>
+<text x="842" y="602" class="s">← render-transcript.py</text>
+<rect x="830" y="618" width="260" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="842" y="639" class="n">cost-receipt.html</text>
+<text x="842" y="656" class="s">← render-cost-receipt.py</text>
+<rect x="830" y="672" width="260" height="46" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="842" y="693" class="n">session-view.html</text>
+<text x="842" y="710" class="s">← handoff-session-ui.py</text>
+<rect x="830" y="780" width="260" height="61" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,4"/>
+<text x="842" y="801" class="n">8 media files</text>
+<text x="842" y="818" class="s">gif / mp4 / png for README</text>
+<text x="842" y="833" class="s">and docs; never loaded</text>
+<rect x="830" y="356" width="260" height="61" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="842" y="377" class="n">receipt-schema.json</text>
+<text x="842" y="394" class="s">SKILL.md names it; validator</text>
+<text x="842" y="409" class="s">only cites it</text>
+<rect x="830" y="430" width="260" height="61" rx="6" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="842" y="451" class="n">verdict-schema.json</text>
+<text x="842" y="468" class="s">e2e packet: worker fills</text>
+<text x="842" y="483" class="s">verdict.json from it</text>
+<rect x="1180" y="275" width="340" height="61" rx="6" fill="#fff1f2" stroke="#e11d48" stroke-width="1.5"/>
+<text x="1192" y="296" class="n">tests/test_delegate_role.py</text>
+<text x="1192" y="313" class="s">e2e-gauntlet cites it as proof</text>
+<text x="1192" y="328" class="s">of worktree lifecycle; not loaded</text>
+<rect x="1180" y="420" width="340" height="61" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1192" y="441" class="n">.handoff/config.toml</text>
+<text x="1192" y="458" class="s">+ ~/.config/handoff/config.toml</text>
+<text x="1192" y="473" class="s">identity values; handoff-config.py</text>
+<rect x="1180" y="502" width="340" height="61" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1192" y="523" class="n">.handoff/{jobs,receipts,e2e}/</text>
+<text x="1192" y="540" class="s">+ goal.md, session-start</text>
+<text x="1192" y="555" class="s">delegate, make-receipt, goal-sync</text>
+<rect x="1180" y="584" width="340" height="61" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1192" y="605" class="n">AGENTS.md / CLAUDE.md</text>
+<text x="1192" y="622" class="s">the target repo's, not the skill's</text>
+<text x="1192" y="637" class="s">claude-driven, memory, setup</text>
+<rect x="1180" y="666" width="340" height="46" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1192" y="687" class="n">deep-reasoner.md / fast-worker.md</text>
+<text x="1192" y="704" class="s">user agents; setup, claude-driven</text>
+<rect x="1180" y="732" width="340" height="46" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1192" y="753" class="n">.cursor/cli.json · package.json</text>
+<text x="1192" y="770" class="s">claude-driven; e2e, goal-to-pr</text>
+<text x="30" y="1110" fill="#0f172a" font-size="14" font-weight="700">Legend: how the harness reaches each file</text>
+<rect x="30" y="1126" width="30" height="18" rx="3" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+<text x="70" y="1140" class="s" style="fill:#334155">named in SKILL.md</text>
+<rect x="500" y="1126" width="30" height="18" rx="3" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="540" y="1140" class="s" style="fill:#334155">reached via a reference doc or script</text>
+<rect x="970" y="1126" width="30" height="18" rx="3" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+<text x="1010" y="1140" class="s" style="fill:#334155">only imported by another script</text>
+<rect x="30" y="1156" width="30" height="18" rx="3" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,4"/>
+<text x="70" y="1170" class="s" style="fill:#334155">in an allowed folder, never reached</text>
+<rect x="500" y="1156" width="30" height="18" rx="3" fill="#fff1f2" stroke="#e11d48" stroke-width="1.5"/>
+<text x="540" y="1170" class="s" style="fill:#334155">outside the four allowed locations</text>
+<rect x="970" y="1156" width="30" height="18" rx="3" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1010" y="1170" class="s" style="fill:#334155">target repo / user state</text>
+</svg>

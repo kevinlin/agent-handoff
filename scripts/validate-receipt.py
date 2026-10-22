@@ -8,7 +8,7 @@ Accepts either the text block format emitted at the end of a Handoff run:
     claude_session: <id or none>
     ...
 
-The field semantics are documented in docs/receipt-schema.json.
+The field semantics are documented in assets/receipt-schema.json.
 
 Usage:
     python3 scripts/validate-receipt.py <file-with-receipt-block>

@@ -17,7 +17,7 @@ Covered: the `.handoff/` evidence store, transcript rendering, session receipt g
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
 | Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md` |
-| E2E verdicts | `docs/verdict-schema.json`, `references/e2e-gauntlet.md` |
+| E2E verdicts | `assets/verdict-schema.json`, `references/e2e-gauntlet.md` |
 | The illustrative workload model and its ledger | `examples/showcase-cost-ledger.json` |
 
 The prose contract agents load is `references/claude-driven.md`, Phase 0 and Phase 5; the same flow drawn for a human reader is `docs/user-guide/diagrams/evidence-flow.svg`.
@@ -38,7 +38,7 @@ Every field in every artifact traces back to a file read during the run. Three c
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
 | `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
 | `.handoff/rejected/<task-id>.patch` | driver, when the arbiter rejects a main-repo row | the user, a run reopening that row | none; `git apply` input |
-| `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py`, at wrap up | `validate-receipt.py`, `render-cost-receipt.py` | `docs/receipt-schema.json` |
+| `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py`, at wrap up | `validate-receipt.py`, `render-cost-receipt.py` | `assets/receipt-schema.json` |
 | `.handoff/transcripts/<jobId>.html` | `render-transcript.py` | a human | none; it is a page |
 | `.handoff/cost-receipts/cost-receipt-<stamp>.{md,html}` | `render-cost-receipt.py` | a human, and the README showcase | none; it is a page |
 
@@ -198,7 +198,7 @@ The argument is optional. Resolution stops at the first match: a path or existin
 
 ### It indexes the run; it does not summarize it
 
-The Handoff Session Receipt (`docs/receipt-schema.json`, schema v8) records phase, session id, wall-clock duration, checks, anomalies, five job counts with five matching duration lists, config scope and source, and `roles_used`. Those fields settle *which* jobs belong to the run and *what* executed them. No token or cost figure appears in the receipt at all. That omission is deliberate, and Flow 4 is what fills it.
+The Handoff Session Receipt (`assets/receipt-schema.json`, schema v8) records phase, session id, wall-clock duration, checks, anomalies, five job counts with five matching duration lists, config scope and source, and `roles_used`. Those fields settle *which* jobs belong to the run and *what* executed them. No token or cost figure appears in the receipt at all. That omission is deliberate, and Flow 4 is what fills it.
 
 ### One count per backend, read from the job's own meta
 

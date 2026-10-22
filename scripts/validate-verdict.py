@@ -4,7 +4,7 @@
 The verdict is the input to a merge decision, so its fields are checked
 against each other rather than trusted: a PASS must agree with the exit
 code, the scenario counts, and the hash of the scenarios the driver
-reviewed. Field semantics are documented in docs/verdict-schema.json.
+reviewed. Field semantics are documented in assets/verdict-schema.json.
 
 Usage:
     python3 scripts/validate-verdict.py <verdict.json>

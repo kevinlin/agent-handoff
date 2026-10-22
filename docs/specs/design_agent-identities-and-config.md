@@ -19,7 +19,7 @@ Covered: the five identities and what each takes, the resolution chain from a ta
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
 | Session evidence, transcripts, receipts | `docs/specs/design_agent-handoff-evidence.md` |
 | What the two round caps *do* once resolved | `docs/specs/design_agent-handoff.md`, *The two review gates, and where they escalate* |
-| The acceptance gate the optional identities serve | `references/e2e-gauntlet.md`, `docs/verdict-schema.json` |
+| The acceptance gate the optional identities serve | `references/e2e-gauntlet.md`, `assets/verdict-schema.json` |
 
 ### The invariant everything here rests on
 

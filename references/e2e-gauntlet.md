@@ -143,7 +143,7 @@ started by the runner.]
 
 ## Acceptance
 - Write `.handoff/e2e/<jobId>/verdict.json` with the fields in
-  `docs/verdict-schema.json`, filled from the run you actually performed.
+  `assets/verdict-schema.json`, filled from the run you actually performed.
 - `scenarios.ids` lists the scenario IDs you executed.
 - `harness_edits` names every file you repaired.
 
