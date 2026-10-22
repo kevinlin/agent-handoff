@@ -304,10 +304,11 @@ class MakeReceiptTests(unittest.TestCase):
         marker = repo / ".handoff" / "session-start"
         self.assertTrue(marker.is_file())
 
-        self.assertEqual("0min 00sec", self.make_receipt_fields(repo)["duration"])
+        # The subprocess reads the clock after the marker is stamped; allow a slow runner a few seconds.
+        self.assertRegex(self.make_receipt_fields(repo)["duration"], r"^0min 0[0-4]sec$")
 
         marker.write_text(stamp(datetime.now(timezone.utc) - timedelta(minutes=74)) + "\n")
-        self.assertEqual("74min 00sec", self.make_receipt_fields(repo)["duration"])
+        self.assertRegex(self.make_receipt_fields(repo)["duration"], r"^74min 0[0-4]sec$")
 
     def test_missing_start_marker_refuses_to_emit_a_receipt(self):
         made = self.run_make("--repo", str(self.temp_repo()), *RECEIPT_ARGS)
