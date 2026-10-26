@@ -137,7 +137,7 @@ def validate_backend_efforts(identities: Mapping[str, Mapping[str, Any]]) -> Non
 def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None:
     """Refuse ``model = "auto"`` on a copilot, cursor, or antigravity identity, at setup time.
 
-    ``delegate-codex.sh`` refuses it at submit too, but that is the first real
+    ``delegate-job.sh`` refuses it at submit too, but that is the first real
     job - late enough that a config naming ``auto`` applies cleanly and then
     fails on the first delegation. The reason is conceptual, not mechanical:
     an identity is a deliberate backend+model+effort choice, and ``auto`` hands
@@ -178,7 +178,7 @@ def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None
 
 
 def is_github_copilot_bin(path: str, env: Mapping[str, str]) -> bool:
-    """Mirror of ``is_github_copilot_bin`` in ``scripts/delegate-codex.sh``.
+    """Mirror of ``is_github_copilot_bin`` in ``scripts/delegate-job.sh``.
 
     ``copilot`` is also the binary name of AWS Copilot CLI, an unrelated ECS
     deployment tool, and the two are distinguishable only by ``--version``
@@ -202,7 +202,7 @@ def is_github_copilot_bin(path: str, env: Mapping[str, str]) -> bool:
 
 
 def copilot_bin(env: Mapping[str, str]) -> Optional[str]:
-    """Resolve GitHub Copilot CLI with delegate-codex.sh's precedence.
+    """Resolve GitHub Copilot CLI with delegate-job.sh's precedence.
 
     ``HANDOFF_COPILOT_BIN`` first, then every PATH match rather than only the
     first, so a GitHub Copilot CLI sitting behind AWS Copilot on PATH still
@@ -229,7 +229,7 @@ def copilot_bin(env: Mapping[str, str]) -> Optional[str]:
 
 
 def cursor_bin(env: Mapping[str, str]) -> Optional[str]:
-    """Resolve Cursor's agent CLI with delegate-codex.sh's precedence.
+    """Resolve Cursor's agent CLI with delegate-job.sh's precedence.
 
     ``HANDOFF_CURSOR_BIN`` first, then ``cursor-agent`` on PATH. Never
     ``cursor``, which is the Cursor IDE launcher, and never ``agent``.
@@ -276,7 +276,7 @@ def cursor_catalogue(binary: str, env: Mapping[str, str]) -> Tuple[List[Tuple[st
 
 
 def is_antigravity_bin(path: str, env: Mapping[str, str]) -> bool:
-    """Mirror of ``is_antigravity_bin`` in ``scripts/delegate-codex.sh``.
+    """Mirror of ``is_antigravity_bin`` in ``scripts/delegate-job.sh``.
 
     An IDE launcher has been linked as ``agy`` before (Homebrew), and
     ``agy --version`` prints only a bare number (VERSION), so neither the name
@@ -308,7 +308,7 @@ def is_antigravity_bin(path: str, env: Mapping[str, str]) -> bool:
 
 
 def antigravity_bin(env: Mapping[str, str]) -> Optional[str]:
-    """Resolve Antigravity's CLI with delegate-codex.sh's precedence.
+    """Resolve Antigravity's CLI with delegate-job.sh's precedence.
 
     ``HANDOFF_ANTIGRAVITY_BIN`` first, which is refused when it fails the
     identity check, then every ``agy`` on PATH in order rather than only the
@@ -1470,7 +1470,7 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                 continue
             result = subprocess.run(
                 [
-                    "bash", str(SCRIPT_DIR / "delegate-codex.sh"), "submit",
+                    "bash", str(SCRIPT_DIR / "delegate-job.sh"), "submit",
                     "--repo", str(args.repo), "--prompt-file", prompt.name,
                     "--role", identity,
                     "--read-only", "--dry-run",

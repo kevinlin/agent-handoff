@@ -42,7 +42,7 @@ text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
 <text x="52" y="128" class="s">~/.claude/skills/agent-handoff/</text>
 <text x="52" y="143" class="s">= $HANDOFF_DIR</text>
 <rect x="420" y="90" width="330" height="61" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-<text x="432" y="111" class="n">SKILL.md  (entry point, v3.10.0)</text>
+<text x="432" y="111" class="n">SKILL.md  (entry point, v3.10.1)</text>
 <text x="432" y="128" class="s">description = trigger; body loads</text>
 <text x="432" y="143" class="s">once the skill fires</text>
 <rect x="50" y="240" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
@@ -76,7 +76,7 @@ text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
 <text x="62" y="783" class="n">goal-to-pr.md</text>
 <text x="62" y="800" class="s">via claude-driven</text>
 <rect x="390" y="240" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-<text x="402" y="261" class="n">delegate-codex.sh</text>
+<text x="402" y="261" class="n">delegate-job.sh</text>
 <text x="402" y="278" class="s">SKILL · calls handoff-config resolve</text>
 <rect x="390" y="294" width="360" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
 <text x="402" y="315" class="n">handoff-setup-ui.py</text>

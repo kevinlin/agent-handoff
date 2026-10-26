@@ -31,7 +31,7 @@ Covered: binary discovery, effort and model, command lines, permission posture, 
 | The flow that plans, delegates, monitors, and reviews jobs | `docs/specs/design_agent-handoff.md` |
 | Event parsing for transcripts, the session receipt, the cost receipt | `docs/specs/design_agent-handoff-evidence.md` |
 | Denials on the session page | `docs/specs/design_session-visualisation.md` |
-| The job primitive (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
+| The job primitive (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-job.sh` header comment |
 
 ## The five backends at a glance
 
@@ -51,8 +51,8 @@ Covered: binary discovery, effort and model, command lines, permission posture, 
 
 Each backend is a branch in every place that branches on backend. Tables keyed by backend (`BACKENDS`, `BACKEND_EFFORTS`, `BACKEND_FIELDS`, `USAGE_FIELDS`, `BACKEND_LABELS`, `BACKEND_ICONS`, `PERMISSION_HINTS`) carry one row each, and the five event parsers each carry an explicit branch per backend:
 
-1. `STATUS_SCAN_PY` in `delegate-codex.sh`
-2. `cmd_result` in `delegate-codex.sh`
+1. `STATUS_SCAN_PY` in `delegate-job.sh`
+2. `cmd_result` in `delegate-job.sh`
 3. `fold_usage` in `render-cost-receipt.py`
 4. `denials()` in `handoff-session-ui.py`
 5. `HV.normalize` and `HV.inferBackend` in `assets/transcript-viewer.html`
@@ -69,7 +69,7 @@ Some generic catch-alls remain. None affects a named backend:
 
 - the `*)` cases in `resolve_worker_bin` and `validate_effort`, and the final `else` in `write_run_script`, all fall to codex;
 - `make-receipt.py` counts a job directory naming an unknown backend as codex;
-- the meta-less `BACKEND:-codex` defaults in `delegate-codex.sh` treat a job written before backend dispatch as codex, which it is by construction.
+- the meta-less `BACKEND:-codex` defaults in `delegate-job.sh` treat a job written before backend dispatch as codex, which it is by construction.
 
 Hardening the first two is a follow-up.
 
@@ -77,7 +77,7 @@ Hardening the first two is a follow-up.
 
 The fall-through scans for Cursor (at v3.9.0) and Antigravity (at `1486e87`) found these places, where a backend nobody named lands in another backend's branch or crashes. A sixth backend needs an explicit branch in each:
 
-- **`scripts/delegate-codex.sh`:** the backend guard in `submit`; `resolve_worker_bin` (otherwise it reads `HANDOFF_CODEX_BIN`, then runs `command -v <backend>`); `validate_effort` (otherwise the codex enum); a `resolve_<backend>_permission_mode` function (otherwise `submit` dies with exit 127); the `warn_permission_bypass` whitelist and its remedy line (otherwise no warning); a `write_<backend>_exec_line` and its branch in `write_run_script` (otherwise a codex command line); `extract_session_id`'s keys; whether `resume` pre-writes the parent's session id; `STATUS_SCAN_PY` and `cmd_result`; the header comment and `usage()`.
+- **`scripts/delegate-job.sh`:** the backend guard in `submit`; `resolve_worker_bin` (otherwise it reads `HANDOFF_CODEX_BIN`, then runs `command -v <backend>`); `validate_effort` (otherwise the codex enum); a `resolve_<backend>_permission_mode` function (otherwise `submit` dies with exit 127); the `warn_permission_bypass` whitelist and its remedy line (otherwise no warning); a `write_<backend>_exec_line` and its branch in `write_run_script` (otherwise a codex command line); `extract_session_id`'s keys; whether `resume` pre-writes the parent's session id; `STATUS_SCAN_PY` and `cmd_result`; the header comment and `usage()`.
 - **`scripts/handoff-config.py`:** `BACKENDS`.
 - **`scripts/handoff-setup.py`:** the effort tuple and `BACKEND_EFFORTS` (otherwise a `KeyError` in setup and the wizard); `cli_available`; `validate_backend_models`; the catalogue reader; a `validate_<backend>_model` for smoke and its branch in `smoke` (otherwise smoke passes after the dry-run alone); the terminal wizard's backend prompt and effort fill.
 - **`scripts/handoff-setup-ui.py` and `assets/setup-ui.html`:** `model_options`, `model_discovery`, and the `clis` entry in `build_state` (the comprehension over `CLI_RELEASES` raises `KeyError` for a backend without a release entry); the `normalize_payload` catalogue guard; `BACKEND_LABELS`, `BACKEND_ICONS`, `PERMISSION_HINTS`, the `models()` source label, `syncPermissionWarning`, the effort-lock backend set, and a detection tile.
@@ -89,7 +89,7 @@ Unchanged by a new backend: `job_state` and its Python mirror in `handoff_runtim
 
 ## Binary discovery
 
-`resolve_worker_bin` in `delegate-codex.sh` and `cli_available` in `handoff-setup.py` apply the same rule, so setup reports a CLI as available exactly when a job would find it. The order is the `HANDOFF_<NAME>_BIN` override, then (codex on macOS only) the ChatGPT or Codex app bundle, so app-only models use a compatible client, then PATH. A fix round reuses the parent's recorded binary while that path is still executable and, on copilot and antigravity, still passes the identity check; otherwise it resolves again.
+`resolve_worker_bin` in `delegate-job.sh` and `cli_available` in `handoff-setup.py` apply the same rule, so setup reports a CLI as available exactly when a job would find it. The order is the `HANDOFF_<NAME>_BIN` override, then (codex on macOS only) the ChatGPT or Codex app bundle, so app-only models use a compatible client, then PATH. A fix round reuses the parent's recorded binary while that path is still executable and, on copilot and antigravity, still passes the identity check; otherwise it resolves again.
 
 Three backends share a name with something else, and each is mapped explicitly:
 
@@ -327,7 +327,7 @@ Handoff's refusals happen before a job directory exists. A CLI's model check hap
 
 ### The output contract
 
-The shapes below exist on every backend, so a consumer never branches on vendor. How each log is parsed is `docs/specs/design_agent-handoff-evidence.md`'s subject (*Five telemetry shapes*); this is what `delegate-codex.sh` prints from it.
+The shapes below exist on every backend, so a consumer never branches on vendor. How each log is parsed is `docs/specs/design_agent-handoff-evidence.md`'s subject (*Five telemetry shapes*); this is what `delegate-job.sh` prints from it.
 
 - **Agent message.** The last agent message of the invocation, never a field that joins them all: Cursor's last `assistant` event rather than `result.result`, and Antigravity's last `agent_response` step (its `text_delta` values joined) rather than `result.response`, which in P3 ran 1,236 characters against the final step's 949.
 - **Commands.** Cursor's from `shellToolCall.args.command`; Antigravity's from the `CommandLine` of `ACTIVE` `run_command` steps. `agy` logs no exit code for a command (a deliberate `exit 7` ended `DONE` with no error, EXIT7), so `commands_run` lists them without a result, and a worker's report that a check passed is checked by re-running it.

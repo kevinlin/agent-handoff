@@ -16,7 +16,7 @@ Covered: the `/agent-handoff visualise` command, the loopback server behind it, 
 | --- | --- |
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
 | The evidence store, transcript, receipt, cost receipt | `docs/specs/design_agent-handoff-evidence.md` |
-| The job primitive | `scripts/delegate-codex.sh` header comment |
+| The job primitive | `scripts/delegate-job.sh` header comment |
 | Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md`, `references/setup.md` |
 | Generating the timeline SVG | a `baoyu-diagram` instruction in `SKILL.md`; no script does it |
 
@@ -300,7 +300,7 @@ Asserted by prose rather than by a script: that the SVG is a narrative and the t
 - **Checking the SVG's narrative numbers.** Would require the page to establish what the prose means, which is a parser for English.
 - **A static shareable bundle.** The transcript and cost receipt pages are already self-contained files, which is the sharing path.
 - **Aggregation across runs.** One receipt in, one page.
-- **New evidence written during a run.** No receipt schema change, and no edits to `delegate-codex.sh`, `make-receipt.py`, `validate-receipt.py`, or either existing renderer's behaviour.
+- **New evidence written during a run.** No receipt schema change, and no edits to `delegate-job.sh`, `make-receipt.py`, `validate-receipt.py`, or either existing renderer's behaviour.
 - **A `references/*.md` flow document.** One command with one optional argument; `SKILL.md` carries it directly, as it does for the other two renderers.
 
 ## Verification
@@ -312,7 +312,7 @@ python3 -m unittest discover -s tests
 node --test tests/test_transcript_viewer.mjs
 bash scripts/check-skill-repo.sh .
 python3 scripts/run-test-prompts.py
-bash -n scripts/delegate-codex.sh
+bash -n scripts/delegate-job.sh
 python3 -m py_compile scripts/*.py
 bash install.sh --dry-run
 SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown

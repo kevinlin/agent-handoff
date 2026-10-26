@@ -54,7 +54,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def job_state(job_dir: Path) -> str:
-    """Mirror delegate-codex.sh job_state(). Absence of exit_code is never
+    """Mirror delegate-job.sh job_state(). Absence of exit_code is never
     RUNNING on its own: a worker that died without writing one is FAILED."""
     if (job_dir / "cancelled").is_file():
         return "CANCELLED"

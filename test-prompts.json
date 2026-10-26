@@ -76,9 +76,9 @@
     "expected_behavior": [
       "Follow the phases in references/claude-driven.md.",
       "Write the refined plan and task split into .handoff/goal.md with verifiable acceptance criteria per task.",
-      "Delegate mechanical tasks to Codex via scripts/delegate-codex.sh background jobs at effort high, recording jobIds in the goal file.",
+      "Delegate mechanical tasks to Codex via scripts/delegate-job.sh background jobs at effort high, recording jobIds in the goal file.",
       "Monitor long-running jobs with a loop and update task statuses from job state, not guesses.",
-      "Full-review every Codex diff before accepting it, within the review cap ([review] implementation_max_rounds, default 3 review passes) via delegate-codex.sh resume.",
+      "Full-review every Codex diff before accepting it, within the review cap ([review] implementation_max_rounds, default 3 review passes) via delegate-job.sh resume.",
       "End with a Handoff Session Receipt whose codex_jobs counts all delegated jobs including fix rounds."
     ],
     "must_not": [
@@ -109,7 +109,7 @@
     "prompt": "The Codex background jobs are done. Sign them off and give me the receipt.",
     "should_trigger": true,
     "expected_behavior": [
-      "Collect each job with delegate-codex.sh result and read the complete diff scoped to the files the job touched.",
+      "Collect each job with delegate-job.sh result and read the complete diff scoped to the files the job touched.",
       "Run the fastest relevant check from the task's acceptance criteria before accepting.",
       "Send findings back as a bounded fix round to the same Codex session when the work falls short, and escalate to the arbiter when the review cap runs out with findings still open.",
       "Emit a Handoff Session Receipt with an honest codex_jobs count and any monitoring anomalies."
@@ -340,7 +340,7 @@
     "expected_behavior": [
       "Validate the verdict with scripts/validate-verdict.py before acting on it, including the reviewed scenarios hash.",
       "Leave the merge decision to the driver after its own review of the verifier's diff and evidence.",
-      "Clean up the worktree with delegate-codex.sh cleanup once it is merged or abandoned."
+      "Clean up the worktree with delegate-job.sh cleanup once it is merged or abandoned."
     ],
     "must_not": [
       "Let the worker merge, push, or rebase its own worktree branch.",
@@ -369,7 +369,7 @@
     "should_trigger": true,
     "expected_behavior": [
       "Write the plan and attack the split first, then send the Spec Review Packet to deep_reasoner before the plan reaches the user, whatever the config says; there is no toggle.",
-      "Submit it with delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review, with the plan verbatim in the packet.",
+      "Submit it with delegate-job.sh submit --role deep_reasoner --read-only --label spec-review, with the plan verbatim in the packet.",
       "Expect each finding tagged blocking or advisory; accept or decline each one and write down why.",
       "Record the status and the round in the goal file's ## Spec Review block, then hand the adjusted plan to the user."
     ],
@@ -401,7 +401,7 @@
     "should_trigger": true,
     "expected_behavior": [
       "Record the declined blocking finding and the reason for declining it in the ## Spec Review block.",
-      "Recognise the spec cap is reached and submit an escalation ruling with delegate-codex.sh submit --role arbiter --read-only --label arbitrate-spec.",
+      "Recognise the spec cap is reached and submit an escalation ruling with delegate-job.sh submit --role arbiter --read-only --label arbitrate-spec.",
       "Put the plan, every finding with its tag, and the driver's dispositions and reasons into the Arbitration Packet.",
       "Record the verdict in the ## Arbitration block whatever it is; on approve send the plan to the user, on reject stop before Phase 2 and still emit a receipt with phase planning."
     ],
@@ -417,14 +417,14 @@
     "prompt": "Agent handoff: split this refactor and delegate it. (fast_worker is configured with backend = claude in this repo.)",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit the fast_worker row through delegate-codex.sh --role fast_worker exactly as a codex-backed row would be submitted.",
+      "Submit the fast_worker row through delegate-job.sh --role fast_worker exactly as a codex-backed row would be submitted.",
       "Report the returned jobId and write it into the goal file's task row; a claude-backed row is never left at '-'.",
-      "Monitor it with delegate-codex.sh status and collect it with result, the same way as any other job.",
+      "Monitor it with delegate-job.sh status and collect it with result, the same way as any other job.",
       "Say that the identity's configured backend picked the CLI, and that the job's meta records backend=claude."
     ],
     "must_not": [
       "Spawn a handoff-fast-worker subagent instead of delegating, losing the jobId, the job state, the monitoring loop, and the receipt evidence.",
-      "Claim delegate-codex.sh refuses a claude-backed identity.",
+      "Claim delegate-job.sh refuses a claude-backed identity.",
       "Pass --backend codex to move the job onto the other vendor.",
       "Report the work as delegated with no jobId behind it."
     ]
@@ -451,7 +451,7 @@
     "prompt": "The delegated job came back with two acceptance criteria unmet. Send it one fix round. (That job ran on a claude-backed identity.)",
     "should_trigger": true,
     "expected_behavior": [
-      "Use delegate-codex.sh resume <jobId> with a prompt file holding only the prioritized findings and the criteria that failed.",
+      "Use delegate-job.sh resume <jobId> with a prompt file holding only the prioritized findings and the criteria that failed.",
       "Let resume read the parent job's backend from its meta so the fix round lands on the same CLI and the same worker session.",
       "Expect the child job to inherit the parent's worktree and role, so roles_used keeps its provenance across the fix round.",
       "Stop at the review cap, then escalate to the arbiter and record its verdict."
@@ -468,7 +468,7 @@
     "prompt": "Agent handoff: add the e2e rows for this API change and run them. (e2e_specifier is backend = claude; the implementation row ran on codex.)",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit the e2e_specifier row with delegate-codex.sh submit --worktree e2e/<task-id> --base <sha>, the same command a codex-backed row uses.",
+      "Submit the e2e_specifier row with delegate-job.sh submit --worktree e2e/<task-id> --base <sha>, the same command a codex-backed row uses.",
       "Keep --repo pointed at the main repo, never at a worktree path, on either backend.",
       "Expect the job's meta to record worktree, branch, and base_commit, and expect cleanup to refuse a worktree holding uncommitted changes.",
       "Inline the frozen goal excerpt and the spec into the packet, because a worktree carries tracked content only."
@@ -508,7 +508,7 @@
       "Do not plan, split, or submit any job."
     ],
     "must_not": [
-      "delegate-codex.sh submit",
+      "delegate-job.sh submit",
       "goal.md",
       "Handoff Session Receipt"
     ]
@@ -522,7 +522,7 @@
       "Open the rendered page rather than summarizing the job from its result."
     ],
     "must_not": [
-      "delegate-codex.sh submit",
+      "delegate-job.sh submit",
       "codex exec"
     ]
   },
@@ -531,7 +531,7 @@
     "prompt": "Hand the refactor off to my claude-backed fast_worker and make sure it runs the test suite itself",
     "should_trigger": true,
     "expected_behavior": [
-      "Delegate on the identity's configured backend with delegate-codex.sh submit --role fast_worker.",
+      "Delegate on the identity's configured backend with delegate-job.sh submit --role fast_worker.",
       "State the effective posture: claude default uses dontAsk with Read Glob Grep Edit Write Bash; allow-all uses bypassPermissions. A background job never prompts; unapproved actions deny. This is permission-rule narrowing, not OS-level containment.",
       "Read permission_denied from status or result and treat any non-zero count as a failed job regardless of exit code, re-running the blocked checks in the driving session.",
       "Use the configured permission_mode; explain HANDOFF_CLAUDE_PERMISSION_MODE only as the retained override. Read-only wins; warnings key on effective mode. Denial counts are advisory, not enforced, and Codex denials are not counted."
@@ -562,7 +562,7 @@
     "prompt": "fast_worker is configured with backend copilot. Hand it this migration as a background job.",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit the work with delegate-codex.sh submit --role fast_worker and report the returned jobId.",
+      "Submit the work with delegate-job.sh submit --role fast_worker and report the returned jobId.",
       "Let the identity's configured backend pick the CLI, so a copilot identity runs copilot -p --output-format json.",
       "Treat the copilot job as a real delegated job: same job directory, monitoring loop, fix-round resume, and receipt entry as any other backend.",
       "Confirm the copilot binary is GitHub Copilot CLI by its --version output, since AWS Copilot CLI shares the name."
@@ -596,7 +596,7 @@
     "prompt": "The copilot job came back with two review findings. Send the fixes back to it.",
     "should_trigger": true,
     "expected_behavior": [
-      "Use delegate-codex.sh resume <jobId> so the fix round lands on the same session on the same backend.",
+      "Use delegate-job.sh resume <jobId> so the fix round lands on the same session on the same backend.",
       "Rely on the parent job's meta backend= and session_id rather than resubmitting the task from zero.",
       "Send only the prioritized findings and the failed acceptance criteria, not the whole packet again.",
       "Keep within the review cap per task, then escalate to the arbiter rather than taking the task back."
@@ -630,7 +630,7 @@
     "prompt": "fast_worker is cursor-backed. Hand task T2 off.",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit with delegate-codex.sh submit --role fast_worker and report the jobId.",
+      "Submit with delegate-job.sh submit --role fast_worker and report the jobId.",
       "Check that meta records backend=cursor.",
       "Tell the user that on Cursor the permission posture changes nothing: the job auto-approves every tool call except what the user's own deny rules forbid.",
       "Monitor it with the same status and result loop as any other backend."
@@ -682,7 +682,7 @@
     "prompt": "fast_worker is antigravity-backed. Hand task T2 off.",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit with delegate-codex.sh submit --role fast_worker and report the jobId.",
+      "Submit with delegate-job.sh submit --role fast_worker and report the jobId.",
       "Check that meta records backend=antigravity.",
       "Tell the user that on Antigravity the permission posture changes nothing: default and allow-all both skip every permission check, and only a read-only job differs.",
       "Monitor it with the same status and result loop as any other backend."
@@ -713,7 +713,7 @@
     "prompt": "Run the review as a read-only job on my antigravity-backed deep_reasoner.",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit with delegate-codex.sh submit --role deep_reasoner --read-only, which runs agy in plan mode.",
+      "Submit with delegate-job.sh submit --role deep_reasoner --read-only, which runs agy in plan mode.",
       "Inline the diff the review needs and state the check results, because plan mode refuses every shell command and the job ends at the first one.",
       "Say that read-only rests on plan mode in print mode, and that an allow rule in the user's agy settings might let a write through.",
       "Check the working tree with git status --short once the job is done.",
@@ -809,7 +809,7 @@
     "should_trigger": true,
     "expected_behavior": [
       "Do not resume T3 again: resume refuses a fourth round.",
-      "Submit an escalation ruling with delegate-codex.sh submit --role arbiter --read-only --label arbitrate-T3, carrying the brief, the acceptance criteria, the full scoped diff with check results, and every round's findings with the worker's last report.",
+      "Submit an escalation ruling with delegate-job.sh submit --role arbiter --read-only --label arbitrate-T3, carrying the brief, the acceptance criteria, the full scoped diff with check results, and every round's findings with the worker's last report.",
       "On approve, accept the diff, mark T3 done, and record which findings were overruled.",
       "On reject, mark T3 rejected, set its diff aside, hold rows that depend on it, keep independent rows going, write a handover into Notes, and add arbitration: T3 reject (<jobId>) to the receipt's anomalies line."
     ],

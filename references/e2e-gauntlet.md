@@ -18,7 +18,7 @@ When the criterion fires but the identities are unconfigured, **say so once**:
 
 then continue without them. Setup state does not get to quietly override the driver's judgment. It does not block the run either.
 
-An unconfigured identity passed to `delegate-codex.sh --role` hits the existing fail-closed error pointing at `/agent-handoff config`. There is no separate error path for these two, and no separate one per backend.
+An unconfigured identity passed to `delegate-job.sh --role` hits the existing fail-closed error pointing at `/agent-handoff config`. There is no separate error path for these two, and no separate one per backend.
 
 ## Worktree protocol
 
@@ -32,7 +32,7 @@ Driver-owned, four rules, identical on all five backends:
 ### The command, on any backend
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
   --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
 ```
@@ -44,7 +44,7 @@ A fix round inherits the tree: `resume` reads `worktree=` and `backend=` from th
 Once a worktree is merged or abandoned:
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" cleanup <jobId> --repo "$REPO"
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" cleanup <jobId> --repo "$REPO"
 ```
 
 `cleanup` is idempotent and refuses a worktree holding uncommitted changes, reporting it rather than discarding work. `cancel` calls it and keeps the tree for inspection if it refuses.

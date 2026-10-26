@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# delegate-codex.sh — Claude-driven Handoff delegation primitive.
+# delegate-job.sh — Claude-driven Handoff delegation primitive for every backend.
 #
-# The name is historical: this is the delegation primitive for ALL backends.
 # It wraps `codex exec --json`, `claude --print --output-format stream-json`,
 # `copilot -p --output-format json`, `cursor-agent -p --output-format stream-json`,
 # and `agy -p --output-format stream-json`
@@ -19,8 +18,9 @@ set -euo pipefail
 #   stderr.log   worker stderr (tokens, warnings, auth errors)
 #   pid          background worker pid
 #   exit_code    written when the worker finishes
-#   session_id   worker thread/session id, extracted from log.jsonl — or, on
-#                copilot, assigned at submit and written before launch
+#   session_id   worker thread/session id, extracted from log.jsonl — or written
+#                before launch: on copilot, assigned at submit; on a resume of any
+#                backend but antigravity, copied from the parent job
 #   meta         label, backend, effort, mode, permission mode, parent job,
 #                timestamps; permission_posture is requested, permission_mode is
 #                the effective backend mode, permission_posture_source records origin;
@@ -31,22 +31,22 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-delegate-codex.sh — background delegation jobs for the Handoff flow
-(the name is historical; it drives the codex, claude, copilot, cursor, and antigravity backends)
+delegate-job.sh — background delegation jobs for the Handoff flow, on the
+codex, claude, copilot, cursor, and antigravity backends
 
 Usage:
-  delegate-codex.sh submit --repo <path> --prompt-file <file>
+  delegate-job.sh submit --repo <path> --prompt-file <file>
                     [--label <name>] [--effort <level>] [--model <model>]
                     [--backend codex|claude|copilot|cursor|antigravity]
                     [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
                     [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
-  delegate-codex.sh status  <jobId> --repo <path> [--wait] [--timeout <seconds>]
-  delegate-codex.sh result  <jobId> --repo <path> [--json]
-  delegate-codex.sh resume  <jobId> --repo <path> --prompt-file <file> [--read-only]
-  delegate-codex.sh cancel  <jobId> --repo <path>
-  delegate-codex.sh cleanup <jobId> --repo <path>
-  delegate-codex.sh list    --repo <path>
+  delegate-job.sh status  <jobId> --repo <path> [--wait] [--timeout <seconds>]
+  delegate-job.sh result  <jobId> --repo <path> [--json]
+  delegate-job.sh resume  <jobId> --repo <path> --prompt-file <file> [--read-only]
+  delegate-job.sh cancel  <jobId> --repo <path>
+  delegate-job.sh cleanup <jobId> --repo <path>
+  delegate-job.sh list    --repo <path>
 
 Defaults: --backend codex, --effort high (Handoff default for delegated
 work), permission_mode=default: codex inherits the user's config, claude uses
@@ -84,7 +84,7 @@ than being silently downgraded.
 
 `--model auto` is refused on a copilot, cursor, or antigravity job. An identity is a
 deliberate backend + model + effort choice; `auto` hands the model choice back to the
-vendor per request, so the job's record would name what Copilot picked rather
+vendor per request, so the job's record would name what the vendor picked rather
 than what the repo configured.
 
 Cursor takes one effort, `model`: Cursor carries effort inside the model slug
@@ -153,8 +153,9 @@ deployment tool, so every way of resolving a copilot binary applies the same
 `--version` identity check. PATH discovery walks every match and takes the first
 reporting `GitHub Copilot CLI`; HANDOFF_COPILOT_BIN is checked too, since a
 stale variable is the likeliest way to hold the wrong path; and a fix round
-re-checks the parent job's recorded binary before reusing it. Each fails closed
-naming what it found instead.
+re-checks the parent job's recorded binary before reusing it. Discovery and the
+variable fail closed naming what they found instead; a recorded path that no
+longer identifies is dropped and discovery runs again.
 
 permission_mode=allow-all selects the provider's native unrestricted mode:
 claude bypassPermissions, codex --dangerously-bypass-approvals-and-sandbox,
@@ -163,7 +164,7 @@ HANDOFF_CLAUDE_PERMISSION_MODE overrides claude's configured posture:
 acceptEdits|auto|bypassPermissions|manual|dontAsk|plan. It is validated before
 --read-only wins. Resume inherits posture and read_only; missing posture means
 default. meta and --dry-run show permission_posture, permission_posture_source
-(config:<layer>|explicit|env|read-only|parent|default), and effective permission_mode.
+(config:<layer>|env|read-only|parent|default), and effective permission_mode.
 
 A background job never prompts: unapproved actions deny. Claude default changes
 permission rules only, with no OS-level sandbox. Codex default inherits its
@@ -214,8 +215,11 @@ is_git_repo() {
 }
 
 resolve_worker_bin() {
-  # Finds the CLI for one backend. The CODEX_* variable names are kept so the
-  # meta keys and resume's parent-binary reuse stay unchanged across backends.
+  # Finds the CLI for one backend. CODEX_BIN, CODEX_BIN_SOURCE, and CODEX_VERSION
+  # hold whichever backend's binary this finds; the names date from when codex
+  # was the only backend. They are written to meta as codex_bin, codex_bin_source,
+  # and codex_version. resume reads codex_bin from every parent job, old ones
+  # included, so the names stay.
   local backend="$1" env_var configured candidate="" bin_name="$1"
   case "$backend" in
     claude) env_var="HANDOFF_CLAUDE_BIN" ;;
@@ -240,7 +244,8 @@ resolve_worker_bin() {
     # is the likeliest way to hold a stale or mistyped path, and an unchecked
     # one launches AWS Copilot CLI with GitHub Copilot flags: the job dies with
     # a confusing error and a near-empty log instead of failing legibly here.
-    # Only copilot needs this — codex and claude have no name collision.
+    # Only copilot and antigravity need this: codex, claude, and cursor have no
+    # name collision (cursor resolves `cursor-agent`, never the `cursor` IDE).
     if [ "$backend" = "copilot" ] && ! is_github_copilot_bin "$candidate"; then
       die "$env_var does not point at GitHub Copilot CLI: $candidate reports '$("$candidate" --version 2>/dev/null | head -1 || true)' (AWS Copilot CLI shares the binary name); point $env_var at the GitHub Copilot CLI, or unset it to discover one on PATH"
     fi
@@ -505,8 +510,8 @@ job_state() {
 
 extract_session_id() {
   # Best-effort session/thread id from the JSONL stream; caches into session_id.
-  # The backend is passed in, never read from the global: cmd_result runs this
-  # before it knows the backend any other way.
+  # The backend is passed in, never read from the global BACKEND; every caller
+  # reads it from the job's meta first.
   local backend="${1:-}"
   # A cache holding only whitespace is absent. An early read that finds no id
   # yet prints an empty line, tee caches that newline, and a bare -s test would
@@ -627,7 +632,7 @@ cmd_submit() {
   if [ "$BACKEND_EXPLICIT" = "true" ] && [ -z "$ROLE" ]; then BACKEND_SOURCE="explicit"; fi
   # An identity is a deliberate backend + model + effort choice, and `auto`
   # hands the model choice back to the vendor per request — which would make
-  # this job's record name what Copilot picked, not what the repo configured.
+  # this job's record name what the vendor picked, not what the repo configured.
   if [ "$MODEL" = "auto" ] && { [ "$BACKEND" = "copilot" ] || [ "$BACKEND" = "cursor" ] || [ "$BACKEND" = "antigravity" ]; }; then
     local ARTICLE="a"
     [ "$BACKEND" = "antigravity" ] && ARTICLE="an"
@@ -664,7 +669,7 @@ cmd_submit() {
   # Copilot emits `sessionId` only in its terminal event, so a job that dies
   # mid-run would have no id to resume from. --session-id sets the UUID for a
   # new session, so assign it here and persist it before launch; a crashed
-  # copilot job then has the same resume parity the other two backends get for
+  # copilot job then has the same resume parity the other four backends get for
   # free.
   if [ "$BACKEND" = "copilot" ]; then
     NEW_SESSION_ID="$(python3 - <<'PY_UUID'
@@ -768,9 +773,10 @@ cmd_resume() {
   BACKEND="${BACKEND:-codex}"
   local PARENT_ROLE
   PARENT_ROLE="$(meta_value role "$PARENT_JOB")"
-  # `codex exec resume` and `claude --resume` both take cwd from the shell, so
-  # without this a fix round would land in the main repo instead of the
-  # parent's worktree.
+  # Every backend's resume takes cwd from the shell. `codex exec resume` and
+  # `copilot --resume` take no -C, a cursor resume takes no --workspace, and
+  # `claude` and `agy` have no cwd flag. Without this a fix round would land in
+  # the main repo instead of the parent's worktree.
   local PARENT_WORKDIR
   PARENT_WORKDIR="$(meta_value worktree "$PARENT_JOB")"
   if [ -n "$PARENT_WORKDIR" ]; then

@@ -4,7 +4,7 @@ Four packets, all bounded: the delegation packet the driver sends to a delegated
 
 ## Handoff Delegation Packet
 
-Use this packet when Claude Code delegates a task via `delegate-codex.sh submit`, whichever backend the row's identity is configured for — the packet is identical, because routing comes from config and never from the prose. It follows `references/fable5-principles.md`: why-forward opening, one-sentence task, verifiable acceptance, only genuine constraints, fixed output discipline.
+Use this packet when Claude Code delegates a task via `delegate-job.sh submit`, whichever backend the row's identity is configured for — the packet is identical, because routing comes from config and never from the prose. It follows `references/fable5-principles.md`: why-forward opening, one-sentence task, verifiable acceptance, only genuine constraints, fixed output discipline.
 
 ```markdown
 # Handoff Delegation
@@ -37,12 +37,12 @@ Delegation packet rules:
 
 - Acceptance criteria are what the Phase 4 full review checks against; write them as commands or observable behavior, never vibes.
 - Keep the constraints section short — genuine blockers only. Trust the model with approach decisions inside the scope boundary.
-- For fix rounds (`delegate-codex.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet. A fix round past `[review] implementation_max_rounds` is refused by `resume`; the dispute goes to the Arbitration Packet instead.
+- For fix rounds (`delegate-job.sh resume`), send only: the review findings (prioritized), the acceptance criteria that failed, and "Continue end-to-end from here." Do not resend the whole packet. A fix round past `[review] implementation_max_rounds` is refused by `resume`; the dispute goes to the Arbitration Packet instead.
 - The e2e packets in `references/e2e-gauntlet.md` **replace** the "Do not commit" constraint line with a commit-on-this-worktree-branch rule. They are the only packets that do; do not append a commit permission to this template. The Spec Review Packet below moves in the opposite direction — it removes the write permission this template implies rather than widening it.
 
 ## Spec Review Packet (Phase 1, every plan)
 
-Use this packet on every plan, before it reaches the user. A later round under the cap is a `resume` of the same job carrying the revised plan, the declined blocking findings, and your reasons, not a new packet. Send it as a read-only job on the identity's configured backend: `delegate-codex.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; on a copilot-backed one it becomes `--mode plan`, which never carries `--allow-all-tools`; on a cursor-backed one it becomes `--mode plan`, which never carries Cursor's force mode; on an antigravity-backed one it becomes `--mode plan`, which never carries `--dangerously-skip-permissions` and refuses every shell command, so inline the diff and state the check results. The job, the jobId, and the receipt entry are the same on all five.
+Use this packet on every plan, before it reaches the user. A later round under the cap is a `resume` of the same job carrying the revised plan, the declined blocking findings, and your reasons, not a new packet. Send it as a read-only job on the identity's configured backend: `delegate-job.sh submit --role deep_reasoner --read-only --label spec-review`. On a claude-backed `deep_reasoner`, `--read-only` becomes `--permission-mode plan`; on a copilot-backed one it becomes `--mode plan`, which never carries `--allow-all-tools`; on a cursor-backed one it becomes `--mode plan`, which never carries Cursor's force mode; on an antigravity-backed one it becomes `--mode plan`, which never carries `--dangerously-skip-permissions` and refuses every shell command, so inline the diff and state the check results. The job, the jobId, and the receipt entry are the same on all five.
 
 The spec goes in the packet verbatim. The reviewer starts cold and must not go looking for the plan itself; what it is given is what it judges.
 
@@ -90,7 +90,7 @@ Spec review rules:
 
 ## Arbitration Packet (escalation ruling)
 
-Use this packet when a review gate reaches its cap without consensus. Send it as a read-only job to `arbiter`: `delegate-codex.sh submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan). Unlike blind arbitration, nothing is withheld: the arbiter judges a dispute and needs both sides of it.
+Use this packet when a review gate reaches its cap without consensus. Send it as a read-only job to `arbiter`: `delegate-job.sh submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan). Unlike blind arbitration, nothing is withheld: the arbiter judges a dispute and needs both sides of it.
 
 ```markdown
 # Handoff Arbitration

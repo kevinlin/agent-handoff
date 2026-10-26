@@ -15,7 +15,7 @@ Covered: the `.handoff/` evidence store, transcript rendering, session receipt g
 | Out of scope | Where it lives |
 | --- | --- |
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
-| The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
+| The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-job.sh` header comment |
 | Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md` |
 | E2E verdicts | `assets/verdict-schema.json`, `references/e2e-gauntlet.md` |
 | The illustrative workload model and its ledger | `examples/showcase-cost-ledger.json` |
@@ -34,7 +34,7 @@ Every field in every artifact traces back to a file read during the run. Three c
 
 | Artifact | Written by | Read by | Contract |
 | --- | --- | --- | --- |
-| `.handoff/jobs/<jobId>/` | `delegate-codex.sh`, while the job runs | monitor loop, all three renderers | `delegate-codex.sh` header |
+| `.handoff/jobs/<jobId>/` | `delegate-job.sh`, while the job runs | monitor loop, all three renderers | `delegate-job.sh` header |
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
 | `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
 | `.handoff/rejected/<task-id>.patch` | driver, when the arbiter rejects a main-repo row | the user, a run reopening that row | none; `git apply` input |
@@ -61,7 +61,7 @@ Nothing in Phase 5 collects anything the run did not already write. Each job's o
 | `session_id` | extracted at the end (an antigravity id from `init`'s `conversation_id`), or assigned at submit on copilot | `resume` |
 | `usage.json` | copilot only, at exit | the copilot token and credit columns |
 
-`job_state()` lives once, in `scripts/handoff_runtime.py`, mirroring `delegate-codex.sh`. Absence of `exit_code` is never `RUNNING` on its own: a worker that died without writing one is `FAILED`. Both renderers import that single implementation rather than re-deriving it.
+`job_state()` lives once, in `scripts/handoff_runtime.py`, mirroring `delegate-job.sh`. Absence of `exit_code` is never `RUNNING` on its own: a worker that died without writing one is `FAILED`. Both renderers import that single implementation rather than re-deriving it.
 
 ### Two writes that are ordered, and one that is contended
 
@@ -127,7 +127,7 @@ What a resumed session inherits is this directory and nothing else: the final ta
 
 ### Why `result` is not enough
 
-`delegate-codex.sh result` prints the last agent message, a command count, usage, and any denial count. That answers "what did it conclude". It does not answer "what did it do, and why did it conclude that", which is the question a driver has when a verdict looks wrong or a monitoring tick shows an anomaly. In the sample jobs the ratio was 16 agent messages to 111 command pairs, and `result` also ignored a `turn.failed` and a top-level `error` that were sitting in the log.
+`delegate-job.sh result` prints the last agent message, a command count, usage, and any denial count. That answers "what did it conclude". It does not answer "what did it do, and why did it conclude that", which is the question a driver has when a verdict looks wrong or a monitoring tick shows an anomaly. In the sample jobs the ratio was 16 agent messages to 111 command pairs, and `result` also ignored a `turn.failed` and a top-level `error` that were sitting in the log.
 
 ### One artifact, two entry points
 
@@ -347,13 +347,13 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 
 ## Not doing
 
-- **Stamping timestamps into `log.jsonl` as it is written.** A line-stamper in `delegate-codex.sh` would give real per-event local time on every backend and survive the drop path. It also modifies a runtime primitive every job depends on, and only new jobs would benefit. Deferred; this is the way to get per-event timing if it ever becomes the point.
+- **Stamping timestamps into `log.jsonl` as it is written.** A line-stamper in `delegate-job.sh` would give real per-event local time on every backend and survive the drop path. It also modifies a runtime primitive every job depends on, and only new jobs would benefit. Deferred; this is the way to get per-event timing if it ever becomes the point.
 - **Reading Codex rollout files for timestamps.** `~/.codex/sessions/.../rollout-*.jsonl` carries ISO timestamps and joins on the session id the job already stores. It is codex-only, same-machine-only, a third format to parse, and it breaks the drop path, where the dragged file carries no timestamps at any price.
 - **Diff bodies for file changes.** `file_change` events carry paths and kind, no content. A diff would make the page depend on repo state instead of the log.
 - **A nested view of subagent threads.** `parent_tool_use_id` is retained and labelled; a tree UI on top of it is speculative until a real log needs one.
 - **Search, export, or a two-pane outline in the viewer.** Browser find covers search at this page size.
 - **A price table, or any cost figure for the driver, codex, copilot, cursor, or antigravity.** A repriced token is the fabrication the repo rules out, and a checked-in rate card would go stale silently.
-- **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-codex.sh` were needed to add it.
+- **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-job.sh` were needed to add it.
 - **Aggregation across runs.** One receipt in, one cost receipt out.
 - **A `references/*.md` flow document for either command.** Each is one command with one optional argument; `SKILL.md` carries both directly.
 - **A validated arbitration verdict.** A `verdict.json` per ruling with its own validator, read into a receipt field, would prove mechanically that the recorded ruling is the arbiter's. Deferred until a recorded ruling is caught disagreeing with its job log; until then the jobId is the check.

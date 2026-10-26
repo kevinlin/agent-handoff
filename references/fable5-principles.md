@@ -27,7 +27,7 @@ Put this rule in the goal file and in every delegation packet.
 
 ## Effort as a Handoff Parameter
 
-Effort level is the intelligence/latency/cost dial. Prefer `delegate-codex.sh --role <identity>` so backend, effort, and model resolve from `/agent-handoff config`'s config instead of being picked ad hoc per call; pass an explicit `--effort` only when a specific task genuinely needs to override its identity's default. Without a `--role` or explicit `--effort`, the tool falls back to `high` — reserve `xhigh` for the hardest, quality-critical jobs (expect long runtimes); `medium` only for genuinely trivial mechanical work. The two levels above `xhigh` are Codex-side only and not every model offers them: `max` where correctness outranks runtime, and `ultra` (GPT-5.6) which adds automatic task delegation inside the job, so prefer it only when the job is genuinely one the worker should subdivide itself. What each backend accepts is per-CLI, never one shared enum; `/agent-handoff config` reads the live list. On a subscription plan, do not economize on effort at the price of rework.
+Effort level is the intelligence/latency/cost dial. Prefer `delegate-job.sh --role <identity>` so backend, effort, and model resolve from `/agent-handoff config`'s config instead of being picked ad hoc per call; pass an explicit `--effort` only when a specific task genuinely needs to override its identity's default. Without a `--role` or explicit `--effort`, the tool falls back to `high` — reserve `xhigh` for the hardest, quality-critical jobs (expect long runtimes); `medium` only for genuinely trivial mechanical work. The two levels above `xhigh` are Codex-side only and not every model offers them: `max` where correctness outranks runtime, and `ultra` (GPT-5.6) which adds automatic task delegation inside the job, so prefer it only when the job is genuinely one the worker should subdivide itself. What each backend accepts is per-CLI, never one shared enum; `/agent-handoff config` reads the live list. On a subscription plan, do not economize on effort at the price of rework.
 
 ## Resume Instead of Restart
 
@@ -36,7 +36,7 @@ Frontier models occasionally stop early. Recovery is one line, sent to the same 
 > Continue end-to-end from [last checkpoint]. Reference: [goal file / job
 > log]. Report back when complete.
 
-Use `delegate-codex.sh resume` for this — never restart the task from zero.
+Use `delegate-job.sh resume` for this — never restart the task from zero.
 
 ## Memory Instruction
 
@@ -67,13 +67,13 @@ One channel carries delegated work, on any of five backends; the other two are i
 
 | Channel | Shape | Use when |
 |---|---|---|
-| Handoff job — `delegate-codex.sh --role <identity>` | out-of-process background job on the identity's configured backend — `codex exec --json`, `claude --print --output-format stream-json`, `copilot -p --output-format json`, `cursor-agent -p --output-format stream-json`, or `agy -p --output-format stream-json` — durable state, loop monitoring, resume rework, receipt evidence | a real unit of delegated work: runs while you continue, gets full-reviewed, may need fix rounds |
+| Handoff job — `delegate-job.sh --role <identity>` | out-of-process background job on the identity's configured backend — `codex exec --json`, `claude --print --output-format stream-json`, `copilot -p --output-format json`, `cursor-agent -p --output-format stream-json`, or `agy -p --output-format stream-json` — durable state, loop monitoring, resume rework, receipt evidence | a real unit of delegated work: runs while you continue, gets full-reviewed, may need fix rounds |
 | One-shot Codex subagent | in-process, blocking, no jobId, no durable state | a stuck step wanting a second diagnosis, or a throwaway assist |
 | Raw Task-tool subagent | in-process, isolated context, returns a summary | no Handoff identity fits the work at all |
 
 The Handoff job runs on whichever of the five CLIs the identity's `backend` names. Which meter it bills follows from that — the Codex subscription, the Claude meter, Copilot's AI credits, the Cursor meter, or the Antigravity meter — and so does whether a given run saves subscription quota, but the job shape, the monitoring loop, the bounded fix round, and the receipt evidence are identical on all five. A subagent is a single-call primitive; the Handoff job is an orchestration layer (submit, monitor, review, rework, receipt, memory). Pick by whether the work needs that lifecycle, not by which meter you would prefer.
 
-**Never swap an identity to move a job onto another vendor.** The rule is the same across all five backends. If `fast_worker` is claude-backed and you would rather its work ran on Codex, Copilot, Cursor, or Antigravity, that is a configuration change — `/agent-handoff config`, or `handoff-config.py set --role fast_worker --backend codex` — and you say so. It is not a quiet re-route to `deep_reasoner` because that identity happens to be Codex-backed. The split decision picked an identity for the capability the work needs; re-routing to buy a cheaper meter throws that judgment away and hides the swap in a jobId. `delegate-codex.sh` refuses a `--backend` contradicting a named role for the same reason. When the configured identity is genuinely wrong for the work, say so and ask.
+**Never swap an identity to move a job onto another vendor.** The rule is the same across all five backends. If `fast_worker` is claude-backed and you would rather its work ran on Codex, Copilot, Cursor, or Antigravity, that is a configuration change — `/agent-handoff config`, or `handoff-config.py set --role fast_worker --backend codex` — and you say so. It is not a quiet re-route to `deep_reasoner` because that identity happens to be Codex-backed. The split decision picked an identity for the capability the work needs; re-routing to buy a cheaper meter throws that judgment away and hides the swap in a jobId. `delegate-job.sh` refuses a `--backend` contradicting a named role for the same reason. When the configured identity is genuinely wrong for the work, say so and ask.
 
 Picking *which* subagent definition to spawn, once you are in one of the escape hatches, is a separate three-level lookup — see "Sub Agent Routing" in `references/claude-driven.md`. It answers which agent definition takes an in-session call, and has nothing to do with the delegated-job path.
 

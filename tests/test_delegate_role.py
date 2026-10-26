@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = Path("scripts/delegate-codex.sh")
+SCRIPT = Path("scripts/delegate-job.sh")
 
 
 # The two --version strings that tell the identically named binaries apart.

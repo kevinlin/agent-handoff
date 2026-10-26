@@ -16,7 +16,7 @@ Not covered, deliberately, each having its own design of record or none:
 
 | Out of scope | Where it lives |
 | --- | --- |
-| Job state tracking — the `.handoff/jobs/<jobId>/` layout as a subsystem | `scripts/delegate-codex.sh` header comment |
+| Job state tracking — the `.handoff/jobs/<jobId>/` layout as a subsystem | `scripts/delegate-job.sh` header comment |
 | Session evidence, transcripts, session receipt, cost receipt | `docs/specs/design_agent-handoff-evidence.md` |
 | Identity configuration engine and setup wizard | `docs/specs/design_agent-identities-and-config.md` |
 | Each worker CLI: discovery, command lines, posture flags, resume, catalogues, smoke | `docs/specs/design_cli-backends.md` |
@@ -27,7 +27,7 @@ Phase 0 (preflight) and Phase 5 (wrap up) fall outside these four by constructio
 
 **The identity's configured `backend` decides which CLI runs a job — always.** The task row names a capability tier; config turns that tier into a backend, model, and effort. Nothing in a prompt, a packet, or a routing decision made mid-run can move a job onto another vendor or meter. A per-job `--backend` contradicting a named role is refused rather than honoured, because changing where work bills is a config change the user should see (`/agent-handoff config`), not a side effect of delegating.
 
-**All five backends are the same job.** A claude-backed, copilot-backed, cursor-backed, or antigravity-backed row gets the same jobId, the same job directory, the same monitor loop, the same bounded `resume` fix round, the same worktree lifecycle, and the same receipt evidence a codex-backed one gets. There is no second-class backend and no per-backend flow branch. Where the CLIs genuinely differ (effort enums, permission flags, session-id timing, binary identification) the difference is contained inside `delegate-codex.sh`.
+**All five backends are the same job.** A claude-backed, copilot-backed, cursor-backed, or antigravity-backed row gets the same jobId, the same job directory, the same monitor loop, the same bounded `resume` fix round, the same worktree lifecycle, and the same receipt evidence a codex-backed one gets. There is no second-class backend and no per-backend flow branch. Where the CLIs genuinely differ (effort enums, permission flags, session-id timing, binary identification) the difference is contained inside `delegate-job.sh`.
 
 **`.handoff/goal.md` is the only shared state, and it is the reference every gate judges against.** Not the stage before it, and not the maker's self-report. The file is written before any implementation exists, which is the only moment acceptance criteria are authorable: a criterion written after seeing the diff is a description of the diff, not a test of it.
 
@@ -149,7 +149,7 @@ One task row becomes one durable background job. The phase has two paths, and th
 
 The driver composes the delegation packet in its own context from `references/handoff-template.md`: why-forward context, one-sentence task, acceptance written as commands, scope paths, checkpoint rule, no-commentary output discipline, at most three lines of lessons learned. It writes that to `$(mktemp)` and passes the path.
 
-`delegate-codex.sh` does not generate, template, or validate this prompt. Its only check is that the file exists. That is authorship discipline rather than validation, and it is the deliberate choice: a packet the script assembled would be a packet the driver did not have to think about.
+`delegate-job.sh` does not generate, template, or validate this prompt. Its only check is that the file exists. That is authorship discipline rather than validation, and it is the deliberate choice: a packet the script assembled would be a packet the driver did not have to think about.
 
 The packet never mentions backend, model, or effort. There is nothing to mention — routing is resolved on the other path.
 
@@ -183,7 +183,7 @@ One backend needed a fix here: Copilot emits `sessionId` only on its terminal ev
 E2E rows, and any row that must not share a tree, run in a worktree cut from an immutable SHA:
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
   --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
 ```
@@ -342,7 +342,7 @@ The verifier's **target** is named in its packet — an approved local or epheme
 Findings go back to the same worker session:
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" resume <jobId> \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" resume <jobId> \
   --repo "$REPO" --prompt-file <fix-notes>
 ```
 

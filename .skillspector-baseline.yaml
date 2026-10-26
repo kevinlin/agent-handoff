@@ -296,8 +296,8 @@ fingerprints:
     or scoped local rendering within the user-requested workflow.'
 - hash: sha256:2d247f0943e2444fab73e9fc26d967e53167b2332ddc2cb763e1eb59ecb99461
   rule_id: EA2
-  file: scripts/delegate-codex.sh
-  reason: 'scripts/delegate-codex.sh:323: Reviewed explicit permission-mode warning,
+  file: scripts/delegate-job.sh
+  reason: 'scripts/delegate-job.sh:323: Reviewed explicit permission-mode warning,
     deny-on-unapproved behavior, historical CLI reference, negative fixture, or scoped
     local rendering within the user-requested workflow.'
 - hash: sha256:922172e55d9cb9f82a776f48955f034b636075e0d3b19f93d9dd6fc05b83d54f
@@ -422,14 +422,14 @@ fingerprints:
     job state, or a test forbidding worker creation; intentional authorized capability.'
 - hash: sha256:9760ffd6ed03873be62564b8db76ada789fce3eb166e98f455f8d007d9f09190
   rule_id: RA2
-  file: scripts/delegate-codex.sh
-  reason: 'scripts/delegate-codex.sh:771: Documented durable local worker lifecycle
+  file: scripts/delegate-job.sh
+  reason: 'scripts/delegate-job.sh:771: Documented durable local worker lifecycle
     and hash-checked job state, or a test forbidding worker creation; intentional
     authorized capability.'
 - hash: sha256:23f913d4e82ec85c9790d1a207569f29d5bb4ce276804427230f4f1ebc34d935
   rule_id: RA2
-  file: scripts/delegate-codex.sh
-  reason: 'scripts/delegate-codex.sh:773: Documented durable local worker lifecycle
+  file: scripts/delegate-job.sh
+  reason: 'scripts/delegate-job.sh:773: Documented durable local worker lifecycle
     and hash-checked job state, or a test forbidding worker creation; intentional
     authorized capability.'
 - hash: sha256:ea18f4ac4e3528ac2d72d0b5648173f9a968ef6bf92701d3df4cfbe26dd671f0

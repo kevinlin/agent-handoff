@@ -24,7 +24,7 @@ judge:
     # The delegation workflow firing on an unrelated use of the word.
     - output_contains:
         any:
-          - "delegate-codex.sh"
+          - "delegate-job.sh"
           - "Handoff Session Receipt"
           - "fast_worker"
           - "deep_reasoner"

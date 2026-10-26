@@ -1131,7 +1131,7 @@ class CursorSetupTests(SetupTests):
         }
 
     def cursor_calls(self):
-        """Invocations other than delegate-codex.sh's --version probe."""
+        """Invocations other than delegate-job.sh's --version probe."""
 
         if not self.cursor_args_log.exists():
             return []

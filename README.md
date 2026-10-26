@@ -5,7 +5,7 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.10.0](https://img.shields.io/badge/version-3.10.0-ef6f4f)](CHANGELOG.md)
+[![Version: 3.10.1](https://img.shields.io/badge/version-3.10.1-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -197,9 +197,9 @@ Worker CLI (background jobs, on the identity's configured backend):
   implement -> report -> bounded fix rounds on the same session
 ```
 
-One channel carries delegated work: the Handoff background job (`delegate-codex.sh --role <identity>`, with durable state, loop monitoring, and resume rework). It runs on whichever CLI the identity's `backend` names — Codex, a second Claude Code, GitHub Copilot, Cursor, or Antigravity — and everything about the job is identical on all five. In-process subagents are the two escape hatches, for a stuck-step assist or work no identity fits. Quality-critical steps stay in the driving session even though it is the expensive seat.
+One channel carries delegated work: the Handoff background job (`delegate-job.sh --role <identity>`, with durable state, loop monitoring, and resume rework). It runs on whichever CLI the identity's `backend` names — Codex, a second Claude Code, GitHub Copilot, Cursor, or Antigravity — and everything about the job is identical on all five. In-process subagents are the two escape hatches, for a stuck-step assist or work no identity fits. Quality-critical steps stay in the driving session even though it is the expensive seat.
 
-Routing is never re-decided per run. To move a task to another vendor, change the config, where the change is visible. The driver cannot quietly swap a row to a cheaper identity: `delegate-codex.sh` refuses a per-job `--backend` that contradicts the identity's configuration.
+Routing is never re-decided per run. To move a task to another vendor, change the config, where the change is visible. The driver cannot quietly swap a row to a cheaper identity: `delegate-job.sh` refuses a per-job `--backend` that contradicts the identity's configuration.
 
 Every split passes an adversarial gate first, answering three questions in writing: does this task really not need the expensive tier, will the integration cost of the boundary eat the saving, and does each row's identity match its actual stakes. A row that fails any of them gets its identity corrected, merged into a neighbour, or kept in Claude's hands.
 
@@ -235,7 +235,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 
 ### Jobs
 
-- `scripts/delegate-codex.sh` runs each task as a background job on Codex (`codex exec`), Claude Code (`claude --print`), Copilot (`copilot -p`), Cursor (`cursor-agent -p`), or Antigravity (`agy -p`). The job shape and lifecycle are the same on all five: submit, status, resume, cancel. State lives in `<repo>/.handoff/jobs/`.
+- `scripts/delegate-job.sh` runs each task as a background job on Codex (`codex exec`), Claude Code (`claude --print`), Copilot (`copilot -p`), Cursor (`cursor-agent -p`), or Antigravity (`agy -p`). The job shape and lifecycle are the same on all five: submit, status, resume, cancel. State lives in `<repo>/.handoff/jobs/`.
 - `scripts/goal-sync.py` guards `.handoff/goal.md` with a sha256 check, so the monitor loop and the driver can't overwrite each other.
 
 ### Evidence after the run

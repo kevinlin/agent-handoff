@@ -26,7 +26,7 @@ All helper scripts live in `$HANDOFF_DIR` (see Tool Location in `SKILL.md`). Job
 - Spec review (every plan): before the plan reaches the user, give it one read from `deep_reasoner`. There is no toggle. Build the Spec Review Packet from `references/handoff-template.md` and send it through the identity's configured backend:
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label spec-review \
   --role deep_reasoner --read-only
 ```
@@ -41,7 +41,7 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 
 ## Sub Agent Routing
 
-This lookup applies **only when you are spawning an in-session subagent** — one of the two escape hatches in `references/fable5-principles.md`, or a step the user asked to run inline. It is not the delegated-job path: a task row with an identity goes through `delegate-codex.sh --role <identity>` (Phase 2) on whichever backend that identity is configured for, claude, copilot, cursor, and antigravity included. Spawning a subagent instead of delegating loses the jobId, the durable job state, the monitoring loop, the bounded fix round, and the receipt evidence.
+This lookup applies **only when you are spawning an in-session subagent** — one of the two escape hatches in `references/fable5-principles.md`, or a step the user asked to run inline. It is not the delegated-job path: a task row with an identity goes through `delegate-job.sh --role <identity>` (Phase 2) on whichever backend that identity is configured for, claude, copilot, cursor, and antigravity included. Spawning a subagent instead of delegating loses the jobId, the durable job state, the monitoring loop, the bounded fix round, and the receipt evidence.
 
 When you do spawn one, resolve *which* agent definition with this three-level lookup, in order:
 
@@ -55,7 +55,7 @@ A repo with no `/agent-handoff config` run yet simply falls through to level 3 e
 
 For contentious or high-stakes calls — the driver judges the answer disputable, or the user says "arbitrate" / "this is contested" / "second opinion" — do not settle for one solver's answer:
 
-1. Send the **same problem, verbatim** to both `deep_reasoner` and `arbiter`, each as a real job on its own configured backend: `delegate-codex.sh submit --role deep_reasoner` and `--role arbiter`. Both solvers get a jobId and appear in the receipt, whichever CLI executes them.
+1. Send the **same problem, verbatim** to both `deep_reasoner` and `arbiter`, each as a real job on its own configured backend: `delegate-job.sh submit --role deep_reasoner` and `--role arbiter`. Both solvers get a jobId and appear in the receipt, whichever CLI executes them.
 2. **Contamination rule**: neither packet may contain the other solver's answer, conclusion, or any leaning hint ("X thinks A, verify it" is already contaminated). Blind means blind — a contaminated run silently produces fake agreement and must be rerun, not patched.
 3. Compare the two answers. Agreement → adopt, note dual-verified. Disagreement → the driver rules, and records the point of divergence plus the ruling's reasoning in the receipt (both solvers appear in `roles_used`; the divergence goes in the report/Notes).
 4. The blind check is strongest when arbiter and deep_reasoner run on different vendors (the wizard's default presets guarantee this); if the config has them same-vendor, the protocol still runs but the receipt notes `same-vendor` so the weaker independence is visible.
@@ -67,7 +67,7 @@ This is distinct from the Phase 1 gate: that gate attacks a plan you already hav
 When a review gate reaches its cap without consensus (the spec gate with a blocking finding still declined, or the implementation gate with findings still open after the last allowed pass), escalate to `arbiter`. Always: a disputed task is never taken back instead.
 
 1. Build the Arbitration Packet from `references/handoff-template.md` with the whole dispute: the plan or the task brief, the acceptance criteria, the evidence (the revised plan, or the full scoped diff with the results of the checks you ran), and every round's findings with the other side's response. Nothing is withheld. This is not blind arbitration, and the contamination rule does not apply.
-2. Submit it as a read-only job: `delegate-codex.sh submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan).
+2. Submit it as a read-only job: `delegate-job.sh submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan).
 3. A verdict is well formed only when the output's first line is exactly `verdict: approve` or `verdict: reject` and the reasons do not contradict it. The ruling binds; do not re-argue it.
    - Spec gate: approve sends the plan to the user as revised; reject stops the run before Phase 2.
    - Implementation gate: approve accepts the diff, overruling your open findings, and the row goes to `done`. An approval never stands in for an e2e PASS: with a validated FAIL among the open findings, approval means the scenario was judged wrong, so the scenario goes back to step 1 of the e2e sequence, a new hash is recorded, and the verifier reruns. Reject is final: the row becomes `rejected` and its diff is set aside (Phase 4).
@@ -82,7 +82,7 @@ When a review gate reaches its cap without consensus (the spec gate with a block
 ```bash
 prompt=$(mktemp)
 # ... write the delegation packet into "$prompt" ...
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
   --role <identity>
 ```
@@ -104,7 +104,7 @@ Two guards stay closed. No Handoff config yet → a clear error (run `/agent-han
 - E2E rows run in a dedicated worktree cut from an immutable SHA:
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
   --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
 ```
@@ -113,15 +113,15 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
 
 ## Phase 3 — Monitor (loop)
 
-- Short single job (expected under ~5 minutes): block on it — `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" status <jobId> --repo "$REPO" --wait --timeout 300`.
-- Long or multiple jobs: set up the built-in `/loop` skill at a 5-minute interval with a prompt like: read `.handoff/goal.md`, run `delegate-codex.sh status` for every running jobId (tail the job's `log.jsonl` for the last event), update task statuses in the goal file, and when no job is left running, stop the loop and continue with Phase 4.
+- Short single job (expected under ~5 minutes): block on it — `bash "$HANDOFF_DIR/scripts/delegate-job.sh" status <jobId> --repo "$REPO" --wait --timeout 300`.
+- Long or multiple jobs: set up the built-in `/loop` skill at a 5-minute interval with a prompt like: read `.handoff/goal.md`, run `delegate-job.sh status` for every running jobId (tail the job's `log.jsonl` for the last event), update task statuses in the goal file, and when no job is left running, stop the loop and continue with Phase 4.
 - The loop reads each row's `depends` column and does not submit a row whose dependencies have not reached `done`. An `e2e_verifier` row waits on both the specifier row and the implementation row: it needs the tests in its tree, not just the feature.
 - `status` and `result` count Claude, Copilot, Cursor, and Antigravity denials; **Codex denials are not counted**. **`permission_denied` is advisory, not enforced**: DONE derives from exit code and status warns but still succeeds. Zero is not evidence that checks ran. Treat any non-zero count as a failed job whatever its exit code says: a denied tool call does not move the exit code, so the worker ran to completion having skipped checks it believed it had run. Re-run the blocked commands yourself before accepting anything, and record it as an anomaly. Antigravity reports its denials only on the terminal `result` event, and a run stopped by a denial still exits 0 with status `SUCCESS`, so the count is the only signal. A finished antigravity job whose log has no `result` event prints `permission_denied: unknown`, and `result --json` gives `null`: unknown is not zero, so re-run the checks yourself.
 - A job stuck with no new JSONL events for two consecutive ticks, or a `status` of FAILED, is a monitoring anomaly: cancel it, read `stderr.log` and the tail of `log.jsonl`, and either resubmit with a corrected prompt or take the task back into the driver. On copilot the log is not optional: an API failure can arrive with stderr empty and the detail carried only by a `session.error` event in `log.jsonl`, which is also where `result --json` reads it from. On cursor, a model rejected at launch gives FAILED with an empty `log.jsonl`; `stderr.log` holds Cursor's message and accepted models. A cursor `spawnError` reading `spawn /bin/zsh ENOENT` usually means the worker mistyped the path it passed as the shell's working directory, not that the shell is missing: read the `workingDirectory` in the matching started event and name the typo in the fix round. And a cursor fix round never reports a lost session: resuming an id Cursor never persisted starts a new, empty session under that id. A round that shows no memory of its parent's work is that case; resubmit with the full packet rather than resuming again. On antigravity, a model rejected at launch gives FAILED with one `result` event whose status is `ERROR` and no session id; `agy`'s message and its list of available models are in `log.jsonl` and `stderr.log`, and `result` shows the message as a `result_error`. `resume` refuses that job, since it has no session id. A fix round whose model has left the catalogue since its parent ran fails the same way: `resume` takes no model override and never substitutes one. Recover with a fresh `submit` carrying the full packet, on the identity's current config, after `handoff-config.py set` names a model the catalogue still offers. A fix round on antigravity can also report `context_lost: true`: given a conversation id it cannot find, `agy` warns on stderr, exits 0, and starts a new conversation. `status` and `result` then print a line saying the round ran without its parent's context, and its `session_id` is the new conversation's. Resubmit with the full packet rather than resuming again. A `print_timeout` entry in `result --json` `errors` means the output is partial, because a timed-out `agy` run can exit 0 with status `SUCCESS`: treat the job as failed, record the anomaly, and resubmit. Every antigravity job pins `--print-timeout 0s`, so this should not occur. `agy` logs no exit code for a shell command, so `commands_run` lists commands without a result, and a worker's report that a check passed is checked by re-running it. Record the anomaly for the receipt. An arbiter job is the exception: resubmit it once and never take the dispute back (Escalation Ruling). `status` and `result` read the same job state on any of the five backends, so nothing here changes with the CLI.
 
 ## Phase 4 — Full Review Gate
 
-- Collect each finished job: `bash "$HANDOFF_DIR/scripts/delegate-codex.sh" result <jobId> --repo "$REPO"`.
+- Collect each finished job: `bash "$HANDOFF_DIR/scripts/delegate-job.sh" result <jobId> --repo "$REPO"`.
 - Check `permission_denied` in the `result` output first, remembering that Codex denials are not counted and the guard is advisory. A worker that was blocked could not run its own acceptance checks, so its report of them is worthless — run them yourself and judge the diff on that, never on the worker's summary.
 - Claude reviews the complete diff itself — `git diff` (scoped to the files the job touched), plus the fastest relevant check. This is a full review by default, not a sample. Do not accept work you have not read.
 - Review against the acceptance criteria in `.handoff/goal.md`, not against the diff alone. A reviewer given only the diff confidently redefines the spec as "internally consistent with what changed" and misses tasks that were never done — in Superpowers 6, diff-only reviewers caught 0 of 5 missing task briefs. Re-read each task's brief, then ask "does this diff satisfy that brief," not just "is this diff self-consistent."
@@ -131,13 +131,13 @@ bash "$HANDOFF_DIR/scripts/delegate-codex.sh" submit \
   3. Integrate the specifier and implementation branches onto the feature branch, producing one combined commit.
   4. Submit the verifier pinned to that commit, then validate its verdict before acting on it: `python3 "$HANDOFF_DIR/scripts/validate-verdict.py" "$REPO/.handoff/e2e/$JOB_ID/verdict.json" --expect-scenarios-sha256 "$REVIEWED_SHA"`.
   5. PASS goes to the merge decision. FAIL is a product finding routed to the original implementer, never to the verifier. BLOCKED means nothing was proved: resolve the prerequisite and rerun, never read it as PASS.
-  6. Once a worktree is merged or abandoned, `delegate-codex.sh cleanup <jobId> --repo "$REPO"`.
+  6. Once a worktree is merged or abandoned, `delegate-job.sh cleanup <jobId> --repo "$REPO"`.
 
   `main` is reached only after a PASS plus the driver's final review, which keeps merge inside the existing hard-stop rule.
 - Findings? Send one bounded fix round back to the same worker session — `resume` reads the parent job's backend from its `meta` and lands on the same CLI, in the same worktree:
 
 ```bash
-bash "$HANDOFF_DIR/scripts/delegate-codex.sh" resume <jobId> \
+bash "$HANDOFF_DIR/scripts/delegate-job.sh" resume <jobId> \
   --repo "$REPO" --prompt-file <fix-notes>
 ```
 

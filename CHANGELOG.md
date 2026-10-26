@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.10.1 (2026-10-26)
+
+### `delegate-codex.sh` is now `delegate-job.sh`
+
+- **breaking**: `scripts/delegate-codex.sh` is renamed `scripts/delegate-job.sh`. It has run jobs on more than codex since v3.5.0, and on five backends since v3.10.0. Its subcommands, flags, output and job state under `.handoff/jobs/` are unchanged. A job submitted under the old name reads and resumes with the new one. No copy stays at the old path, so a caller of `delegate-codex.sh` gets "No such file".
+- refactor: the script's header, its usage text and `CLAUDE.md` no longer say the name is historical. The `CODEX_BIN`, `CODEX_BIN_SOURCE` and `CODEX_VERSION` variables keep their names. So do the `codex_bin`, `codex_bin_source` and `codex_version` meta keys, because `resume` reads `codex_bin` from every parent job. A comment now says this.
+- fix: nine comments in the script had drifted from the code, and now match it. Three examples follow. The usage text listed `explicit` as a `permission_posture_source`, which nothing writes. It also said every Copilot binary check fails closed, but a fix round with a stale recorded path runs discovery again. And the worktree comment in `resume` named only codex and claude; all five backends take the fix round's cwd from the shell.
+- docs: the skill, the references, README, `CLAUDE.md`, the design docs and the test prompts use the new name. So do the no-trigger eval, CI, the SkillSpector baseline paths and the file-reference diagram. Implemented plans under `docs/specs/` and the research notes keep the old name, because they record what ran at the time.
+- Config schema stays `2`. Receipt schema stays `8`.
+
 ## v3.10.0 (2026-10-15)
 
 ### Antigravity CLI is the fifth backend

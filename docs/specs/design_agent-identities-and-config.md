@@ -16,14 +16,14 @@ Covered: the five identities and what each takes, the resolution chain from a ta
 | --- | --- |
 | Each CLI behind a `backend` value: binary discovery, command lines, effort enums, what each `permission_mode` maps to, model catalogues, CLI install and update prompts, smoke per backend | `docs/specs/design_cli-backends.md` |
 | Plan, split, delegate, monitor, review: what the identities are *used for* | `docs/specs/design_agent-handoff.md` |
-| The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-codex.sh` header comment |
+| The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-job.sh` header comment |
 | Session evidence, transcripts, receipts | `docs/specs/design_agent-handoff-evidence.md` |
 | What the two round caps *do* once resolved | `docs/specs/design_agent-handoff.md`, *The two review gates, and where they escalate* |
 | The acceptance gate the optional identities serve | `references/e2e-gauntlet.md`, `assets/verdict-schema.json` |
 
 ### The invariant everything here rests on
 
-**The identity's configured `backend` decides which CLI runs a job — always.** All five values — `claude`, `codex`, `copilot`, `cursor`, `antigravity` — are first-class execution channels. `backend = "claude"` is not a subagent-only marker and `backend = "copilot"` is not a second-class one: `delegate-codex.sh --role <identity>` runs any of them as a background job with the same jobId, job directory, monitoring, fix-round `resume`, worktree lifecycle, and receipt evidence.
+**The identity's configured `backend` decides which CLI runs a job — always.** All five values — `claude`, `codex`, `copilot`, `cursor`, `antigravity` — are first-class execution channels. `backend = "claude"` is not a subagent-only marker and `backend = "copilot"` is not a second-class one: `delegate-job.sh --role <identity>` runs any of them as a background job with the same jobId, job directory, monitoring, fix-round `resume`, worktree lifecycle, and receipt evidence.
 
 A per-job `--backend` that contradicts a configured identity is refused rather than honoured. Swapping a row onto a cheaper meter is a change to this file, visible in a diff, not a side effect of delegating.
 
@@ -49,7 +49,7 @@ Two costs of making these full identities rather than task labels are real and a
 
 ```
 task row names an identity
-  → delegate-codex.sh --role <identity>
+  → delegate-job.sh --role <identity>
   → handoff-config.py resolve      (session → project → global → defaults, per field)
   → backend + model + effort + permission_mode
   → codex exec --json | claude --print --output-format stream-json | copilot -p --output-format json | cursor-agent -p --output-format stream-json | agy -p --output-format stream-json
@@ -64,10 +64,10 @@ Resolution is per field, so an override for one identity field does not erase un
 
 | Refusal | Why it fails closed | Enforced in |
 | --- | --- | --- |
-| No Handoff config at all | A default model would bill someone silently; the error names `/agent-handoff config` | `delegate-codex.sh` submit |
-| `--backend` contradicting a named role | Moving work onto another vendor is a config change, and the message names the `handoff-config.py set` that would make it legitimate | `delegate-codex.sh` submit |
-| An effort the chosen CLI does not accept | The enums are per vendor, never one shared list | `validate_effort` in `delegate-codex.sh`, `validate_backend_efforts` in `handoff-setup.py` |
-| `model = "auto"` on copilot or cursor, and an empty or `auto` model on antigravity | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what the vendor picked rather than what the repo configured | `delegate-codex.sh` submit, and `validate_backend_models` at setup; the antigravity message names `handoff-config.py set` |
+| No Handoff config at all | A default model would bill someone silently; the error names `/agent-handoff config` | `delegate-job.sh` submit |
+| `--backend` contradicting a named role | Moving work onto another vendor is a config change, and the message names the `handoff-config.py set` that would make it legitimate | `delegate-job.sh` submit |
+| An effort the chosen CLI does not accept | The enums are per vendor, never one shared list | `validate_effort` in `delegate-job.sh`, `validate_backend_efforts` in `handoff-setup.py` |
+| `model = "auto"` on copilot or cursor, and an empty or `auto` model on antigravity | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what the vendor picked rather than what the repo configured | `delegate-job.sh` submit, and `validate_backend_models` at setup; the antigravity message names `handoff-config.py set` |
 
 The effort enums, and why cursor and antigravity take only `model`, are in `docs/specs/design_cli-backends.md`, *Effort and model*.
 
@@ -82,7 +82,7 @@ Values resolve from highest to lowest priority:
 
 Project and global files use the same schema. Built-in defaults provide schema metadata and the default review caps, and leave every identity unset. Model presets belong to setup and are not duplicated in the engine. Identity values live in these two files and nowhere else — never in a prompt, a packet, or a doc.
 
-The review caps have no session override, because `delegate-codex.sh resume` enforces them from its own `resolve` call. A cap the driver believed in but the enforcing process never saw would be worse than no cap.
+The review caps have no session override, because `delegate-job.sh resume` enforces them from its own `resolve` call. A cap the driver believed in but the enforcing process never saw would be worse than no cap.
 
 ## Key files
 
@@ -91,7 +91,7 @@ The review caps have no session override, because `delegate-codex.sh resume` enf
 | `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: comments and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era and a `[routing]` section written before 3.9.5) round-trip byte-for-byte |
 | `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
 | `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard, whose page is `assets/setup-ui.html`; probes the CLIs for model and effort lists, and reads each worker CLI's version and newest release | implement a second write path; every preview and write delegates to `handoff-setup.py` |
-| `scripts/delegate-codex.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
+| `scripts/delegate-job.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
 | `references/setup.md` | the wizard contract an agent loads | ask the setup matrix through repeated chat questions when a browser is available |
 | `references/tryout.md` | the post-install proof pass | substitute a model or backend to make a row pass |
 
@@ -181,7 +181,7 @@ implementation_max_rounds = 3
 | `schema_version` | integer | yes | Must be `2`. |
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
 | `<identity>` | table | per configured identity | A top-level table. `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. Files written before 3.9.2 head this table `hosts.claude_code.identities.<identity>`; see *Legacy section headers (3.9.2)*. |
-| `<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, `cursor`, or `antigravity`. All five are first-class; the value decides which CLI `delegate-codex.sh` invokes. |
+| `<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, `cursor`, or `antigravity`. All five are first-class; the value decides which CLI `delegate-job.sh` invokes. |
 | `<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. `auto` is refused on `copilot`, `cursor`, and `antigravity`, and `antigravity` needs a whole catalogue id (`docs/specs/design_cli-backends.md`, *Effort and model*). The wizard offers account models rather than a text field. |
 | `<identity>.effort` | string | per configured identity | Non-empty reasoning effort the selected backend accepts. Efforts are per CLI, never one shared enum; cursor and antigravity take only `model`, set by the model id (`docs/specs/design_cli-backends.md`, *Effort and model*). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
 | `<identity>.permission_mode` | string enum | no | `default` or `allow-all`; absence resolves to `default` after the per-field merge. What each value means on each CLI is in `docs/specs/design_cli-backends.md`, *Permission posture*. |
@@ -205,7 +205,7 @@ Most rows below fail closed. An older engine refuses a file it cannot honour, so
 | `backend = "cursor"` | pre-3.9 refuses | `validate_config` gates `backend` on the known tuple |
 | `backend = "antigravity"` | pre-3.10 refuses | `validate_config` gates `backend` on the known tuple. The same engine's `make-receipt.py` counts an antigravity job as codex, so scripts and flow prose ship together |
 | `[review]` | pre-3.8 ignores it | an unknown section round-trips rather than failing |
-| bare `[<identity>]` headers | pre-3.9.2 ignores them | the old engine reads only prefixed headers. To it, a bare section is an unknown section: it round-trips, and its identity is invisible. If no other layer configures the role, `delegate-codex.sh` refuses it. If the global config has a legacy-form identity, the old engine runs the global values, and `config_source` still says `project`. That case does not fail closed. |
+| bare `[<identity>]` headers | pre-3.9.2 ignores them | the old engine reads only prefixed headers. To it, a bare section is an unknown section: it round-trips, and its identity is invisible. If no other layer configures the role, `delegate-job.sh` refuses it. If the global config has a legacy-form identity, the old engine runs the global values, and `config_source` still says `project`. That case does not fail closed. |
 
 `schema_version` stays `2` through all of this. New identity names and a new section left the document shape alone. 3.9.2 renames the identity headers, which is why its row does not fail closed. A pre-3.9.2 engine can also write an identity into a file that already has bare headers. That identity then exists in both forms, and a 3.9.2 engine refuses the file until someone deletes one of the two sections.
 
@@ -231,7 +231,7 @@ Before 3.9.2, identity sections carried a leftover dual-host prefix: `[hosts.cla
 - **On write.** The next write re-emits every identity section bare, in the place where the first one stood. The writes are `handoff-config.py set` and `set-review`, setup apply, smoke's verification write, and `--uninstall --remove-config`, which clears both forms. Every other section keeps its bytes, including the preamble and stale `hosts.codex.*` blocks.
 - **Keys.** `get` and `resolve` keys drop the prefix too: `deep_reasoner.backend`. The old key `hosts.claude_code.identities.deep_reasoner.backend` no longer resolves, and no alias exists. Validation messages read `deep_reasoner.backend must be one of ...`.
 - **Duplicates.** A file that defines one identity twice is refused, and the error names both headers. That includes one identity defined in both forms. The usual cause is a pre-3.9.2 engine writing to an already migrated file. Delete one of the two sections by hand. Two different identities in different forms (`[deep_reasoner]` plus `[hosts.claude_code.identities.fast_worker]`) load fine.
-- **Typos.** A legacy header that names an unknown identity, such as `[hosts.claude_code.identities.deep_reasonr]`, is refused. A misspelt bare header such as `[deep_reasonr]` is an unknown section. It round-trips untouched, and that identity is absent from that file. Resolution uses the next layer instead: if the global config defines the identity, the global values run. `delegate-codex.sh` refuses the role only when no layer configures it. Before 3.9.2, `validate` caught every misspelt identity header. Now it catches only the legacy form.
+- **Typos.** A legacy header that names an unknown identity, such as `[hosts.claude_code.identities.deep_reasonr]`, is refused. A misspelt bare header such as `[deep_reasonr]` is an unknown section. It round-trips untouched, and that identity is absent from that file. Resolution uses the next layer instead: if the global config defines the identity, the global values run. `delegate-job.sh` refuses the role only when no layer configures it. Before 3.9.2, `validate` caught every misspelt identity header. Now it catches only the legacy form.
 - **Older engines.** An engine older than 3.9.2 cannot see the bare sections. See *Version skew*.
 - **Schema v1.** `[hosts.<host>.roles.*]` is still refused exactly as in *Schema v1 migration*.
 
