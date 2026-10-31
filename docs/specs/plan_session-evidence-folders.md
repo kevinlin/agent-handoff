@@ -2,7 +2,7 @@
 
 > In this repository the plan runs under `/agent-handoff` as the rows in *Execution order*. Workers do not commit: each row's commit is the driver's, after its review.
 
-**Goal:** every saved receipt names the Claude Code session that drove it, and all of one session's evidence lives in `.handoff/sessions/<session_id>/`. A shipped script moves existing repos to the new layout. Version 3.11.0.
+**Goal:** every saved receipt names the Claude Code session that drove it, and all of one session's evidence lives in `.handoff/sessions/<date>_<session_id>/`. A shipped script moves existing repos to the new layout. Version 3.11.0.
 
 **Spec:** [design_agent-handoff-evidence.md](design_agent-handoff-evidence.md), *The session folder* and Flows 1–4, and [design_session-visualisation.md](design_session-visualisation.md). This plan fixes what they leave open: the helper names, the migration algorithm, the row boundaries, the tests, and the commands that prove each row.
 
@@ -25,7 +25,7 @@ Measured facts the design rests on:
 ## Layout
 
 ```
-.handoff/sessions/<claude_session>/
+.handoff/sessions/<date>_<claude_session>/
   receipt-<stamp>.md
   cost-receipt-<stamp>.md
   cost-receipt-<stamp>.html
@@ -35,7 +35,9 @@ Measured facts the design rests on:
     session-timeline-<stamp>@2x.png      optional; nothing reads it
 ```
 
-- A receipt's folder name equals its `claude_session` value. A `none` receipt goes to `sessions/none/`, and the stamps keep its runs apart.
+- A folder's name is `<date>_<claude_session>`, for example `20261008_1c9ced0c-a654-4734-a856-d98a6aa1f7de`. `<date>` is `YYYYMMDD` in UTC, so a plain listing sorts by day. The session id is the key: every writer looks the folder up by id first, and only a session with no folder takes a new date, which then never changes. One session in 40 spans two dates, and it stays in one folder.
+- A `none` receipt goes to the one bare `sessions/none/` folder, and the stamps keep its runs apart. `none` is not a session, so no single date describes it.
+- A name under `sessions/` that is neither `none` nor `<8 digits>_<session id>` is not a session folder. Readers skip it.
 - `<stamp>` is the receipt's `YYYYMMDDTHHMMSSZ`. A receipt named any other way, for example `notes.md`, uses its file stem in its place, as today.
 - `jobs/`, `goal.md`, `session-start`, `rejected/`, `e2e/`, `worktrees/`, `probes/` and `backups/` do not move.
 
@@ -62,11 +64,14 @@ One module owns the folder rules so that no two callers derive a path differentl
 | `SESSION_ID` | `re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")`, used with `fullmatch` |
 | `RECEIPT_STAMP` | moved here from `render-cost-receipt.py`, unchanged: `^receipt-(\d{8}T\d{6}Z)\.md$`. `render-cost-receipt.py` keeps the name as an alias so existing imports work |
 | `class EvidencePathError(ValueError)` | raised for an unsafe id or a symlinked component |
-| `session_path(repo, session_id, *parts) -> Path` | `<repo.resolve()>/.handoff/sessions/<session_id>/<parts…>`. Raises when `session_id` is not `none` and does not fullmatch `SESSION_ID`, when a part is not a single safe segment, or when any existing component from `.handoff` down to the last part is a symlink, dangling or not. Creates nothing |
+| `folder_session(name) -> str \| None` | the session id a folder name under `sessions/` belongs to: `none` for `none`; the id for `<8 digits>_<id>` when the id fullmatches `SESSION_ID` and is not `none`; else `None`, meaning not a session folder |
+| `run_date(receipt_path) -> str \| None` | the `YYYYMMDD` of the name's `RECEIPT_STAMP`, else `None` |
+| `session_path(repo, session_id, *parts, date=None) -> Path` | `<repo.resolve()>/.handoff/sessions/<folder>/<parts…>`. `<folder>` is `none` for `none`. Otherwise it is the first name, sorted, under `sessions/` whose `folder_session` equals `session_id`, else `<date>_<session_id>`, where a `None` date means today in UTC. Raises when `session_id` is not `none` and does not fullmatch `SESSION_ID`, when `date` is given and is not eight digits, when a part is not a single safe segment, or when any existing component from `.handoff` down to the last part is a symlink, dangling or not. `.handoff` and `sessions` are checked before `sessions` is listed. Creates nothing |
 | `run_stamp(receipt_path) -> str` | the `RECEIPT_STAMP` group, else `receipt_path.stem` |
 | `receipt_job_ids(text) -> set[str]` | job ids from every field whose key ends in `_job_durations`, read with `validate-receipt.py`'s `extract_block` (load it with `importlib`, as `make-receipt.load_validator` does). Schema-tolerant: it reads v3 to v8 alike, requires no job directory, and returns an empty set for text with no block |
 | `owner_key(stamp, session_id)` | `(stamp, session_id)`. The one ordering used to pick the newest of several receipts: a greater stamp wins, ties go to the greater session id, and a non-stamped receipt has stamp `""` and sorts first |
-| `job_owner(repo, job_id) -> str \| None` | the session folder of the receipt under `sessions/*/receipt-*.md` that indexes `job_id` and has the greatest `owner_key`. A file that cannot be read raises (`OSError`); a readable file with no block indexes nothing. A folder whose name fails `SESSION_ID` is skipped |
+| `saved_receipts(repo) -> list` | every `sessions/*/receipt-*.md` with its `owner_key`, oldest first. The key uses the session id from `folder_session`, not the folder name, so the date never affects ranking. Added in row A: `job_owner` and the cost renderer's default input share this one listing, so they cannot rank receipts differently |
+| `job_owner(repo, job_id) -> str \| None` | the session id, from `folder_session`, of the receipt under `sessions/*/receipt-*.md` that indexes `job_id` and has the greatest `owner_key`. A file that cannot be read raises (`OSError`); a readable file with no block indexes nothing. A folder `folder_session` rejects is skipped |
 | `transcript_path(repo, job_id, env=os.environ) -> Path` | `session_path(repo, owner, f"transcript-{job_id}.html")`, where the owner is `job_owner`, else a non-empty `env[SESSION_ENV]`, else `"none"`. An unsafe env value raises `EvidencePathError` |
 | `legacy_layout_note(repo) -> str \| None` | when any of `.handoff/receipts`, `.handoff/cost-receipts` or `.handoff/transcripts` is a directory, one line naming them and the command `python3 <abs path of this module's folder>/migrate-sessions.py --repo <repo> --apply`. The path is computed from `Path(__file__).resolve().parent`, so it names the installed copy |
 
@@ -78,7 +83,8 @@ One module owns the folder rules so that no two callers derive a path differentl
 | A | fast_worker | Task 1: runtime and its tests | T0 |
 | C | fast_worker | Task 3: skill prose, docs, version, CHANGELOG | T0 |
 | B | fast_worker | Task 2: migration script, its tests, the two gate files | A |
-| T4 | driver | Task 4: review, migration rehearsal, real migration of this repo | A, B, C |
+| D | fast_worker | Task 5: date prefix on session folders | A, B, C |
+| T4 | driver | Task 4: review, migration rehearsal, real migration of this repo | A, B, C, D |
 
 A and C touch disjoint files and run in parallel. B starts once A's helpers are reviewed, and may overlap C. The SkillSpector baseline is re-checked once, after every row has finished, because its fingerprints carry line numbers.
 
@@ -121,10 +127,10 @@ Files: `scripts/handoff_runtime.py`, `scripts/validate-receipt.py`, `assets/rece
    - The payload's Git-ignore banner checks `transcript_path(repo, job_id)`: the same function, so the banner inspects the path that is written.
    - `render_cost` builds its cache path as `session_path(repo, sid, f"cost-receipt-{run_stamp(receipt_path)}.html")` and still renders through `cost.main([...])`, which now computes the same folder. `output_path` goes; `session_path` replaces its guard.
    - The diagram prompt names the new target.
-7. **Tests.** Update the paths in the existing assertions. A test that writes a receipt into `sessions/<x>/` gives it `claude_session: <x>`, because outputs follow the field. Add:
+7. **Tests.** Update the paths in the existing assertions. A test that writes a receipt into `sessions/<date>_<x>/` gives it `claude_session: <x>`, because outputs follow the field. Add:
    - `test_receipt.py`:
      - each row of the session table above, plus an explicit id winning over the env value
-     - the save landing at `sessions/<id>/receipt-<stamp>.md`
+     - the save landing at `sessions/<date>_<id>/receipt-<stamp>.md`
      - an unsafe id refused: `../x`, `a/b`, `.`, `-x`, `" abc"`
      - the legacy note on stderr when `.handoff/receipts/` exists
    - Validator cases in `test_receipt.py`: a UUID and `none` pass; `../x`, `a/b`, `.` and `..` fail.
@@ -182,6 +188,7 @@ CLI: `migrate-sessions.py [--repo PATH] [--apply] [--projects-root PATH]`. `--re
 - `rewrite <src>: claude_session none -> <id> (matched <jsonl path>)`
 - `skip <src>: <reason>`
 - `leave <src>: unrecognised`
+- `delete <src>: .DS_Store`, so the one deletion shows in a dry run
 
 **Step 3: apply** (only with `--apply`), in order: receipts, cost receipts, diagrams, transcripts, cleanup. Create target folders with `mkdir(parents=True, exist_ok=True)` after the `session_path` check.
 
@@ -193,7 +200,7 @@ CLI: `migrate-sessions.py [--repo PATH] [--apply] [--projects-root PATH]`. `--re
   - On any failure, remove the temp file, leave the source untouched, and report it.
 - *Cleanup*: delete `.DS_Store` in the legacy folders. Then `rmdir` `receipts/diagram`, `receipts`, `cost-receipts` and `transcripts`, each only when it is empty.
 
-**Step 4: re-render reminders.** These are stateless and print in both modes, so they survive an interruption. For every `sessions/<id>/cost-receipt-<stem>.md` where `<id>` is not `none`, whose `- Session:` line reads `` `none` ``, and for which `sessions/<id>/receipt-<stem>.md` exists, print `re-render: python3 <script folder>/render-cost-receipt.py <receipt path> --repo <repo> --no-open`.
+**Step 4: re-render reminders.** These are stateless and print in both modes, so they survive an interruption. For every `sessions/<date>_<id>/cost-receipt-<stem>.md` where `<id>` is not `none`, whose `- Session:` line reads `` `none` ``, and for which `sessions/<date>_<id>/receipt-<stem>.md` exists, print `re-render: python3 <script folder>/render-cost-receipt.py <receipt path> --repo <repo> --no-open`.
 
 **Exit**: 0 when nothing was skipped, left behind, or failed, including a second run with nothing to do; 1 otherwise; 2 for bad arguments or no `.handoff/`.
 
@@ -227,7 +234,7 @@ Replace every runtime and user-facing mention of the legacy paths with the sessi
 - `SKILL.md`
   - version `3.11.0` (line 3)
   - the cost receipt section (lines 69–71): newest saved receipt under `.handoff/sessions/`, written beside its receipt in that session's folder
-  - visualise (94, 133): the diagram target `.handoff/sessions/<session>/diagram/session-timeline-<stamp>.svg`
+  - visualise (94, 133): the diagram target `.handoff/sessions/<date>_<session_id>/diagram/session-timeline-<stamp>.svg`
   - Output Contract (209, 215): the save path. Replace "`claude_session` is the current session" with: the generator reads it from `CLAUDE_CODE_SESSION_ID`, so omit `--claude-session` unless regenerating a past run's receipt, and `none` is refused inside Claude Code
   - keep the template line `claude_session: <sessionId or none>`
 - `references/claude-driven.md:160`: the same two changes, in the Phase 5 command's own words. `references/tryout.md:33`: the receipt path.
@@ -261,15 +268,41 @@ grep -rn -e '\.handoff/receipts' -e '\.handoff/cost-receipts' -e '\.handoff/tran
    python3 scripts/migrate-sessions.py --repo "$S/repo" --apply   # nothing to do, exit 0
    ```
    The copy's receipts have new absolute paths, so real transcripts cannot match them. Recovery on a copy is covered by the `--projects-root` fixture tests. Real recovery is checked with a dry run of the real repo: `python3 scripts/migrate-sessions.py --repo ~/dev/ai-sdlc/toolchain/apm-lite` should plan the rewrite of both of its `none` receipts to `86cdd857-…` and write nothing.
-3. Migrate this repo for real: `python3 scripts/migrate-sessions.py --repo . --apply`. Then confirm `python3 scripts/render-cost-receipt.py .handoff/sessions/7743ad0c-f043-4f41-8f43-8ab5f785ba3f/receipt-20261026T144123Z.md --repo . --no-open` writes beside that receipt. Also confirm `python3 scripts/handoff-session-ui.py .handoff/sessions/7743ad0c-f043-4f41-8f43-8ab5f785ba3f/receipt-20261026T144123Z.md --repo . --no-open` finds `diagram/session-timeline-20261026T144123Z.svg`; that is a v8 receipt that has a diagram.
+3. Migrate this repo for real: `python3 scripts/migrate-sessions.py --repo . --apply`. Then confirm `python3 scripts/render-cost-receipt.py .handoff/sessions/20261026_7743ad0c-f043-4f41-8f43-8ab5f785ba3f/receipt-20261026T144123Z.md --repo . --no-open` writes beside that receipt. Also confirm `python3 scripts/handoff-session-ui.py .handoff/sessions/20261026_7743ad0c-f043-4f41-8f43-8ab5f785ba3f/receipt-20261026T144123Z.md --repo . --no-open` finds `diagram/session-timeline-20261026T144123Z.svg`; that is a v8 receipt that has a diagram.
 4. Ask the user before migrating any other repo.
 5. Receipt roundtrip, both id sources:
    ```bash
    T=$(mktemp -d); python3 scripts/make-receipt.py --start --repo "$T"
-   CLAUDE_CODE_SESSION_ID=abc-1 python3 scripts/make-receipt.py --repo "$T" --phase review --checks ci   # saved under sessions/abc-1/
+   CLAUDE_CODE_SESSION_ID=abc-1 python3 scripts/make-receipt.py --repo "$T" --phase review --checks ci   # saved under sessions/<today>_abc-1/
    env -u CLAUDE_CODE_SESSION_ID python3 scripts/make-receipt.py --repo "$T" --phase review --checks ci --claude-session x-2 --no-save | python3 scripts/validate-receipt.py -
    ```
 6. Wrap up: this run's own receipt is the first one written to the new layout.
+
+### Task 5: Date prefix on session folders (row D)
+
+Added after rows A, B and C were reviewed, at the maintainer's request. The tree holds their uncommitted work; this row changes it in place. Nothing has shipped with unprefixed folders, so no code handles them: a bare `sessions/<id>/` folder is simply not a session folder.
+
+Files: `scripts/handoff_runtime.py`, `scripts/make-receipt.py`, `scripts/render-cost-receipt.py`, `scripts/handoff-session-ui.py`, `scripts/migrate-sessions.py`, and the five test modules that build session trees.
+
+1. `handoff_runtime.py`: add `folder_session` and `run_date`, change `session_path`, and have `saved_receipts` key on `folder_session`, as *Shared helpers* now says. `job_owner` keeps returning a session id, so `transcript_path` needs no change. Its env fallback passes no date, which means today.
+2. `make-receipt.py`: pass `date=ended.strftime("%Y%m%d")` when it builds the save path. Update the module docstring and the `--no-save` help.
+3. `render-cost-receipt.py` `main`: pass `date=run_date(receipt_path)`.
+4. `handoff-session-ui.py`: `diagram_target` and `render_cost` pass `date=run_date(self.receipt_path)`, so the page and `cost.main` agree when a receipt's folder does not exist yet.
+5. `migrate-sessions.py`:
+   - Before any `place()` call, compute the earliest stamp's date per session across the legacy receipts, recovered ids included. Pass it as `date=` when planning and again when `apply_plan` rebuilds the path. An existing folder keeps its name, because `session_path` finds it first.
+   - `reminders` uses `folder_session`, not `SESSION_ID`.
+   - Update the module docstring.
+
+Tests:
+
+- `folder_session`: `none`; a UUID with a date; an id containing `_`; rejected: a bare id, `20261008_none`, `2026100_x`, `20261008_`, `20261008_../x`.
+- `run_date`: a stamped name, and `notes.md` giving `None`.
+- `session_path`: a new folder takes the given date; a `None` date gives today, with the clock patched; an existing folder wins over a different given date; two folders for one id pick the first sorted name; `none` ignores the date; a bad `date` raises; a symlinked `sessions` is refused before it is listed.
+- `make-receipt.py`: a save names `<ended date>_<id>`, and a second run on a later date, through `--ended-at`, lands in the first run's folder.
+- `render-cost-receipt.py`: a receipt with no folder yet creates one dated from its stamp; `last` ranks across folders by stamp, not by folder date.
+- `migrate-sessions.py`: a session with receipts on two dates lands in one folder named for the earlier; two runs interrupted between those receipts still land in one folder; a `none` receipt whose session is recovered takes its earliest receipt's date; `none` stays bare.
+
+Acceptance: the Task 1 and Task 2 suites pass with the variable set and unset, with no test deleted or weakened; the paths they assert gain the prefix.
 
 ## Verification
 

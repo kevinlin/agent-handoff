@@ -195,7 +195,7 @@ specific mistake to expect, and it shifts every hotspot by a consistent amount.
 
 ### The fallback ladder
 
-Two of the four SVGs that were then in `.handoff/receipts/diagram/` (since v3.11.0, `.handoff/sessions/<session>/diagram/`) carry these attributes and two predate them, so every rung is a real state in this repo:
+Two of the four SVGs that were then in `.handoff/receipts/diagram/` (since v3.11.0, `.handoff/sessions/<date>_<session_id>/diagram/`) carry these attributes and two predate them, so every rung is a real state in this repo:
 
 | State | Overview shows |
 | --- | --- |

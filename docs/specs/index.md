@@ -26,4 +26,4 @@
 | [plan_review-gates.md](plan_review-gates.md) | Review gates with round caps | design_agent-handoff | v3.8.0 | implemented |
 | [plan_cursor-cli-backend.md](plan_cursor-cli-backend.md) | Cursor CLI as fourth backend | design_cli-backends | v3.9.0 | implemented |
 | [plan_antigravity-cli-backend.md](plan_antigravity-cli-backend.md) | Antigravity CLI as fifth backend | design_cli-backends | v3.10.0 | implemented |
-| [plan_session-evidence-folders.md](plan_session-evidence-folders.md) | Session id from the environment; one `sessions/` evidence folder | design_agent-handoff-evidence | v3.11.0 | planned |
+| [plan_session-evidence-folders.md](plan_session-evidence-folders.md) | Session id from the environment; one `sessions/` evidence folder | design_agent-handoff-evidence | v3.11.0 | implemented |
