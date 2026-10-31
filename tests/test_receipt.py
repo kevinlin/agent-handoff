@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -87,6 +89,46 @@ class ValidateReceiptTests(unittest.TestCase):
 
     def test_template_placeholder_fails(self):
         self.assert_one_failure("template placeholder", claude_session="<session id>")
+
+    def test_a_uuid_and_none_are_valid_session_ids(self):
+        for session in ("7ee39fd0-93b5-4118-827b-6b6e3ca081ba", "none", "abc123", "A.b_c-1"):
+            with self.subTest(session=session):
+                self.assertEqual([], validate_receipt.validate(fields(claude_session=session)))
+
+    def test_an_unsafe_session_id_fails_naming_the_value(self):
+        # The id names a folder, so a value that could leave .handoff/sessions/ fails here.
+        for session in ("../x", "a/b", ".", "..", "-x", ".hidden", "a b", "a\\b"):
+            with self.subTest(session=session):
+                failures = validate_receipt.validate(fields(claude_session=session))
+                self.assertEqual(1, len(failures), failures)
+                self.assertIn("claude_session", failures[0])
+                self.assertIn(repr(session), failures[0])
+
+    def test_a_placeholder_session_is_reported_once_as_a_placeholder(self):
+        failures = validate_receipt.validate(fields(claude_session="<session id>"))
+        self.assertEqual(1, len(failures), failures)
+        self.assertIn("template placeholder", failures[0])
+
+    def test_the_session_grammar_is_the_runtime_helper_s_grammar(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        self.addCleanup(sys.path.remove, str(ROOT / "scripts"))
+        import handoff_runtime
+        self.assertIs(handoff_runtime.SESSION_ID, validate_receipt.SESSION_ID)
+        self.assertEqual(r"[A-Za-z0-9][A-Za-z0-9._-]*", handoff_runtime.SESSION_ID.pattern)
+
+    def test_the_schema_pattern_accepts_exactly_what_the_validator_accepts(self):
+        schema = json.loads((ROOT / "assets" / "receipt-schema.json").read_text(encoding="utf-8"))
+        session = schema["properties"]["claude_session"]
+        self.assertEqual("^(none|[A-Za-z0-9][A-Za-z0-9._-]*)$", session["pattern"])
+        self.assertIn("session folder", session["description"])
+        # The grammar narrows under the same schema version: every stored receipt conforms.
+        self.assertEqual(8, schema["properties"]["receipt_schema_version"]["const"])
+        for candidate in ("none", "abc123", "7ee39fd0-93b5-4118-827b-6b6e3ca081ba",
+                          "../x", "a/b", ".", "..", "-x", ".hidden", "a b"):
+            with self.subTest(candidate=candidate):
+                by_schema = re.search(session["pattern"], candidate) is not None
+                by_validator = validate_receipt.validate(fields(claude_session=candidate)) == []
+                self.assertEqual(by_schema, by_validator)
 
     def test_non_integer_job_counts_fail(self):
         self.assert_one_failure("codex_jobs must be an integer", codex_jobs="two")
@@ -210,6 +252,14 @@ RECEIPT_ARGS = (
     "--copilot-jobs", "0", "--cursor-jobs", "0",
     "--scope", "project", "--config-source", "project", "--roles-used", "[]",
 )
+# The same receipt with the session left to the generator.
+NO_SESSION_ARGS = (
+    "--phase", "review",
+    "--checks", "unittest", "--codex-jobs", "0", "--cc-jobs", "0",
+    "--copilot-jobs", "0", "--cursor-jobs", "0",
+    "--scope", "project", "--config-source", "project", "--roles-used", "[]",
+)
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 
 
 class MakeReceiptTests(unittest.TestCase):
@@ -218,12 +268,18 @@ class MakeReceiptTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, repo)
         return Path(repo)
 
-    def run_make(self, *arguments):
+    def run_make(self, *arguments, session_env: str | None = None):
+        """Inside Claude Code the variable is set and in CI it is not, so every
+        run states it: removed unless `session_env` sets it (possibly to "")."""
+        env = {key: value for key, value in os.environ.items() if key != SESSION_ENV}
+        if session_env is not None:
+            env[SESSION_ENV] = session_env
         return subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "make-receipt.py"), *arguments],
             capture_output=True,
             text=True,
             check=False,
+            env=env,
         )
 
     def make_receipt_fields(self, repo: Path, *extra) -> dict:
@@ -252,7 +308,7 @@ class MakeReceiptTests(unittest.TestCase):
         )
         self.assertEqual(0, made.returncode, made.stderr)
 
-        saved = sorted((repo / ".handoff" / "receipts").glob("receipt-*.md"))
+        saved = sorted((repo / ".handoff" / "sessions" / f"{ended:%Y%m%d}_abc123").glob("receipt-*.md"))
         self.assertEqual(1, len(saved), saved)
         self.assertEqual(f"receipt-{ended.strftime('%Y%m%dT%H%M%SZ')}.md", saved[0].name)
 
@@ -261,6 +317,198 @@ class MakeReceiptTests(unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
         self.assertEqual(0, checked.returncode, checked.stdout)
+
+    def make_with_session(self, repo: Path, *flag, session_env: str | None = None, save: bool = False):
+        """Run the generator with the session left to `flag` and the environment."""
+        extra = () if save else ("--no-save",)
+        return self.run_make(
+            "--repo", str(repo), *NO_SESSION_ARGS, *flag,
+            "--started-at", stamp(datetime.now(timezone.utc)), *extra,
+            session_env=session_env,
+        )
+
+    def recorded_session(self, made) -> str:
+        self.assertEqual(0, made.returncode, made.stderr)
+        return validate_receipt.extract_block(made.stdout)["claude_session"]
+
+    def test_an_omitted_flag_records_the_env_session(self):
+        made = self.make_with_session(self.temp_repo(), session_env="env-session-1")
+        self.assertEqual("env-session-1", self.recorded_session(made))
+
+    def test_an_omitted_flag_without_the_env_value_is_refused(self):
+        for session_env in (None, ""):
+            with self.subTest(session_env=session_env):
+                repo = self.temp_repo()
+                made = self.make_with_session(repo, session_env=session_env, save=True)
+                self.assertEqual(1, made.returncode)
+                self.assertEqual("", made.stdout)
+                self.assertIn(
+                    "FAIL no Claude Code session id: CLAUDE_CODE_SESSION_ID is not set in this "
+                    "shell. Pass --claude-session <id>, or --claude-session none for a run no "
+                    "Claude Code session drove.", made.stderr)
+                self.assertFalse((repo / ".handoff" / "sessions").exists())
+
+    def test_none_inside_a_claude_code_session_is_refused(self):
+        repo = self.temp_repo()
+        made = self.make_with_session(repo, "--claude-session", "none",
+                                      session_env="env-session-1", save=True)
+        self.assertEqual(1, made.returncode)
+        self.assertEqual("", made.stdout)
+        self.assertIn(
+            "FAIL --claude-session none, but this shell runs inside Claude Code session "
+            "env-session-1. Omit --claude-session to record it. To regenerate a receipt for a "
+            "run no Claude Code session drove, unset CLAUDE_CODE_SESSION_ID for that one "
+            "command.", made.stderr)
+        self.assertFalse((repo / ".handoff" / "sessions").exists())
+
+    def test_none_outside_a_claude_code_session_records_none(self):
+        for session_env in (None, ""):
+            with self.subTest(session_env=session_env):
+                repo = self.temp_repo()
+                made = self.make_with_session(repo, "--claude-session", "none",
+                                              session_env=session_env, save=True)
+                self.assertEqual("none", self.recorded_session(made))
+                self.assertEqual(1, len(list((repo / ".handoff" / "sessions" / "none")
+                                             .glob("receipt-*.md"))))
+
+    def test_an_explicit_id_is_recorded_whatever_the_env_says(self):
+        for session_env in (None, "", "env-session-1"):
+            with self.subTest(session_env=session_env):
+                made = self.make_with_session(self.temp_repo(), "--claude-session", "past-run-7",
+                                              session_env=session_env)
+                self.assertEqual("past-run-7", self.recorded_session(made))
+
+    def test_the_save_lands_in_the_session_folder_named_for_the_stamp(self):
+        repo = self.temp_repo()
+        ended = datetime.now(timezone.utc)
+        made = self.run_make(
+            "--repo", str(repo), *NO_SESSION_ARGS,
+            "--started-at", stamp(ended - timedelta(minutes=5)), "--ended-at", stamp(ended),
+            session_env="env-session-1",
+        )
+        self.assertEqual(0, made.returncode, made.stderr)
+        expected = (repo / ".handoff" / "sessions" / f"{ended:%Y%m%d}_env-session-1"
+                    / f"receipt-{ended.strftime('%Y%m%dT%H%M%SZ')}.md")
+        self.assertTrue(expected.is_file())
+        self.assertEqual(made.stdout.rstrip("\n"), expected.read_text(encoding="utf-8").rstrip("\n"))
+        self.assertIn(f"saved: {expected.resolve()}", made.stderr)
+        self.assertEqual([], list((repo / ".handoff").glob("receipts*")))
+
+    def run_ended(self, repo: Path, ended: datetime, *session_args, session_env: str | None = None):
+        """A save whose receipt ends at `ended`, five minutes after it started."""
+        return self.run_make(
+            "--repo", str(repo), *NO_SESSION_ARGS, *session_args,
+            "--started-at", stamp(ended - timedelta(minutes=5)), "--ended-at", stamp(ended),
+            session_env=session_env)
+
+    def test_a_new_session_folder_takes_the_date_the_receipt_ended_on(self):
+        repo = self.temp_repo()
+        ended = datetime.now(timezone.utc) - timedelta(days=3)
+        made = self.run_ended(repo, ended, session_env="env-session-1")
+        self.assertEqual(0, made.returncode, made.stderr)
+        sessions = repo / ".handoff" / "sessions"
+        self.assertEqual([f"{ended:%Y%m%d}_env-session-1"], sorted(p.name for p in sessions.iterdir()))
+        self.assertEqual([f"receipt-{ended:%Y%m%dT%H%M%SZ}.md"],
+                         sorted(p.name for p in (sessions / f"{ended:%Y%m%d}_env-session-1").iterdir()))
+
+    def test_a_later_run_on_a_later_date_lands_in_the_first_runs_folder(self):
+        repo = self.temp_repo()
+        first = datetime.now(timezone.utc) - timedelta(days=3)
+        second = first + timedelta(days=1)
+        for ended in (first, second):
+            made = self.run_ended(repo, ended, "--claude-session", "abc123")
+            self.assertEqual(0, made.returncode, made.stderr)
+        sessions = repo / ".handoff" / "sessions"
+        # One session, one folder: the date it was created with, never the second run's.
+        self.assertEqual([f"{first:%Y%m%d}_abc123"], sorted(p.name for p in sessions.iterdir()))
+        self.assertEqual([f"receipt-{first:%Y%m%dT%H%M%SZ}.md", f"receipt-{second:%Y%m%dT%H%M%SZ}.md"],
+                         sorted(p.name for p in (sessions / f"{first:%Y%m%d}_abc123").iterdir()))
+        self.assertIn(f"saved: {(sessions / f'{first:%Y%m%d}_abc123').resolve()}", made.stderr)
+
+    def test_a_none_receipt_stays_in_the_one_bare_folder_whatever_its_date(self):
+        repo = self.temp_repo()
+        first = datetime.now(timezone.utc) - timedelta(days=3)
+        for ended in (first, first + timedelta(days=1)):
+            made = self.run_ended(repo, ended, "--claude-session", "none")
+            self.assertEqual(0, made.returncode, made.stderr)
+        sessions = repo / ".handoff" / "sessions"
+        self.assertEqual(["none"], sorted(p.name for p in sessions.iterdir()))
+        self.assertEqual(2, len(list((sessions / "none").glob("receipt-*.md"))))
+
+    def test_an_unsafe_id_is_refused_before_anything_is_printed_or_written(self):
+        for unsafe in ("../x", "a/b", ".", "-x", " abc"):
+            for extra in ((), ("--no-save",)):
+                with self.subTest(unsafe=unsafe, extra=extra):
+                    repo = self.temp_repo()
+                    made = self.run_make(
+                        "--repo", str(repo), *NO_SESSION_ARGS, f"--claude-session={unsafe}",
+                        "--started-at", stamp(datetime.now(timezone.utc)), *extra,
+                    )
+                    self.assertEqual(1, made.returncode, made.stderr)
+                    self.assertEqual("", made.stdout)
+                    self.assertIn("FAIL", made.stderr)
+                    self.assertFalse((repo / ".handoff" / "sessions").exists())
+                    self.assertFalse((repo / ".handoff" / "x").exists())
+                    self.assertFalse((repo / "x").exists())
+
+    def test_a_symlinked_component_is_refused_before_anything_is_printed(self):
+        for kind in ("sessions", "session-folder", "file"):
+            with self.subTest(kind=kind):
+                repo = self.temp_repo()
+                outside = repo / "outside"
+                outside.mkdir()
+                ended = datetime.now(timezone.utc)
+                sessions = repo / ".handoff" / "sessions"
+                sessions.mkdir(parents=True)
+                if kind == "sessions":
+                    sessions.rmdir()
+                    sessions.symlink_to(outside, target_is_directory=True)
+                elif kind == "session-folder":
+                    (sessions / f"{ended:%Y%m%d}_abc123").symlink_to(outside, target_is_directory=True)
+                else:
+                    (sessions / f"{ended:%Y%m%d}_abc123").mkdir()
+                    (sessions / f"{ended:%Y%m%d}_abc123"
+                     / f"receipt-{ended.strftime('%Y%m%dT%H%M%SZ')}.md"
+                     ).symlink_to(outside / "elsewhere.md")
+                made = self.run_make(
+                    "--repo", str(repo), *RECEIPT_ARGS,
+                    "--started-at", stamp(ended - timedelta(minutes=5)), "--ended-at", stamp(ended),
+                )
+                self.assertEqual(1, made.returncode, made.stderr)
+                self.assertEqual("", made.stdout)
+                self.assertIn("FAIL", made.stderr)
+                self.assertEqual([], list(outside.iterdir()))
+
+    def test_a_legacy_folder_adds_a_migration_note_after_a_save(self):
+        repo = self.temp_repo()
+        (repo / ".handoff" / "receipts").mkdir(parents=True)
+        made = self.make_with_session(repo, "--claude-session", "abc123", save=True)
+        self.assertEqual(0, made.returncode, made.stderr)
+        notes = [line for line in made.stderr.splitlines() if line.startswith("note: ")]
+        self.assertEqual(1, len(notes), made.stderr)
+        self.assertIn(".handoff/receipts", notes[0])
+        self.assertIn("migrate-sessions.py --repo", notes[0])
+        self.assertLess(made.stderr.index("saved: "), made.stderr.index("note: "))
+
+    def test_no_note_without_a_legacy_folder_or_without_a_save(self):
+        repo = self.temp_repo()
+        made = self.make_with_session(repo, "--claude-session", "abc123", save=True)
+        self.assertNotIn("note:", made.stderr)
+        legacy = self.temp_repo()
+        (legacy / ".handoff" / "transcripts").mkdir(parents=True)
+        made = self.make_with_session(legacy, "--claude-session", "abc123")
+        self.assertNotIn("note:", made.stderr)
+
+    def test_start_needs_no_session_id(self):
+        repo = self.temp_repo()
+        self.assertEqual(0, self.run_make("--start", "--repo", str(repo)).returncode)
+        self.assertEqual(0, self.run_make("--start", "--repo", str(repo),
+                                          session_env="env-session-1").returncode)
+
+    def test_phase_and_checks_stay_required_without_start(self):
+        made = self.run_make("--repo", str(self.temp_repo()), "--claude-session", "abc123")
+        self.assertEqual(2, made.returncode)
+        self.assertIn("--phase and --checks are required unless --start", made.stderr)
 
     def test_a_multiline_field_is_refused_before_anything_is_written(self):
         repo = self.temp_repo()
@@ -275,7 +523,7 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertEqual(1, made.returncode)
         self.assertIn("checks contains a newline", made.stderr)
         self.assertNotIn("[Handoff session receipt]", made.stdout)
-        self.assertFalse((repo / ".handoff" / "receipts").exists())
+        self.assertFalse((repo / ".handoff" / "sessions").exists())
 
     def test_no_save_leaves_nothing_on_disk(self):
         repo = self.temp_repo()
@@ -285,7 +533,7 @@ class MakeReceiptTests(unittest.TestCase):
         )
         self.assertEqual(0, made.returncode, made.stderr)
         self.assertIn("[Handoff session receipt]", made.stdout)
-        self.assertFalse((repo / ".handoff" / "receipts").exists())
+        self.assertFalse((repo / ".handoff" / "sessions").exists())
 
     def test_invalid_arguments_refuse_to_emit_a_receipt(self):
         made = self.run_make(

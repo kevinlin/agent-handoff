@@ -22,7 +22,9 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
-from handoff_runtime import inject, job_state, read_meta  # noqa: E402
+from handoff_runtime import (  # noqa: E402
+    RECEIPT_STAMP, EvidencePathError, inject, job_state, legacy_layout_note, read_meta,
+    run_date, run_stamp, saved_receipts, session_path)
 
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "cost-receipt.html"
 RECEIPT_HEADER = "[Handoff session receipt]"
@@ -400,7 +402,8 @@ def job_row(repo: Path, job: dict) -> dict:
 
 
 DURATION = re.compile(r"^(\d+)min ([0-5]\d)sec$")
-RECEIPT_STAMP = re.compile(r"^receipt-(\d{8}T\d{6}Z)\.md$")
+# RECEIPT_STAMP now lives in handoff_runtime; imported above so the name still
+# resolves for callers that read it from here.
 DEFAULT_PROJECTS = Path.home() / ".claude" / "projects"
 
 
@@ -714,21 +717,25 @@ def render_markdown(payload: dict) -> str:
 
 
 def resolve_receipt(repo: Path, selector: str | None) -> Path:
+    # Both branches return a resolved path. The session page resolves its input
+    # before naming anything, so a symlink `notes.md` pointing at
+    # `receipt-<stamp>.md` has to give this command the stamp too, or the two
+    # entry points would write different file names for one receipt.
     if selector and selector != "last":
         path = Path(selector)
         if not path.is_file():
             raise ReceiptError(f"no such receipt file: {selector}")
-        return path
+        return path.resolve()
     # Ordered by stamp, not mtime: the stamp is the receipt's own generation
-    # time and survives a copy. Names in one directory are unique, so the
-    # greatest stamp is unambiguous.
-    saved = sorted((repo / ".handoff" / "receipts").glob("receipt-*.md"),
-                   key=lambda p: p.name)
+    # time and survives a copy. Across session folders the same stamp can occur
+    # twice, so ties go to the greater session id (owner_key).
+    saved = saved_receipts(repo)
     if not saved:
-        raise ReceiptError(
-            "no saved receipt found under .handoff/receipts/. "
-            "Wrap up a run, or generate one with `make-receipt.py`.")
-    return saved[-1]
+        message = ("no saved receipt found under .handoff/sessions/. "
+                   "Wrap up a run, or generate one with `make-receipt.py`.")
+        note = legacy_layout_note(repo)
+        raise ReceiptError(f"{message} {note}" if note else message)
+    return saved[-1][1].resolve()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -749,9 +756,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
 
+    # load_receipt() never validates claude_session, so the folder it names is
+    # checked here, where the output paths are built and before anything is read
+    # for the page or written. An unsafe id or a symlink exits 2 with nothing written.
+    session = receipt["fields"].get("claude_session", "none")
+    stem = run_stamp(receipt_path)
+    # The receipt's own date names a folder only when its session has none yet;
+    # an existing folder is found by session id, so this never opens a second one.
+    date = run_date(receipt_path)
+    try:
+        md_path = session_path(args.repo, session, f"cost-receipt-{stem}.md", date=date)
+        html_path = session_path(args.repo, session, f"cost-receipt-{stem}.html", date=date)
+    except EvidencePathError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
     rows = [job_row(args.repo, job) for job in receipt["jobs"]]
     interval = run_interval(receipt_path, receipt["fields"].get("duration", "0min 00sec"))
-    session = receipt["fields"].get("claude_session", "none")
     driver = (driver_row(session, interval) if session != "none"
               else {"state": "unavailable", "usage": _blank_usage(),
                     "models": [], "cost_usd": None})
@@ -760,12 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         str(args.repo / ".handoff" / "jobs" / r["job_id"] / "log.jsonl") for r in rows]
     payload = build_payload(receipt, rows, driver, interval, sources, args.repo)
 
-    stamp_match = RECEIPT_STAMP.match(receipt_path.name)
-    stem = stamp_match.group(1) if stamp_match else receipt_path.stem
-    out_dir = args.repo / ".handoff" / "cost-receipts"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    md_path = out_dir / f"cost-receipt-{stem}.md"
-    html_path = out_dir / f"cost-receipt-{stem}.html"
+    md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(render_markdown(payload), encoding="utf-8")
     html_path.write_text(
         inject(args.template.read_text(encoding="utf-8"), payload), encoding="utf-8")

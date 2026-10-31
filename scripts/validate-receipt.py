@@ -26,6 +26,11 @@ import re
 import sys
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+from handoff_runtime import SESSION_ID  # noqa: E402
+
 RECEIPT_HEADER = "[Handoff session receipt]"
 
 PHASES = {"planning", "codex implementation", "delegated implementation", "review", "final fix"}
@@ -157,10 +162,20 @@ def validate(fields: dict[str, object]) -> list[str]:
     if version_text != "8":
         failures.append(f"receipt_schema_version must be 8, got {version_text!r}")
 
+    placeholders = set()
     for placeholder_field in ("phase", "claude_session", "checks", "anomalies"):
         value = as_text(placeholder_field)
         if value.startswith("<") and value.endswith(">"):
+            placeholders.add(placeholder_field)
             failures.append(f"{placeholder_field} still contains a template placeholder: {value}")
+
+    # The session id is part of the receipt's session folder name, so it has to
+    # be one ordinary path segment. A placeholder is already reported above.
+    session = as_text("claude_session")
+    if "claude_session" not in placeholders and session != "none" and not SESSION_ID.fullmatch(session):
+        failures.append(
+            f"claude_session must be 'none' or an id matching {SESSION_ID.pattern}, got {session!r}"
+        )
 
     return failures
 

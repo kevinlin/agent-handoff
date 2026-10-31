@@ -4,16 +4,26 @@
 Receipts written by hand drift in format and invite optimistic guesses.
 This tool builds the receipt from arguments, validates the result with
 scripts/validate-receipt.py logic before printing, and persists it under
-the target repo's .handoff/receipts/ unless --no-save says otherwise.
+the target repo's .handoff/sessions/<date>_<claude_session>/ unless --no-save
+says otherwise. The folder is looked up by session id: a session that already
+has one keeps it, and a new one takes the date of the receipt's own stamp.
 
 Usage:
     python3 make-receipt.py --start --repo PATH        # Phase 0: stamp the start
-    python3 make-receipt.py --phase "final fix" --claude-session abc123 \
+    python3 make-receipt.py --phase "final fix" [--claude-session ID] \
         --checks "npm test; bash lint.sh" --codex-jobs 2 --cc-jobs 1 \
         --copilot-jobs 1 --cursor-jobs 1 --antigravity-jobs 1 \
         [--scope project] [--config-source project] [--roles-used '[]'] \
         [--anomalies none] [--started-at ISO8601] [--ended-at ISO8601] \
         [--no-save] [--repo PATH]
+
+The session id is read, not recalled: Claude Code sets CLAUDE_CODE_SESSION_ID in
+every Bash tool subprocess, so with --claude-session omitted the receipt records
+that value. An explicit id wins, which is how a past run's receipt is
+regenerated from another session. `--claude-session none` is for a run no Claude
+Code session drove, and is refused while the variable is set; an omitted flag
+with the variable unset is refused too. The id is part of the session folder's
+name, so it is checked as a path segment before anything is printed.
 
 Tip: get --codex-jobs, --cc-jobs, --copilot-jobs, --cursor-jobs and
 --antigravity-jobs from the job directories under <repo>/.handoff/jobs/ instead
@@ -40,12 +50,17 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+from handoff_runtime import (  # noqa: E402
+    SESSION_ENV, EvidencePathError, legacy_layout_note, session_path)
 
 
 def load_validator():
@@ -147,11 +162,40 @@ def count_mismatches(fields: dict[str, str]) -> list[str]:
     return failures
 
 
+def resolve_session(flag: str | None, inside: str) -> tuple[str | None, str | None]:
+    """The session id to record, or the reason there is none: (id, failure).
+
+    `inside` is CLAUDE_CODE_SESSION_ID, "" when unset or empty. `none` while it
+    is set is refused rather than corrected: a driver still typing it is
+    following prose that has since changed, and the value would file a Claude
+    Code run under `none` with no driver row. Any other explicit id wins, which
+    is what lets a past run be regenerated from another session.
+    """
+    if flag is None:
+        if inside:
+            return inside, None
+        return None, (
+            f"no Claude Code session id: {SESSION_ENV} is not set in this shell. "
+            "Pass --claude-session <id>, or --claude-session none for a run no "
+            "Claude Code session drove."
+        )
+    if flag == "none" and inside:
+        return None, (
+            f"--claude-session none, but this shell runs inside Claude Code session {inside}. "
+            "Omit --claude-session to record it. To regenerate a receipt for a run no "
+            f"Claude Code session drove, unset {SESSION_ENV} for that one command."
+        )
+    return flag, None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a valid Handoff Session Receipt.")
     parser.add_argument("--start", action="store_true", help="Stamp <repo>/.handoff/session-start and exit.")
     parser.add_argument("--phase")
-    parser.add_argument("--claude-session", help="Session id, or 'none'.")
+    parser.add_argument(
+        "--claude-session",
+        help="Session id, or 'none' for a run no Claude Code session drove. Omit it to record "
+             f"${SESSION_ENV}; pass an id only to regenerate a past run's receipt.")
     parser.add_argument("--checks")
     parser.add_argument("--anomalies", default="none")
     parser.add_argument("--codex-jobs", default="0", help="Number of codex-backed delegate-job.sh jobs including fix rounds.")
@@ -164,7 +208,7 @@ def main() -> int:
     parser.add_argument("--roles-used", default="none", help="'none' or a JSON array of {role, host, model, effort, verified}; host is the executing CLI.")
     parser.add_argument("--started-at", help="ISO 8601 session start, overriding the .handoff/session-start marker.")
     parser.add_argument("--ended-at", help="ISO 8601 receipt time, overriding the current clock; use it to regenerate a past run's receipt.")
-    parser.add_argument("--no-save", action="store_true", help="Print the receipt without writing it under <repo>/.handoff/receipts/.")
+    parser.add_argument("--no-save", action="store_true", help="Print the receipt without writing it under <repo>/.handoff/sessions/<date>_<claude_session>/.")
     parser.add_argument("--repo", default=".", help="Target repo holding .handoff/ (default: current directory).")
     args = parser.parse_args()
 
@@ -178,8 +222,20 @@ def main() -> int:
         print(f"{stamp} {marker}")
         return 0
 
-    if not (args.phase and args.claude_session and args.checks):
-        parser.error("--phase, --claude-session and --checks are required unless --start")
+    if not (args.phase and args.checks):
+        parser.error("--phase and --checks are required unless --start")
+
+    session_id, refusal = resolve_session(args.claude_session, os.environ.get(SESSION_ENV) or "")
+    if refusal:
+        print(f"FAIL {refusal}", file=sys.stderr)
+        return 1
+    # Checked on the raw value before anything is printed: validate() strips,
+    # so " abc" would pass it and still be a different folder name.
+    try:
+        session_path(args.repo, session_id)
+    except EvidencePathError as error:
+        print(f"FAIL {error}", file=sys.stderr)
+        return 1
 
     if args.started_at:
         started = parse_iso(args.started_at)
@@ -205,7 +261,7 @@ def main() -> int:
     durations = job_durations(args.repo, started, ended)
     fields = {
         "phase": args.phase,
-        "claude_session": args.claude_session,
+        "claude_session": session_id,
         "duration": format_duration(elapsed),
         "checks": args.checks,
         "anomalies": args.anomalies,
@@ -235,15 +291,34 @@ def main() -> int:
     lines = ["[Handoff session receipt]"]
     lines.extend(f"{key}: {value}" for key, value in fields.items())
     receipt = "\n".join(lines)
+
+    # The output file is checked with the rest, before the receipt is printed: a
+    # symlink standing where it goes would send the write somewhere else.
+    save_path = None
+    if not args.no_save:
+        stamp = ended.strftime("%Y%m%dT%H%M%SZ")
+        try:
+            # The date only names a folder this session does not have yet; an
+            # existing one is found by session id whatever date this run has.
+            save_path = session_path(args.repo, session_id, f"receipt-{stamp}.md",
+                                     date=ended.strftime("%Y%m%d"))
+        except EvidencePathError as error:
+            print(f"FAIL {error}", file=sys.stderr)
+            return 1
+
     print(receipt)
 
-    if not args.no_save:
-        save_dir = Path(args.repo).resolve() / ".handoff" / "receipts"
-        save_dir.mkdir(parents=True, exist_ok=True)
-        stamp = ended.strftime("%Y%m%dT%H%M%SZ")
-        save_path = save_dir / f"receipt-{stamp}.md"
-        save_path.write_text(receipt + "\n", encoding="utf-8")
+    if save_path is not None:
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path.write_text(receipt + "\n", encoding="utf-8")
+        except OSError as error:
+            print(f"FAIL cannot save the receipt to {save_path}: {error}", file=sys.stderr)
+            return 1
         print(f"saved: {save_path}", file=sys.stderr)
+        note = legacy_layout_note(args.repo)
+        if note:
+            print(f"note: {note}", file=sys.stderr)
 
     return 0
 

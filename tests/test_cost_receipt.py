@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -19,6 +20,8 @@ rcr = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = rcr
 SPEC.loader.exec_module(rcr)
+# render-cost-receipt.py puts scripts/ on sys.path, which is what makes this importable.
+hr = importlib.import_module("handoff_runtime")
 
 
 def receipt_text(**overrides) -> str:
@@ -517,6 +520,9 @@ class FiveBackendRoundTripTests(unittest.TestCase):
             (job / "meta").write_text(
                 f"backend={backend}\nmodel=m\nrole=fast_worker\nlabel=l\nsubmitted_at={submitted}\n")
             (job / "exit_code").write_text("0\n")
+        # `none` is refused while CLAUDE_CODE_SESSION_ID is set, so say it is not:
+        # the result must be the same inside Claude Code and in CI.
+        env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
         made = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "make-receipt.py"), "--repo", str(tmp),
              "--phase", "delegated implementation", "--claude-session", "none",
@@ -525,9 +531,9 @@ class FiveBackendRoundTripTests(unittest.TestCase):
              "--started-at", started.strftime("%Y-%m-%dT%H:%M:%SZ"),
              "--roles-used", '[{"role":"fast_worker","host":"antigravity","model":"m",'
                              '"effort":"model","verified":false}]'],
-            capture_output=True, text=True, check=False)
+            capture_output=True, text=True, check=False, env=env)
         self.assertEqual(0, made.returncode, made.stderr)
-        receipt = next((tmp / ".handoff" / "receipts").glob("receipt-*.md"))
+        receipt = next((tmp / ".handoff" / "sessions" / "none").glob("receipt-*.md"))
         checked = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "validate-receipt.py"), str(receipt)],
             capture_output=True, text=True, check=False)
@@ -541,6 +547,11 @@ class FiveBackendRoundTripTests(unittest.TestCase):
             [sys.executable, str(ROOT / "scripts" / "render-cost-receipt.py"), str(receipt),
              "--repo", str(tmp), "--no-open"], capture_output=True, text=True, check=False)
         self.assertEqual(0, rendered.returncode, rendered.stderr)
+        # The cost receipt lands beside the receipt it was rendered from.
+        self.assertEqual(
+            [f"cost-receipt-{receipt.stem.removeprefix('receipt-')}.html",
+             f"cost-receipt-{receipt.stem.removeprefix('receipt-')}.md", receipt.name],
+            sorted(p.name for p in receipt.parent.iterdir()))
 
 
 class CopilotFoldTests(unittest.TestCase):
@@ -724,7 +735,7 @@ class IntervalTests(unittest.TestCase):
         self.assertEqual(rcr.parse_duration("0min 00sec"), 0)
 
     def test_saved_receipt_name_yields_an_interval(self):
-        path = Path("/x/.handoff/receipts/receipt-20260908T155001Z.md")
+        path = Path("/x/.handoff/sessions/20260908_abc123/receipt-20260908T155001Z.md")
         start, end = rcr.run_interval(path, "11min 01sec")
         self.assertEqual(end, datetime(2026, 9, 8, 15, 50, 1, tzinfo=timezone.utc))
         self.assertEqual((end - start).total_seconds(), 661)
@@ -1169,7 +1180,7 @@ class TemplateTests(unittest.TestCase):
 class SourcePathTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.sources = [str(self.tmp / ".handoff" / "receipts" / "receipt-x.md"),
+        self.sources = [str(self.tmp / ".handoff" / "sessions" / "20260910_sid-1" / "receipt-x.md"),
                         str(self.tmp / ".handoff" / "jobs" / "job-a" / "log.jsonl"),
                         "/somewhere/else/outside.jsonl"]
         self.payload = rcr.build_payload(
@@ -1243,7 +1254,10 @@ class CliTests(unittest.TestCase):
         (antigravity / "exit_code").write_text("0\n")
         (antigravity / "log.jsonl").write_text(
             "".join(json.dumps(event) + "\n" for event in AGY_DENIED))
-        self.receipts = self.tmp / ".handoff" / "receipts"
+        # receipt_text() names session abc123, and outputs follow that field. The
+        # folder carries the date of the stamps these tests use, 20260908.
+        self.sessions = self.tmp / ".handoff" / "sessions"
+        self.receipts = self.sessions / "20260908_abc123"
         self.receipts.mkdir(parents=True)
         self.text = receipt_text(
             codex_jobs="1", codex_job_durations="job-a=1min 00sec",
@@ -1284,7 +1298,8 @@ class CliTests(unittest.TestCase):
         old = self.write("receipt-20260908T100000Z.md")
         new = self.write("receipt-20260908T155001Z.md")
         Path(old).touch()  # older stamp, newer mtime
-        self.assertEqual(rcr.resolve_receipt(self.tmp, None), new)
+        # Resolved, so /var/... and /private/var/... name one file.
+        self.assertEqual(rcr.resolve_receipt(self.tmp, None), new.resolve())
 
     def test_explicit_missing_path_exits_two(self):
         code, err = self.run_cli(str(self.tmp / "nope.md"))
@@ -1295,7 +1310,7 @@ class CliTests(unittest.TestCase):
         self.write("receipt-20260908T155001Z.md")
         code, _ = self.run_cli()
         self.assertEqual(code, 0)
-        out = self.tmp / ".handoff" / "cost-receipts"
+        out = self.receipts
         self.assertTrue((out / "cost-receipt-20260908T155001Z.md").is_file())
         self.assertTrue((out / "cost-receipt-20260908T155001Z.html").is_file())
 
@@ -1303,7 +1318,7 @@ class CliTests(unittest.TestCase):
         other = self.tmp / "notes.md"
         other.write_text(self.text)
         self.assertEqual(self.run_cli(str(other))[0], 0)
-        self.assertTrue((self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-notes.md").is_file())
+        self.assertTrue((self.receipts / "cost-receipt-notes.md").is_file())
 
     def test_no_receipt_and_no_selector_exits_two(self):
         code, err = self.run_cli()
@@ -1316,19 +1331,19 @@ class CliTests(unittest.TestCase):
         code, err = self.run_cli()
         self.assertEqual(code, 2)
         self.assertIn("schema_version", err)
-        self.assertFalse((self.tmp / ".handoff" / "cost-receipts").exists())
+        self.assertEqual([], sorted(p.name for p in self.receipts.glob("cost-receipt-*")))
 
     def test_rerun_overwrites_in_place(self):
         self.write("receipt-20260908T155001Z.md")
         self.run_cli()
-        out = self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.md"
+        out = self.receipts / "cost-receipt-20260908T155001Z.md"
         first = out.read_text()
         self.run_cli()
         self.assertIn("Handoff Cost Receipt", out.read_text())
         self.assertEqual(first.splitlines()[0], out.read_text().splitlines()[0])
 
     def payload_from_html(self):
-        html = (self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.html").read_text()
+        html = (self.receipts / "cost-receipt-20260908T155001Z.html").read_text()
         match = re.search(
             r'<script id="handoff-payload" type="application/json">(.*?)</script>',
             html, re.S)
@@ -1363,19 +1378,223 @@ class CliTests(unittest.TestCase):
     def test_markdown_of_a_mixed_run_names_the_credit_meter(self):
         self.write("receipt-20260908T155001Z.md")
         self.run_cli()
-        out = (self.tmp / ".handoff" / "cost-receipts"
-               / "cost-receipt-20260908T155001Z.md").read_text()
+        out = (self.receipts / "cost-receipt-20260908T155001Z.md").read_text()
         self.assertIn("Copilot AI-credit meter", out)
         self.assertIn("84,828,000", out)
         self.assertIn("claude-backed, copilot-backed, cursor-backed, and antigravity-backed jobs", out)
         self.assertIn("Ran on the Antigravity meter", out)
+
+    def put(self, session, name, text=None, date="20260908"):
+        """A receipt file in another session's folder, which carries `date`."""
+        folder = self.sessions / f"{date}_{session}"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text(self.text if text is None else text)
+        return path
+
+    def test_outputs_follow_the_receipts_session_field_not_the_folder_it_sits_in(self):
+        self.text = self.text.replace("claude_session: abc123", "claude_session: field-7")
+        self.write("receipt-20260908T155001Z.md")
+        self.assertEqual(0, self.run_cli()[0])
+        # The session had no folder, so it takes the date of the receipt's stamp.
+        folder = self.sessions / "20260908_field-7"
+        self.assertEqual(["cost-receipt-20260908T155001Z.html", "cost-receipt-20260908T155001Z.md"],
+                         sorted(p.name for p in folder.iterdir()))
+        self.assertEqual([], list(self.receipts.glob("cost-receipt-*")))
+
+    def test_a_receipt_with_no_folder_yet_creates_one_dated_from_its_stamp(self):
+        # Not today's date, and not the date of any other folder.
+        self.text = self.text.replace("claude_session: abc123", "claude_session: field-7")
+        self.write("receipt-20250102T030405Z.md")
+        self.assertEqual(0, self.run_cli(str(self.receipts / "receipt-20250102T030405Z.md"))[0])
+        self.assertEqual(["cost-receipt-20250102T030405Z.html", "cost-receipt-20250102T030405Z.md"],
+                         sorted(p.name for p in (self.sessions / "20250102_field-7").iterdir()))
+        self.assertEqual(["20250102_field-7", "20260908_abc123"],
+                         sorted(p.name for p in self.sessions.iterdir()))
+
+    def test_a_receipt_with_no_stamp_and_no_folder_takes_today(self):
+        # notes.md has no stamp, so there is no date to take but the clock's.
+        self.text = self.text.replace("claude_session: abc123", "claude_session: field-7")
+        other = self.tmp / "notes.md"
+        other.write_text(self.text)
+        with unittest.mock.patch.object(hr, "datetime") as clock:
+            clock.now.return_value = datetime(2026, 10, 31, 23, 59, tzinfo=timezone.utc)
+            self.assertEqual(0, self.run_cli(str(other))[0])
+        self.assertEqual(["cost-receipt-notes.html", "cost-receipt-notes.md"],
+                         sorted(p.name for p in (self.sessions / "20261031_field-7").iterdir()))
+
+    def test_a_session_with_a_folder_keeps_it_whatever_date_its_stamp_has(self):
+        # The receipt's stamp says 20260909; the session already has a 20260908 folder.
+        self.write("receipt-20260909T155001Z.md")
+        self.assertEqual(0, self.run_cli()[0])
+        self.assertEqual(["cost-receipt-20260909T155001Z.html", "cost-receipt-20260909T155001Z.md",
+                          "receipt-20260909T155001Z.md"],
+                         sorted(p.name for p in self.receipts.iterdir()))
+        self.assertEqual(["20260908_abc123"], sorted(p.name for p in self.sessions.iterdir()))
+
+    def test_a_none_receipt_writes_into_the_none_folder(self):
+        self.text = self.text.replace("claude_session: abc123", "claude_session: none")
+        self.write("receipt-20260908T155001Z.md")
+        self.assertEqual(0, self.run_cli()[0])
+        self.assertTrue((self.sessions / "none" / "cost-receipt-20260908T155001Z.md").is_file())
+
+    def test_last_spans_every_session_folder(self):
+        self.put("aaa", "receipt-20260908T100000Z.md")
+        newest = self.put("bbb", "receipt-20260908T200000Z.md")
+        self.put("ccc", "receipt-20260907T230000Z.md")
+        self.assertEqual(newest.resolve(), rcr.resolve_receipt(self.tmp, None))
+        self.assertEqual(newest.resolve(), rcr.resolve_receipt(self.tmp, "last"))
+
+    def test_a_tied_stamp_goes_to_the_greater_session_id(self):
+        self.put("aaa", "receipt-20260908T100000Z.md")
+        winner = self.put("bbb", "receipt-20260908T100000Z.md")
+        self.assertEqual(winner.resolve(), rcr.resolve_receipt(self.tmp, None))
+
+    def test_last_ranks_by_stamp_not_by_folder_date(self):
+        # The older run sits in the later-dated folder, so a ranking that read the
+        # folder name would pick it. The stamp is what says which run is newer.
+        self.put("old", "receipt-20260908T100000Z.md", date="20261231")
+        newest = self.put("new", "receipt-20260909T100000Z.md", date="20260101")
+        self.assertEqual(newest.resolve(), rcr.resolve_receipt(self.tmp, None))
+        self.assertEqual(newest.resolve(), rcr.resolve_receipt(self.tmp, "last"))
+
+    def test_a_tied_stamp_ignores_the_folder_dates_too(self):
+        self.put("aaa", "receipt-20260908T100000Z.md", date="20261231")
+        winner = self.put("bbb", "receipt-20260908T100000Z.md", date="20260101")
+        self.assertEqual(winner.resolve(), rcr.resolve_receipt(self.tmp, None))
+
+    def test_a_bare_or_malformed_folder_is_not_a_session_folder(self):
+        winner = self.put("aaa", "receipt-20260908T100000Z.md")
+        for name in ("zzz", "20260908_none", "2026090_zzz", "20260908_", "20260908_.hidden"):
+            with self.subTest(folder=name):
+                folder = self.sessions / name
+                folder.mkdir()
+                (folder / "receipt-20261231T000000Z.md").write_text(self.text)
+                self.assertEqual(winner.resolve(), rcr.resolve_receipt(self.tmp, None))
+
+    def test_a_greater_stamp_beats_a_greater_session_id(self):
+        winner = self.put("aaa", "receipt-20260908T100001Z.md")
+        self.put("zzz", "receipt-20260908T100000Z.md")
+        self.assertEqual(winner.resolve(), rcr.resolve_receipt(self.tmp, None))
+
+    def test_a_non_stamped_receipt_loses_to_a_stamped_one_and_a_bad_folder_is_ignored(self):
+        winner = self.put("aaa", "receipt-20260908T100000Z.md")
+        self.put("zzz", "receipt-notes.md")
+        self.put(".hidden", "receipt-20261231T000000Z.md")
+        self.assertEqual(winner.resolve(), rcr.resolve_receipt(self.tmp, None))
+
+    def test_a_non_stamped_receipt_is_still_found_when_it_is_the_only_one(self):
+        only = self.put("aaa", "receipt-notes.md")
+        self.assertEqual(only.resolve(), rcr.resolve_receipt(self.tmp, None))
+
+    def test_the_not_found_error_names_sessions_and_carries_the_legacy_note(self):
+        legacy = self.tmp / ".handoff" / "receipts"
+        legacy.mkdir()
+        code, err = self.run_cli()
+        self.assertEqual(2, code)
+        self.assertIn("no saved receipt found under .handoff/sessions/. "
+                      "Wrap up a run, or generate one with `make-receipt.py`.", err)
+        self.assertIn("migrate-sessions.py --repo", err)
+        self.assertIn("--apply", err)
+
+    def test_the_not_found_error_has_no_note_without_a_legacy_folder(self):
+        code, err = self.run_cli()
+        self.assertEqual(2, code)
+        self.assertIn("no saved receipt found under .handoff/sessions/", err)
+        self.assertNotIn("migrate-sessions.py", err)
+
+    def test_a_legacy_receipt_is_not_read(self):
+        legacy = self.tmp / ".handoff" / "receipts"
+        legacy.mkdir()
+        (legacy / "receipt-20260908T155001Z.md").write_text(self.text)
+        code, err = self.run_cli()
+        self.assertEqual(2, code)
+        self.assertEqual([], list(self.receipts.glob("cost-receipt-*")))
+        self.assertIn("migrate-sessions.py", err)
+
+    def test_a_symlink_input_is_named_for_its_target_by_both_entry_points(self):
+        target = self.write("receipt-20260908T155001Z.md")
+        link = self.tmp / "notes.md"
+        link.symlink_to(target)
+        self.assertEqual(target.resolve(), rcr.resolve_receipt(self.tmp, str(link)))
+        self.assertEqual(0, self.run_cli(str(link))[0])
+        self.assertEqual(["cost-receipt-20260908T155001Z.html", "cost-receipt-20260908T155001Z.md",
+                          "receipt-20260908T155001Z.md"],
+                         sorted(p.name for p in self.receipts.iterdir()))
+
+    def test_the_default_input_is_returned_resolved(self):
+        saved = self.write("receipt-20260908T155001Z.md")
+        self.assertEqual(saved.resolve(), rcr.resolve_receipt(self.tmp, None))
+        self.assertTrue(rcr.resolve_receipt(self.tmp, None).is_absolute())
+
+    def test_an_unsafe_session_id_in_the_receipt_is_refused_before_anything_is_written(self):
+        # The cost reader never calls validate(), so the id check has to live
+        # where the path is built.
+        base = self.text
+        for session in ("../x", "a/b", "..", "-x", ".hidden"):
+            with self.subTest(session=session):
+                self.text = base.replace("claude_session: abc123", f"claude_session: {session}")
+                self.write("receipt-20260908T155001Z.md")
+                code, err = self.run_cli()
+                self.assertEqual(2, code)
+                self.assertTrue(err.startswith("ERROR: "), err)
+                self.assertEqual([], list(self.receipts.glob("cost-receipt-*")))
+                self.assertFalse((self.tmp / ".handoff" / "x").exists())
+                self.assertFalse((self.tmp / "x").exists())
+
+    def test_a_symlinked_sessions_folder_is_refused_and_nothing_is_written(self):
+        self.write("receipt-20260908T155001Z.md")
+        # The receipt is read through its real location; the outputs are not
+        # allowed to follow the symlink that stands where sessions/ should be.
+        moved = self.tmp / "moved-sessions"
+        self.sessions.rename(moved)
+        self.sessions.symlink_to(moved, target_is_directory=True)
+        code, err = self.run_cli(str(moved / "20260908_abc123" / "receipt-20260908T155001Z.md"))
+        self.assertEqual(2, code)
+        self.assertTrue(err.startswith("ERROR: "), err)
+        self.assertEqual([], list((moved / "20260908_abc123").glob("cost-receipt-*")))
+
+    def test_a_symlinked_session_folder_is_refused(self):
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        self.text = self.text.replace("claude_session: abc123", "claude_session: linked")
+        self.write("receipt-20260908T155001Z.md")
+        (self.sessions / "20260908_linked").symlink_to(outside, target_is_directory=True)
+        code, err = self.run_cli()
+        self.assertEqual(2, code)
+        self.assertTrue(err.startswith("ERROR: "), err)
+        self.assertEqual([], list(outside.iterdir()))
+
+    def test_a_symlink_at_an_output_file_is_refused_and_its_target_left_alone(self):
+        self.write("receipt-20260908T155001Z.md")
+        victim = self.tmp / "victim.txt"
+        victim.write_text("keep me")
+        (self.receipts / "cost-receipt-20260908T155001Z.html").symlink_to(victim)
+        code, err = self.run_cli()
+        self.assertEqual(2, code)
+        self.assertTrue(err.startswith("ERROR: "), err)
+        self.assertEqual("keep me", victim.read_text())
+        self.assertFalse((self.receipts / "cost-receipt-20260908T155001Z.md").exists())
+
+    def test_the_stamp_pattern_is_kept_under_its_old_name(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        self.addCleanup(sys.path.remove, str(ROOT / "scripts"))
+        import handoff_runtime
+        self.assertIs(handoff_runtime.RECEIPT_STAMP, rcr.RECEIPT_STAMP)
+
+    def test_the_fail_closed_reader_still_refuses_an_older_schema(self):
+        self.text = receipt_text(receipt_schema_version="6")
+        self.write("receipt-20260908T155001Z.md")
+        code, err = self.run_cli()
+        self.assertEqual(2, code)
+        self.assertIn("receipt_schema_version must be 8", err)
 
     def test_a_cursor_job_with_two_rejections_reports_two(self):
         row = rcr.job_row(self.tmp, {"job_id": "job-d", "backend": "cursor", "running": False})
         self.assertEqual((2, "GPT-5.4 Mini Low"), (row["denials"], row["model"]))
         self.write("receipt-20260908T155001Z.md")
         self.assertEqual(0, self.run_cli()[0])
-        md = (self.tmp / ".handoff" / "cost-receipts" / "cost-receipt-20260908T155001Z.md").read_text()
+        md = (self.receipts / "cost-receipt-20260908T155001Z.md").read_text()
         line = next(l for l in md.splitlines() if l.startswith("| `job-d`"))
         self.assertIn("GPT-5.4 Mini Low", line)
         self.assertIn("n/a - no cost figure", line)

@@ -39,7 +39,8 @@
     "claude_session": {
       "type": "string",
       "minLength": 1,
-      "description": "Claude Code session id, or the literal string 'none'."
+      "pattern": "^(none|[A-Za-z0-9][A-Za-z0-9._-]*)$",
+      "description": "Claude Code session id, or the literal string 'none'. The receipt's session folder is .handoff/sessions/<date>_<claude_session>/ (the bare sessions/none/ for 'none'), so the value must be one ordinary path segment: 'none' or an id that starts with a letter or digit and continues with letters, digits, '.', '_' or '-'."
     },
     "duration": {
       "type": "string",

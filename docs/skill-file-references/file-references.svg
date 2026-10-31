@@ -42,7 +42,7 @@ text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
 <text x="52" y="128" class="s">~/.claude/skills/agent-handoff/</text>
 <text x="52" y="143" class="s">= $HANDOFF_DIR</text>
 <rect x="420" y="90" width="330" height="61" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
-<text x="432" y="111" class="n">SKILL.md  (entry point, v3.10.1)</text>
+<text x="432" y="111" class="n">SKILL.md  (entry point, v3.11.0)</text>
 <text x="432" y="128" class="s">description = trigger; body loads</text>
 <text x="432" y="143" class="s">once the skill fires</text>
 <rect x="50" y="240" width="260" height="46" rx="6" fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
@@ -153,7 +153,7 @@ text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace; }
 <text x="1192" y="458" class="s">+ ~/.config/handoff/config.toml</text>
 <text x="1192" y="473" class="s">identity values; handoff-config.py</text>
 <rect x="1180" y="502" width="340" height="61" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
-<text x="1192" y="523" class="n">.handoff/{jobs,receipts,e2e}/</text>
+<text x="1192" y="523" class="n">.handoff/{jobs,sessions,e2e}/</text>
 <text x="1192" y="540" class="s">+ goal.md, session-start</text>
 <text x="1192" y="555" class="s">delegate, make-receipt, goal-sync</text>
 <rect x="1180" y="584" width="340" height="61" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>

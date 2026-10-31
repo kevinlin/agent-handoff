@@ -22,7 +22,7 @@ node_modules/
 # unittest / pytest run caches
 .pytest_cache/
 
-# Agent Handoff: config, goal, jobs, receipts, handoffs, backups
+# Agent Handoff: config, goal, jobs, sessions, handoffs, backups
 .handoff/
 .claude/agents/
 

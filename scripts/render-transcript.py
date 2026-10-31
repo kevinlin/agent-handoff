@@ -20,7 +20,8 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
-from handoff_runtime import PAYLOAD_PATTERN, inject, job_state, read_meta  # noqa: E402
+from handoff_runtime import (  # noqa: E402
+    PAYLOAD_PATTERN, EvidencePathError, inject, job_state, read_meta, transcript_path)
 
 RESERVED_LAST = "last"
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "transcript-viewer.html"
@@ -127,6 +128,20 @@ def _is_ignored(path: Path) -> bool:
     return done.returncode == 0
 
 
+def render(job_dir: Path, out_path: Path, template_text: str) -> bool:
+    """Write `job_dir`'s page to `out_path` and say whether Git ignores it.
+
+    Split out of main so a caller that has already fixed the destination, as the
+    session page does, writes exactly that file and not whatever a second lookup
+    would pick. It creates the parent folder itself for the same reason.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_payload(job_dir)
+    payload["output_is_ignored"] = _is_ignored(out_path)
+    out_path.write_text(inject(template_text, payload), encoding="utf-8")
+    return payload["output_is_ignored"]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("job", nargs="?", default=None,
@@ -156,14 +171,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: cannot read template: {error}", file=sys.stderr)
         return 2
 
-    out_dir = args.repo / ".handoff" / "transcripts"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{job_dir.name}.html"
-    payload = build_payload(job_dir)
-    payload["output_is_ignored"] = _is_ignored(out_path)
-    out_path.write_text(inject(template, payload), encoding="utf-8")
+    # The destination is computed once, here, and handed to render(): the page
+    # goes to the session of the newest receipt indexing this job (else the
+    # current Claude Code session, else none), the same place the session page
+    # writes. An unreadable receipt is an error too: skipping it could file the
+    # page under an older session.
+    try:
+        out_path = transcript_path(args.repo, job_dir.name)
+    except (EvidencePathError, OSError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    ignored = render(job_dir, out_path, template)
 
-    if not payload["output_is_ignored"]:
+    if not ignored:
         print(f"WARNING: {out_path} is not ignored by Git. A transcript embeds "
               f"captured command output; do not commit it.", file=sys.stderr)
 

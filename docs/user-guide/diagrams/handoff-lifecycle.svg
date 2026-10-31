@@ -242,7 +242,7 @@
   <text x="812" y="678" class="line">prompt.md, run.sh, meta, log.jsonl</text>
 
   <use href="#doc" x="1291" y="640"/>
-  <text x="1281" y="656" class="name m" text-anchor="end">receipts/</text>
+  <text x="1281" y="656" class="name m" text-anchor="end">sessions/</text>
   <text x="1281" y="678" class="line" text-anchor="end">what the run actually did</text>
 
   <!-- what every packet carries -->

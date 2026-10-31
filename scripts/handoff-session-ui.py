@@ -23,7 +23,8 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
-from handoff_runtime import inject, job_state, read_meta
+from handoff_runtime import (
+    inject, job_state, read_meta, run_date, run_stamp, session_path, transcript_path)
 
 
 def load_module(name):
@@ -261,6 +262,11 @@ class Session:
         self.repo = repo.resolve()
         self.receipt_path = cost.resolve_receipt(self.repo, receipt).resolve()
         self.receipt = cost.load_receipt(self.receipt_path.read_text(encoding='utf-8'), self.repo)
+        # load_receipt() does not validate claude_session, and every path this
+        # page writes or reads follows it. Checked once here: an unsafe id or a
+        # symlinked folder raises EvidencePathError, which main reports as exit 2.
+        self.session_id = self.receipt['fields'].get('claude_session', 'none')
+        session_path(self.repo, self.session_id)
         self.indexed = {job['job_id'] for job in self.receipt['jobs']}
         self.locks = {}
         self.lock_guard = threading.Lock()
@@ -278,17 +284,8 @@ class Session:
         return path
 
     def diagram(self):
-        folder = self.repo / '.handoff' / 'receipts' / 'diagram'
-        matches = sorted(folder.glob(self.receipt_path.stem + '_*.svg'))
-        exact = folder / (self.receipt_path.stem + '.svg')
-        return exact if exact.is_file() else (matches[0] if matches else None)
-
-    def output_path(self, folder, name):
-        root = self.repo / '.handoff'
-        path = root / folder / name
-        if root.resolve() != root or path.resolve() != path:
-            raise ValueError('cache path must not be a symlink')
-        return path
+        target = self.diagram_target()
+        return target if target.is_file() else None
 
     def jobs(self):
         rows = []
@@ -331,7 +328,9 @@ class Session:
             stderr = job / 'stderr.log'
             if stderr.is_file() and stderr.stat().st_size:
                 anomalies.append(f"{row['job_id']}: non-empty stderr.log")
-            output = self.output_path('transcripts', row['job_id'] + '.html')
+            # The same function render_transcript() calls, so the banner inspects
+            # the path that is actually written.
+            output = transcript_path(self.repo, row['job_id'])
             if not transcript._is_ignored(output):
                 warnings.append(f'{row["job_id"]}: transcript output is not ignored by Git; do not commit captured command output')
         url = lambda path: path + '?token=' + quote(token, safe='')
@@ -344,8 +343,13 @@ class Session:
                 'cost_url': url('/cost-receipt'), 'prompt': self.diagram_prompt()}
 
     def diagram_target(self):
-        return (self.repo / '.handoff/receipts/diagram'
-                / (self.receipt_path.stem + '_handoff-session-timeline.svg'))
+        # One name, used to look for the diagram and to ask for it. The old
+        # `<stem>_*.svg` glob is gone: the migration renames those files. The
+        # date matters only while the session has no folder, and it is the one
+        # cost.main() passes, so the page and the renderer name the same folder.
+        return session_path(self.repo, self.session_id, 'diagram',
+                            f'session-timeline-{run_stamp(self.receipt_path)}.svg',
+                            date=run_date(self.receipt_path))
 
     def diagram_prompt(self):
         return (f'Use baoyu-diagram to read the receipt at {self.receipt_path} and the matching goal, '
@@ -382,9 +386,18 @@ class Session:
 
     def render_transcript(self, job_id):
         job = self.job_dir(job_id)
-        output = self.output_path('transcripts', job.name + '.html')
+        # Computed once and used for the cache check and for the write. A newer
+        # receipt appearing halfway through a render therefore cannot make this
+        # page check one file and write another, which is also why this calls
+        # transcript.render() and never transcript.main(): main would look the
+        # owner up a second time.
+        output = transcript_path(self.repo, job.name)
+
+        def render():
+            transcript.render(job, output, transcript.DEFAULT_TEMPLATE.read_text(encoding='utf-8'))
+            return 0
         return self.cached(output, lambda: [job / name for name in JOB_INPUTS] + [transcript.DEFAULT_TEMPLATE],
-                           lambda: transcript.main([str(job), '--repo', str(self.repo), '--no-open']))
+                           render)
 
     def cost_inputs(self):
         inputs = [self.receipt_path, cost.DEFAULT_TEMPLATE]
@@ -403,11 +416,17 @@ class Session:
         current = cost.load_receipt(self.receipt_path.read_text(encoding='utf-8'), self.repo)
         if current['jobs'] != self.receipt['jobs']:
             raise ValueError('receipt job index changed; restart the session viewer')
+        # The folder follows the receipt's own claude_session, which cost.main()
+        # reads again from the file. If it changed since startup, the path
+        # checked here and the one main() writes could differ.
+        if current['fields'].get('claude_session', 'none') != self.session_id:
+            raise ValueError('receipt session changed; restart the session viewer')
         self.receipt = current
-        match = cost.RECEIPT_STAMP.match(self.receipt_path.name)
-        stem = match.group(1) if match else self.receipt_path.stem
-        output = self.output_path('cost-receipts', f'cost-receipt-{stem}.html')
-        self.output_path('cost-receipts', f'cost-receipt-{stem}.md')
+        stem = run_stamp(self.receipt_path)
+        date = run_date(self.receipt_path)   # as cost.main() passes it
+        output = session_path(self.repo, self.session_id, f'cost-receipt-{stem}.html', date=date)
+        # Both files are written by cost.main(), so both are checked.
+        session_path(self.repo, self.session_id, f'cost-receipt-{stem}.md', date=date)
         return self.cached(output, self.cost_inputs,
                            lambda: cost.main([str(self.receipt_path), '--repo', str(self.repo), '--no-open']))
 
@@ -484,7 +503,12 @@ def main(argv=None):
     # hands the caller the prompt instead. Exit 3 means "an asset is missing and
     # only a model can make it", which is a different instruction to the caller
     # than exit 2's "your input is wrong".
-    diagram = session.diagram()
+    try:
+        diagram = session.diagram()
+    except (OSError, ValueError) as error:
+        # A symlinked diagram folder or file is refused, like any other output path.
+        print(f'ERROR: {error}', file=sys.stderr)
+        return 2
     if diagram is None and not args.allow_missing_diagram:
         print(f'ERROR: no timeline diagram for {session.receipt_path.name}.', file=sys.stderr)
         print(f'Generate it at {session.diagram_target()} with this prompt, then run again:',

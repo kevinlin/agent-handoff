@@ -316,6 +316,19 @@ SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown
 git diff --exit-code -- examples/showcase-cost-ledger.json
 ```
 
+## Verification record
+
+Measured on 2026-10-31, on the finished tree:
+
+- `python3 -m unittest discover -s tests`: 1136 tests OK, with `CLAUDE_CODE_SESSION_ID` set and with it unset (baseline 914).
+- `node --test tests/test_transcript_viewer.mjs`: 56/56. `check-skill-repo.sh`: fail=0 warn=1. `run-test-prompts.py`: 53 PASS. `install.sh --dry-run`: exit 0. Ledger: no diff.
+- Migration on this repo: 88 moves, 1 `.DS_Store` deleted, 4 legacy folders removed, re-run a no-op. The repo was migrated before the date prefix was added, so its folders then took a one-off rename. Nothing shipped in that form.
+- Real recovery, by dry run, leaving each repo unchanged: apm-lite plans both `none` receipts to `86cdd857-…`; is-trailer plans its `none` receipt to `1c7c824d-…` and puts session `337a8661-…`, which has receipts on two dates, in one `20261020_…` folder.
+- The session page's four routes return 200 on a migrated v8 receipt with a diagram.
+- Not checked: `.skillspector-baseline.yaml`. The scanner is not installed here and CI does not run it, and `scripts/migrate-sessions.py` is new to it.
+
+Rows A, B, C and D were all accepted without a fix round.
+
 ## Not doing
 
 - Moving `jobs/`, `goal.md`, `session-start`, `rejected/` or `e2e/` into a session folder.

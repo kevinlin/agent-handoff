@@ -5,7 +5,7 @@ title: Routes /agent-handoff cost-receipt to the renderer, starting no job
 # Background explaining the behavior this case covers.
 description: |
   SKILL.md Cost Receipt: the subcommand runs render-cost-receipt.py against the
-  newest saved receipt under .handoff/receipts/ and "renders a page; it
+  newest saved receipt under .handoff/sessions/ and "renders a page; it
   delegates nothing and starts no job." This workspace holds no receipt, so the
   correct behaviour is to name and run the renderer and report what it found.
 
@@ -30,5 +30,5 @@ judge:
     # Reports the receipt location it read, or that none exists here.
     - output_matches:
         any:
-          - '(?i)\.handoff/receipts'
+          - '(?i)\.handoff/sessions'
           - '(?i)no (saved )?receipt'

@@ -30,5 +30,5 @@ verdict: all identities live
 ## Rules
 
 - Never substitute a different model to make a row pass, and never move a row to another backend to get past a rejection; a failing row fails visibly (no silent fallback — same principle as setup). A copilot row that fails on an unsupported model-and-effort pair reports the CLI's own message, which names the pair.
-- Do not add project files, commits, or state: all three tasks are answer-only. The only writes are config `verified` flags and the `.handoff/receipts/` entry.
+- Do not add project files, commits, or state: all three tasks are answer-only. The only writes are config `verified` flags and the `.handoff/sessions/` entry.
 - If the user has not run `/agent-handoff config` yet, say so and route them there first instead of improvising unconfigured identities.

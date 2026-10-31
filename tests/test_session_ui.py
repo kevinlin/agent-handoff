@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'tests/fixtures/session-view'
+SESSION_ENV = 'CLAUDE_CODE_SESSION_ID'
 SPEC = importlib.util.spec_from_file_location('session_ui', ROOT / 'scripts/handoff-session-ui.py')
 ui = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ui)
@@ -43,7 +44,14 @@ class SessionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name).resolve()
-        receipts = self.repo / '.handoff/receipts'
+        # Inside Claude Code the variable is set and in CI it is not; the suite
+        # must give one answer, so it is removed unless a test sets it.
+        env = patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop(SESSION_ENV, None)
+        # The fixture receipt says `claude_session: none`, so its folder is none.
+        receipts = self.repo / '.handoff/sessions/none'
         receipts.mkdir(parents=True)
         self.receipt = receipts / 'receipt-20260910T003000Z.md'
         shutil.copyfile(FIXTURES / self.receipt.name, self.receipt)
@@ -65,7 +73,7 @@ class SessionTests(unittest.TestCase):
     def diagram(self, svg=None):
         folder = self.receipt.parent / 'diagram'
         folder.mkdir(exist_ok=True)
-        path = folder / (self.receipt.stem + '_handoff-session-timeline.svg')
+        path = folder / 'session-timeline-20260910T003000Z.svg'
         path.write_text(self.svg if svg is None else svg)
         return path
 
@@ -208,9 +216,9 @@ class SessionTests(unittest.TestCase):
         old_cwd = Path.cwd()
         try:
             os.chdir(outside)
-            with patch.object(ui.transcript, 'main', wraps=ui.transcript.main) as render, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(ui.transcript, 'render', wraps=ui.transcript.render) as render, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 body = self.session.render_transcript('job-a')
-            argument = Path(render.call_args.args[0][0])
+            argument = render.call_args.args[0]
             self.assertTrue(argument.is_absolute())
             self.assertEqual(argument, self.repo / '.handoff/jobs/job-a')
             self.assertIn(b'fixture prompt', body)
@@ -300,7 +308,7 @@ class SessionTests(unittest.TestCase):
             self.assertIn(requirement, err)
         self.assertNotIn('Handoff session: http', out)
         # Nothing was opened, so nothing was rendered either.
-        self.assertFalse((self.repo / '.handoff/cost-receipts').exists())
+        self.assertEqual([], sorted(self.receipt.parent.glob('cost-receipt-*')))
 
     def test_allow_missing_diagram_opens_on_the_job_table_rung(self):
         code, out, err = self._main('--allow-missing-diagram')
@@ -318,7 +326,7 @@ class SessionTests(unittest.TestCase):
         self.assertIn('timeline diagram:', out)
         self.assertIn('cost receipt: rendered', out)
         # On disk before any request, not on first click of the tab.
-        written = sorted(p.name for p in (self.repo / '.handoff/cost-receipts').iterdir())
+        written = sorted(p.name for p in self.receipt.parent.glob('cost-receipt-*'))
         self.assertEqual(written, ['cost-receipt-20260910T003000Z.html',
                                    'cost-receipt-20260910T003000Z.md'])
         # Ordering matters: the assets are reported before the URL would be.
@@ -470,7 +478,7 @@ class SessionTests(unittest.TestCase):
         (job / 'exit_code').write_text('0')
         (job / 'prompt.md').write_text('fixture prompt')
         shutil.copyfile(FIXTURES / 'antigravity.jsonl', job / 'log.jsonl')
-        receipt = self.repo / '.handoff/receipts/receipt-20260910T010000Z.md'
+        receipt = self.repo / '.handoff/sessions/none/receipt-20260910T010000Z.md'
         receipt.write_text(
             '[Handoff session receipt]\nphase: review\nclaude_session: none\nduration: 30min 00sec\n'
             'codex_jobs: 0\ncodex_job_durations: none\ncc_jobs: 0\ncc_job_durations: none\n'
@@ -504,7 +512,7 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(len(self.session.payload('token')['warnings']), 2)
 
     def test_transcript_cache_invalidates_every_input_creation_deletion_and_mtime(self):
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), patch.object(ui.transcript, 'main', wraps=ui.transcript.main) as render:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), patch.object(ui.transcript, 'render', wraps=ui.transcript.render) as render:
             self.session.render_transcript('job-a')
             self.session.render_transcript('job-a')
             self.assertEqual(render.call_count, 1)
@@ -529,9 +537,15 @@ class SessionTests(unittest.TestCase):
         driver = projects / 'project' / 'session.jsonl'
         driver.parent.mkdir(parents=True)
         driver.write_text('')
+        # Outputs follow the receipt's own claude_session, so a receipt that
+        # says `session` lives in, and writes into, sessions/<date>_session/.
+        moved = self.repo / '.handoff/sessions/20260910_session'
+        moved.mkdir()
+        shutil.move(self.receipt, moved / self.receipt.name)
+        self.receipt = moved / self.receipt.name
         self.receipt.write_text(self.receipt.read_text().replace('claude_session: none', 'claude_session: session'))
         self.session = ui.Session(self.repo, str(self.receipt))
-        output = self.session.output_path('cost-receipts', 'cost-receipt-20260910T003000Z.html')
+        output = ui.session_path(self.repo, 'session', 'cost-receipt-20260910T003000Z.html')
         def render(_argv):
             output.parent.mkdir(exist_ok=True)
             output.write_text('complete page')
@@ -561,12 +575,12 @@ class SessionTests(unittest.TestCase):
     def test_template_mtime_and_output_age_invalidate_cache(self):
         template = self.repo / 'template.html'
         template.write_text(ui.transcript.DEFAULT_TEMPLATE.read_text())
-        with patch.object(ui.transcript, 'DEFAULT_TEMPLATE', template), patch.object(ui.transcript, 'main', wraps=ui.transcript.main) as render, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with patch.object(ui.transcript, 'DEFAULT_TEMPLATE', template), patch.object(ui.transcript, 'render', wraps=ui.transcript.render) as render, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.session.render_transcript('job-a')
             template.write_text(template.read_text() + '\n<!-- updated -->')
             self.assertIn(b'<!-- updated -->', self.session.render_transcript('job-a'))
             self.assertEqual(render.call_count, 2)
-            output = self.session.output_path('transcripts', 'job-a.html')
+            output = ui.transcript_path(self.repo, 'job-a')
             os.utime(output, (1, 1))
             self.session.render_transcript('job-a')
             self.assertEqual(render.call_count, 3)
@@ -606,6 +620,243 @@ class SessionTests(unittest.TestCase):
             return original(path)
         with patch.object(Path, 'read_bytes', read):
             self.assertEqual(self.session.cached(output, lambda: [], render), b'whole')
+
+    def add_receipt(self, session, stamp):
+        """A second receipt of the fixture run, filed under another session."""
+        folder = self.repo / '.handoff/sessions' / f'{stamp[:8]}_{session}'
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f'receipt-{stamp}.md'
+        path.write_text((FIXTURES / 'receipt-20260910T003000Z.md').read_text()
+                        .replace('claude_session: none', f'claude_session: {session}'))
+        return path
+
+    def quiet(self):
+        stack = contextlib.ExitStack()
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+        return stack
+
+    def test_the_diagram_is_the_stamped_name_in_the_session_folder(self):
+        target = self.repo / '.handoff/sessions/none/diagram/session-timeline-20260910T003000Z.svg'
+        self.assertEqual(target, self.session.diagram_target())
+        self.assertIsNone(self.session.diagram())
+        self.assertIn(f'at {target}.', self.session.diagram_prompt())
+        # A folder in its place is not a diagram.
+        target.mkdir(parents=True)
+        self.assertIsNone(self.session.diagram())
+        target.rmdir()
+        self.diagram()
+        self.assertEqual(target, self.session.diagram())
+        self.assertEqual(self.session.diagram_target(), self.session.diagram())
+
+    def test_the_old_diagram_names_and_folder_are_no_longer_read(self):
+        stem = self.receipt.stem
+        legacy = self.repo / '.handoff/receipts/diagram'
+        legacy.mkdir(parents=True)
+        current = self.receipt.parent / 'diagram'
+        current.mkdir()
+        for folder in (legacy, current):
+            for name in (f'{stem}_handoff-session-timeline.svg', f'{stem}-handoff-session-timeline.svg',
+                         f'{stem}.svg'):
+                (folder / name).write_text(self.svg)
+        self.assertIsNone(self.session.diagram())
+
+    def test_cost_and_transcript_pages_are_cached_in_the_session_folder(self):
+        with self.quiet():
+            self.session.render_cost()
+            self.session.render_transcript('job-a')
+        self.assertEqual(['cost-receipt-20260910T003000Z.html', 'cost-receipt-20260910T003000Z.md',
+                          'receipt-20260910T003000Z.md', 'transcript-job-a.html'],
+                         sorted(p.name for p in self.receipt.parent.iterdir()))
+        for legacy in ('receipts', 'cost-receipts', 'transcripts'):
+            self.assertFalse((self.repo / '.handoff' / legacy).exists())
+
+    def test_the_banner_inspects_the_path_that_is_written(self):
+        checked = []
+        def spy(path):
+            checked.append(Path(path))
+            return False
+        with patch.object(ui.transcript, '_is_ignored', side_effect=spy):
+            payload = self.session.payload('fixture-token')
+        self.assertEqual(2, len(payload['warnings']))
+        with self.quiet():
+            self.session.render_transcript('job-a')
+            self.session.render_transcript('job-b')
+        self.assertEqual([self.receipt.parent / 'transcript-job-a.html',
+                          self.receipt.parent / 'transcript-job-b.html'], checked)
+        self.assertTrue(all(path.is_file() for path in checked))
+
+    def test_a_job_in_two_sessions_goes_to_the_newer_one_and_the_cost_receipt_stays_with_the_receipt(self):
+        older = self.receipt.parent
+        newer = self.add_receipt('newer-sid', '20260911T003000Z').parent
+        checked = []
+        def spy(path):
+            checked.append(Path(path))
+            return False
+        # The session is the one viewing the older receipt, filed under `none`.
+        with patch.object(ui.transcript, '_is_ignored', side_effect=spy):
+            self.session.payload('fixture-token')
+        self.assertEqual([newer / 'transcript-job-a.html', newer / 'transcript-job-b.html'], checked)
+        with self.quiet():
+            self.session.render_transcript('job-a')
+            self.session.render_cost()
+        self.assertTrue((newer / 'transcript-job-a.html').is_file())
+        self.assertFalse((older / 'transcript-job-a.html').exists())
+        self.assertTrue((older / 'cost-receipt-20260910T003000Z.html').is_file())
+        self.assertTrue((older / 'cost-receipt-20260910T003000Z.md').is_file())
+        self.assertEqual([], sorted(newer.glob('cost-receipt-*')))
+        # The standalone renderer writes the same file.
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(io.StringIO()):
+            code = ui.transcript.main([str(self.session.job_dir('job-a')), '--repo', str(self.repo), '--no-open'])
+        self.assertEqual(0, code)
+        self.assertEqual((newer / 'transcript-job-a.html').resolve(), Path(printed.getvalue().strip()).resolve())
+
+    def test_one_render_computes_its_destination_once_and_never_calls_main(self):
+        older = self.receipt.parent
+        newer = self.repo / '.handoff/sessions/20260911_newer-sid'
+        computed = []
+        real_path, real_render = ui.transcript_path, ui.transcript.render
+        def spy(*args, **kwargs):
+            computed.append(real_path(*args, **kwargs))
+            return computed[-1]
+        def newer_receipt_appears_halfway(job, output, template):
+            self.add_receipt('newer-sid', '20260911T003000Z')
+            return real_render(job, output, template)
+        with patch.object(ui, 'transcript_path', side_effect=spy), \
+                patch.object(ui.transcript, 'main') as main, \
+                patch.object(ui.transcript, 'render', side_effect=newer_receipt_appears_halfway) as render, \
+                self.quiet():
+            self.session.render_transcript('job-a')
+        main.assert_not_called()
+        self.assertEqual(1, len(computed))
+        self.assertEqual(computed[0], render.call_args.args[1])
+        self.assertTrue((older / 'transcript-job-a.html').is_file())
+        self.assertFalse((newer / 'transcript-job-a.html').exists())
+
+    def test_a_symlink_named_input_gives_the_names_the_standalone_renderer_gives(self):
+        link = self.repo / 'notes.md'
+        link.symlink_to(self.receipt)
+        session = ui.Session(self.repo, str(link))
+        self.assertEqual(self.receipt.resolve(), session.receipt_path)
+        self.assertEqual(self.receipt.parent / 'diagram/session-timeline-20260910T003000Z.svg',
+                         session.diagram_target())
+        with self.quiet():
+            session.render_cost()
+        written = sorted(p.name for p in self.receipt.parent.glob('cost-receipt-*'))
+        self.assertEqual(['cost-receipt-20260910T003000Z.html', 'cost-receipt-20260910T003000Z.md'], written)
+        for page in self.receipt.parent.glob('cost-receipt-*'):
+            page.unlink()
+        with self.quiet():
+            self.assertEqual(0, ui.cost.main([str(link), '--repo', str(self.repo), '--no-open']))
+        self.assertEqual(written, sorted(p.name for p in self.receipt.parent.glob('cost-receipt-*')))
+
+    def foreign_receipt(self, session):
+        """A fixture receipt outside every session folder, claiming `session`."""
+        elsewhere = self.repo / 'elsewhere'
+        elsewhere.mkdir(exist_ok=True)
+        path = elsewhere / 'receipt-20260910T003000Z.md'
+        path.write_text(self.receipt.read_text().replace('claude_session: none', f'claude_session: {session}'))
+        return path
+
+    def render_cost_quietly(self, session):
+        unavailable = {'state': 'unavailable', 'usage': ui.cost._blank_usage(), 'models': [], 'cost_usd': None}
+        # Neither the driver row nor the cache inputs may read the real ~/.claude/projects.
+        with patch.object(ui.cost, 'driver_row', return_value=unavailable), \
+                patch.object(ui.cost, 'DEFAULT_PROJECTS', self.repo / 'projects'), self.quiet():
+            session.render_cost()
+
+    def test_a_session_with_no_folder_yet_takes_the_receipts_stamp_date_on_the_page_and_in_cost_main(self):
+        session = ui.Session(self.repo, str(self.foreign_receipt('fresh-sid')))
+        folder = self.repo / '.handoff/sessions/20260910_fresh-sid'
+        self.assertEqual(folder / 'diagram/session-timeline-20260910T003000Z.svg', session.diagram_target())
+        self.assertIn(f'at {folder}/diagram/', session.diagram_prompt())
+        # The real cost.main writes where the page looked, so there is one folder, not two.
+        self.render_cost_quietly(session)
+        self.assertEqual(['cost-receipt-20260910T003000Z.html', 'cost-receipt-20260910T003000Z.md'],
+                         sorted(p.name for p in folder.iterdir()))
+        self.assertEqual(['20260910_fresh-sid', 'none'],
+                         sorted(p.name for p in (self.repo / '.handoff/sessions').iterdir()))
+
+    def test_a_session_with_a_folder_keeps_it_whatever_date_the_receipt_has(self):
+        existing = self.repo / '.handoff/sessions/20260101_fresh-sid'
+        existing.mkdir()
+        session = ui.Session(self.repo, str(self.foreign_receipt('fresh-sid')))
+        self.assertEqual(existing / 'diagram/session-timeline-20260910T003000Z.svg', session.diagram_target())
+        self.render_cost_quietly(session)
+        self.assertEqual(['cost-receipt-20260910T003000Z.html', 'cost-receipt-20260910T003000Z.md'],
+                         sorted(p.name for p in existing.iterdir()))
+        self.assertEqual(['20260101_fresh-sid', 'none'],
+                         sorted(p.name for p in (self.repo / '.handoff/sessions').iterdir()))
+
+    def test_an_unsafe_session_id_in_the_receipt_stops_the_page_at_startup(self):
+        for session in ('../x', 'a/b', '..', '-x'):
+            with self.subTest(session=session):
+                path = self.receipt.parent / 'receipt-20260912T000000Z.md'
+                path.write_text(self.receipt.read_text().replace('claude_session: none', f'claude_session: {session}'))
+                with self.assertRaises(ValueError):
+                    ui.Session(self.repo, str(path))
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    code = ui.main([str(path), '--repo', str(self.repo), '--no-open'])
+                self.assertEqual(2, code)
+                self.assertIn('ERROR: ', err.getvalue())
+                self.assertFalse((self.repo / '.handoff/x').exists())
+
+    def test_a_symlinked_sessions_folder_stops_the_page_at_startup(self):
+        sessions = self.repo / '.handoff/sessions'
+        moved = self.repo / 'moved'
+        sessions.rename(moved)
+        sessions.symlink_to(moved, target_is_directory=True)
+        path = moved / 'none' / self.receipt.name
+        with self.assertRaises(ValueError):
+            ui.Session(self.repo, str(path))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(2, ui.main([str(path), '--repo', str(self.repo), '--no-open']))
+        self.assertIn('ERROR: ', err.getvalue())
+
+    def test_a_symlinked_diagram_folder_or_file_is_refused(self):
+        outside = self.repo / 'outside'
+        outside.mkdir()
+        (outside / 'real.svg').write_text(self.svg)
+        folder = self.receipt.parent / 'diagram'
+        folder.symlink_to(outside, target_is_directory=True)
+        for call in (self.session.diagram, self.session.diagram_target):
+            with self.assertRaises(ValueError):
+                call()
+        folder.unlink()
+        folder.mkdir()
+        (folder / 'session-timeline-20260910T003000Z.svg').symlink_to(outside / 'real.svg')
+        with self.assertRaises(ValueError):
+            self.session.diagram()
+        code, out, err = self._main()
+        self.assertEqual(2, code)
+        self.assertIn('ERROR: ', err)
+
+    def test_a_symlink_at_an_output_is_refused_before_anything_renders(self):
+        victim = self.repo / 'victim.txt'
+        victim.write_text('keep')
+        for name in ('cost-receipt-20260910T003000Z.md', 'cost-receipt-20260910T003000Z.html'):
+            link = self.receipt.parent / name
+            link.symlink_to(victim)
+            with patch.object(ui.cost, 'main') as renderer, self.assertRaises(ValueError):
+                self.session.render_cost()
+            renderer.assert_not_called()
+            link.unlink()
+        link = self.receipt.parent / 'transcript-job-a.html'
+        link.symlink_to(victim)
+        with patch.object(ui.transcript, 'render') as renderer, self.assertRaises(ValueError):
+            self.session.render_transcript('job-a')
+        renderer.assert_not_called()
+        self.assertEqual('keep', victim.read_text())
+
+    def test_a_receipt_whose_session_changes_after_startup_is_refused(self):
+        self.receipt.write_text(self.receipt.read_text().replace('claude_session: none', 'claude_session: moved-on'))
+        with patch.object(ui.cost, 'main') as renderer, self.assertRaises(ValueError) as caught:
+            self.session.render_cost()
+        self.assertIn('restart the session viewer', str(caught.exception))
+        renderer.assert_not_called()
 
 
 if __name__ == '__main__':
