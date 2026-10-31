@@ -1,8 +1,8 @@
 ---
 name: agent-handoff
-version: 3.11.0
+version: 3.11.1
 description: |
-  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex, a second Claude Code, GitHub Copilot, Cursor, or Antigravity), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "/agent-handoff cost-receipt" or "cost receipt" (renders a session receipt and its job state as a measured cost report), "/agent-handoff visualise" or "visualize", "visualise the session" or "show me the session timeline" (opens a loopback session review page), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and a worker CLI to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
+  Agent Handoff — delegation workflow where Claude Code drives and a configured worker CLI executes. Claude plans and splits the work, attacks its own split before acting on it, delegates each task as a durable background job on that identity's configured backend (Codex, a second Claude Code, GitHub Copilot, Cursor, or Antigravity), monitors them, and full-reviews the result before accepting. Use on "agent handoff" or "/agent-handoff" (the bare skill name), "/agent-handoff resume" or "resume agent handoff" (resume from .handoff/), "/agent-handoff config" (also "setup" or "init"), "config agent handoff", "setup agent handoff" (first-run setup wizard), "/agent-handoff tryout" or "tryout agent handoff" (identity tryout report), "/agent-handoff transcript" or "show me the transcript" / "conversation history" of a job (renders a delegated job's log.jsonl as HTML), "/agent-handoff cost-receipt" or "cost receipt" (renders a session receipt and its job state as a measured cost report), "/agent-handoff visualise" or "visualize", "visualise the session" or "show me the session timeline" (opens a loopback session review page), "/agent-handoff migrate" or "migrate handoff evidence" (moves a repo's pre-3.11.0 evidence folders into .handoff/sessions/), "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split coding work between Claude Code and a worker CLI to save quota. Not for ordinary code review; do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
 
 # Agent Handoff
@@ -147,6 +147,33 @@ drops only contradicted hotspots; a running lane reads `unverifiable (job runnin
 Use **Show hotspots** to check alignment. The SVG is always an image, never DOM.
 Only cached transcript and cost-receipt renderings are written, under `.handoff/`.
 Receipt schema stays 8.
+
+## Migrate
+
+On `/agent-handoff migrate [<repo>]`, or when the user asks to move a repo's
+evidence from the pre-3.11.0 layout (`.handoff/receipts/`, `cost-receipts/`,
+`transcripts/`) into `.handoff/sessions/`, run the migration. The repo defaults
+to the current one. Run the plan first; it writes nothing:
+
+```bash
+python3 "$HANDOFF_DIR/scripts/migrate-sessions.py" --repo "$REPO"
+```
+
+Show the user its `summary:` line and every `rewrite`, `skip` and `leave` line.
+The command is the go-ahead, so then apply it:
+
+```bash
+python3 "$HANDOFF_DIR/scripts/migrate-sessions.py" --repo "$REPO" --apply
+```
+
+- Exit 0: done. Run each printed `re-render:` command as it stands; those cost
+  receipts were rendered before their receipt got its session id.
+- Exit 1: something was skipped or left in place. Report each line and stop.
+  Never move, rename or delete a reported file by hand.
+- Exit 2: no `.handoff/` or a bad argument. Say so; there is nothing to migrate.
+
+A repo with no legacy folders plans nothing and exits 0. This moves gitignored
+evidence only; it delegates nothing and starts no job.
 
 ## Routing Rules
 

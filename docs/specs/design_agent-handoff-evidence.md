@@ -10,7 +10,7 @@ This document replaces two earlier ones: `design_transcript-viewer.md` (shipped 
 
 ### Scope
 
-Covered: the `.handoff/` evidence store, transcript rendering, session receipt generation and re-validation, cost receipt generation.
+Covered: the `.handoff/` evidence store, transcript rendering, session receipt generation and re-validation, cost receipt generation, and migrating a pre-3.11.0 repo (`/agent-handoff migrate`).
 
 | Out of scope | Where it lives |
 | --- | --- |
@@ -131,6 +131,8 @@ Until v3.11.0 one run's evidence sat in four places: `receipts/`, `receipts/diag
 A legacy receipt reading `none` is the one case where the migration changes evidence rather than moving it. When `make-receipt.py` saved that receipt, it printed `saved: <absolute path>` on stderr, into the driver's own Claude Code transcript. The migration searches `~/.claude/projects/*/*.jsonl` for that exact line. It skips the session running the migration and counts distinct sessions. On exactly one, it rewrites the `claude_session` line to that session's id, checks that every other field of the block is unchanged, and files the receipt under it. It reports which transcript matched. On zero or several matches, the receipt goes to `sessions/none/` as it is. If a transcript cannot be read, the count cannot be trusted, so the receipt stays in `receipts/` and is reported. This keeps the receipt generated rather than typed: a script derives the value from a file the run wrote, and the stamp, duration and job index are untouched. Cost receipts rendered before the rewrite still say `none`, so the migration prints a re-render command for each. It finds them by reading the folders, so the list survives an interrupted run.
 
 Files it does not recognise stay where they are and are listed, and so does any symlinked source. The legacy folders are removed only once they are empty.
+
+From v3.11.1 the skill exposes the script as `/agent-handoff migrate [<repo>]`, so a user upgrading a repo does not need the script's path. The driver runs the plan first and shows its `summary:` line and every `rewrite`, `skip` and `leave` line. It then applies the plan without a second confirmation, because the sub-command is the request and the script never overwrites. On exit 0 it runs each printed `re-render:` command. On exit 1 it reports the files the script skipped or left behind and stops. It never moves or edits one of them by hand, because the script refused that file for a reason, and a hand-edited `claude_session` is a typed receipt field. Exit 2 means there is no `.handoff/` to migrate. The sub-command delegates nothing. The script and its output are unchanged, and the readers' legacy-layout errors still name the script, which works with or without Claude Code.
 
 ### Five telemetry shapes under one layout
 

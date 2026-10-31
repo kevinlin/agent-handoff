@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.11.1 (2026-10-31)
+
+### `/agent-handoff migrate`
+
+- feat: `/agent-handoff migrate [<repo>]` runs `scripts/migrate-sessions.py` from the skill. The driver runs the plan first and shows its summary and every `rewrite`, `skip` and `leave` line. It then applies the plan and runs the printed `re-render:` commands. When anything was skipped or left behind, it reports the files and stops. The script itself is unchanged.
+- docs: the skill's description lists the new trigger. README's upgrade note, the user guide's command table and the test prompts name the sub-command.
+- Config schema stays `2`. Receipt schema stays `8`.
+
 ## v3.11.0 (2026-10-31)
 
 ### One folder per session, and the session id comes from the environment
