@@ -36,7 +36,7 @@ Nothing else on the page is narrative. The job table, the session facts, the den
 
 ## Flow — `/agent-handoff visualise`
 
-`/agent-handoff visualise [<receipt-file>]` starts a loopback HTTP server and opens one page. The selector is optional; omitted means the newest receipt under `.handoff/receipts/`, the rule `render-cost-receipt.py` already uses. `visualize` resolves the same way, as do prompts like "visualise the session" and "show me the session timeline".
+`/agent-handoff visualise [<receipt-file>]` starts a loopback HTTP server and opens one page. The selector is optional; omitted means the newest receipt under `.handoff/sessions/`, the rule `render-cost-receipt.py` already uses. `visualize` resolves the same way, as do prompts like "visualise the session" and "show me the session timeline".
 
 ```bash
 python3 "$HANDOFF_DIR/scripts/handoff-session-ui.py" [<receipt-file>] --repo "$REPO"
@@ -57,14 +57,14 @@ Arguments mirror the setup UI: `--repo`, `--port` (default: an available port), 
 
 ### Routes, and the identifier guard
 
-Every route is a GET. Nothing outside `.handoff/` is written, and nothing is written at all except the two cached renderings.
+Every route is a GET. Nothing outside `.handoff/sessions/` is written, and nothing is written at all except the two cached renderings.
 
 | Route | Serves |
 | --- | --- |
 | `/` | the shell, `assets/session-view.html`, session payload injected by `handoff_runtime.inject` |
 | `/diagram.svg` | the SVG bytes for this receipt, when one exists |
-| `/transcript/<jobId>` | that job's transcript page, rendered on demand and cached under `.handoff/transcripts/` |
-| `/cost-receipt` | the cost receipt HTML, rendered on demand into `.handoff/cost-receipts/` |
+| `/transcript/<jobId>` | that job's transcript page, rendered on demand and cached as `transcript-<jobId>.html` in its owner's session folder (the newest receipt indexing the job), the same path `render-transcript.py` writes |
+| `/cost-receipt` | the cost receipt HTML, rendered on demand as `cost-receipt-<stamp>.html` into the receipt's session folder |
 
 `<jobId>` is checked three times before any file is opened: it must be a single safe path segment, it must appear in the receipt's indexed job set, and the path built from it must resolve inside `<repo>/.handoff/jobs/`. The renderer is then handed that **canonical absolute directory**, never the bare segment. `render-transcript.resolve()` is a human-facing selector — it accepts `last`, matches a directory relative to the process's cwd *before* it matches an indexed job name, and falls through to suffix and substring matching. Every one of those is a way for an HTTP request to reach a job the receipt does not index, so the server does not call it.
 
@@ -195,7 +195,7 @@ specific mistake to expect, and it shifts every hotspot by a consistent amount.
 
 ### The fallback ladder
 
-Two of the four SVGs currently in `.handoff/receipts/diagram/` carry these attributes and two predate them, so every rung is a real state in this repo:
+Two of the four SVGs that were then in `.handoff/receipts/diagram/` (since v3.11.0, `.handoff/sessions/<session>/diagram/`) carry these attributes and two predate them, so every rung is a real state in this repo:
 
 | State | Overview shows |
 | --- | --- |
@@ -348,7 +348,7 @@ The repo's own newest receipt now reaches the **interactive** rung; the two diag
 | --- | --- |
 | interactive | a diagram carrying `data-axis` and `data-lanes`, either generated from the printed prompt or annotated in place by the driver; `tests/fixtures/session-view/annotated-timeline.svg` covers the same path in tests |
 | no lane map | either of the two pre-contract diagrams as they stand |
-| no diagram | a receipt whose stamp has no file in `.handoff/receipts/diagram/` |
+| no diagram | a receipt whose stamp has no `diagram/session-timeline-<stamp>.svg` in its session folder |
 
 Manual checks no automated check covers: with the annotated diagram, switch on **show hotspots** and confirm the outlines sit over the bars rather than beside them; on the unannotated one, confirm the banner, the job table, and that the driver offers to annotate or redraw rather than doing either silently; with no diagram, confirm the printed generation prompt is usable as written. Then open `/diagram.svg` directly in a tab and confirm it renders as an inert image, and confirm each framed tab loads rather than 403s.
 

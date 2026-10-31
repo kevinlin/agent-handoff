@@ -38,9 +38,10 @@ Every field in every artifact traces back to a file read during the run. Three c
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
 | `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
 | `.handoff/rejected/<task-id>.patch` | driver, when the arbiter rejects a main-repo row | the user, a run reopening that row | none; `git apply` input |
-| `.handoff/receipts/receipt-<stamp>.md` | `make-receipt.py`, at wrap up | `validate-receipt.py`, `render-cost-receipt.py` | `assets/receipt-schema.json` |
-| `.handoff/transcripts/<jobId>.html` | `render-transcript.py` | a human | none; it is a page |
-| `.handoff/cost-receipts/cost-receipt-<stamp>.{md,html}` | `render-cost-receipt.py` | a human, and the README showcase | none; it is a page |
+| `.handoff/sessions/<session>/receipt-<stamp>.md` | `make-receipt.py`, at wrap up | `validate-receipt.py`, `render-cost-receipt.py`, `handoff-session-ui.py` | `assets/receipt-schema.json` |
+| `.handoff/sessions/<session>/transcript-<jobId>.html` | `render-transcript.py`, `handoff-session-ui.py` | a human | none; it is a page |
+| `.handoff/sessions/<session>/cost-receipt-<stamp>.{md,html}` | `render-cost-receipt.py` | a human, and the README showcase | none; it is a page |
+| `.handoff/sessions/<session>/diagram/session-timeline-<stamp>.svg` | the driver, through a diagram skill | `handoff-session-ui.py` | `docs/specs/design_session-visualisation.md` |
 
 ---
 
@@ -81,6 +82,7 @@ A refused round leaves nothing behind. `resume` checks the cap before it creates
 
 Every receipt field has a source the driver reads at wrap-up:
 
+- `claude_session`: `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every Bash tool subprocess and which `make-receipt.py` reads itself
 - job counts and per-job durations: each job's `meta` (`backend=`, `submitted_at`) plus the mtime of its `exit_code`
 - `duration`: the start marker to now, wall clock, including time blocked on a human approval
 - `scope` and `config_source`: `handoff-config.py resolve`
@@ -89,7 +91,42 @@ Every receipt field has a source the driver reads at wrap-up:
 
 A role with `verified: false` is listed with the flag as it stands. Dropping it, or promoting it to look cleaner, is the failure mode the field exists to catch.
 
-The probe ends in a file rather than a message. The receipt is on disk under `.handoff/receipts/` before the session ends, which is what lets the three readers in the next flows find the run at all.
+The probe ends in a file rather than a message. The receipt is on disk under `.handoff/sessions/<session>/` before the session ends, which is what lets the three readers in the next flows find the run at all.
+
+### The session folder
+
+Until v3.11.0 one run's evidence sat in four places: `receipts/`, `receipts/diagram/`, `cost-receipts/` and `transcripts/`. Reviewing a run meant joining them by stamp and jobId by hand. Everything a reader produces from one session now sits in one folder:
+
+```
+.handoff/sessions/<claude_session>/
+  receipt-<stamp>.md
+  cost-receipt-<stamp>.md
+  cost-receipt-<stamp>.html
+  transcript-<jobId>.html
+  diagram/
+    session-timeline-<stamp>.svg
+    session-timeline-<stamp>@2x.png      optional; nothing reads it
+```
+
+**The folder is the session; the stamp is the run.** One Claude Code session often holds several runs: in local data, 4 sessions held 2–3 receipts each. So file names keep the run stamp, and a name carrying only the session id would overwrite. The stamp has a second job: Flow 4 reads the run's end from `receipt-<stamp>.md`, so a receipt without one loses its driver interval.
+
+**A receipt's folder name is its `claude_session` value.** A receipt with `none` goes to `sessions/none/`, where the stamps keep unrelated runs apart. Nothing reads a folder as a unit: the session page indexes one receipt's jobs, and goal association goes by jobId. So a shared `none` folder merges nothing.
+
+**Transcripts go where their job's receipt is.** A job has no session of its own; a receipt claims it by listing it in a `*_job_durations` field. A transcript is filed under the session of the newest receipt that indexes its job. Newest means the greatest stamp, with ties going to the greater session id. Mid-run, before any receipt exists, it is filed under the current `CLAUDE_CODE_SESSION_ID`, and under `none` outside Claude Code. That fallback is attribution at render time, not proof of the session that submitted the job: rendering an unindexed job from a later session files it under the later one. The session page and the standalone renderer call one function for this, and the page computes the path once per render. Two callers deriving the rule separately would eventually write a page where the other one looks for it.
+
+**Old receipts still index.** Stored receipts span schemas 3 to 8. Finding a job's owner reads only the block's `*_job_durations` fields, with the same tolerant `extract_block` the validator uses. It requires neither v8 nor the job directories. Rendering a cost receipt from an old receipt is still refused, as Flow 4 says.
+
+**A session id is a path segment, so it is checked where it becomes one.** The value is `none` or `[A-Za-z0-9][A-Za-z0-9._-]*`, in full. `validate()` checks it. But the cost reader and the session page never call `validate()`, and a transcript's fallback id comes from the environment rather than a receipt. So the check that matters lives in the one helper every writer goes through to build a session path. That helper checks the raw value, not a stripped copy. It also refuses a symlink anywhere from `.handoff/` down to the file it returns. Schema 8 does not move: every stored receipt already conforms.
+
+**Nothing reads the old layout.** A dual read would keep two sources of truth about where a run's evidence lives, for as long as anyone kept an old folder. Instead, `scripts/migrate-sessions.py` moves an existing repo once. Where a reader finds nothing under `sessions/` and a legacy folder exists, its error names that command.
+
+### Migrating an existing repo
+
+`migrate-sessions.py --repo <repo>` prints a plan; `--apply` carries it out. It works out every destination before it moves anything, using both the legacy receipts and any already under `sessions/`. So a run interrupted halfway and started again finishes the job rather than misfiling what is left. It never overwrites. It installs each file with a hard link that fails when the target exists, and only then removes the source. A dangling symlink at the target counts as a target. A conflicted receipt keeps its dependents where they are. An existing file at the destination is not evidence of where the rest belongs.
+
+A legacy receipt reading `none` is the one case where the migration changes evidence rather than moving it. When `make-receipt.py` saved that receipt, it printed `saved: <absolute path>` on stderr, into the driver's own Claude Code transcript. The migration searches `~/.claude/projects/*/*.jsonl` for that exact line. It skips the session running the migration and counts distinct sessions. On exactly one, it rewrites the `claude_session` line to that session's id, checks that every other field of the block is unchanged, and files the receipt under it. It reports which transcript matched. On zero or several matches, the receipt goes to `sessions/none/` as it is. This keeps the receipt generated rather than typed: a script derives the value from a file the run wrote, and the stamp, duration and job index are untouched. Cost receipts rendered before the rewrite still say `none`, so the migration prints a re-render command for each. It finds them by reading the folders, so the list survives an interrupted run.
+
+Files it does not recognise stay where they are and are listed, and so does any symlinked source. The legacy folders are removed only once they are empty.
 
 ### Five telemetry shapes under one layout
 
@@ -131,7 +168,7 @@ What a resumed session inherits is this directory and nothing else: the final ta
 
 ### One artifact, two entry points
 
-`assets/transcript-viewer.html` is the whole viewer, around 55 KB: vendored `marked.min.js` v15.0.12 (MIT), the viewer's CSS and JS, an empty payload slot, and a dropzone. `scripts/render-transcript.py` resolves an identifier to a job directory, reads its state files, substitutes the payload, writes `.handoff/transcripts/<jobId>.html`, and opens it; `--no-open` prints the path for headless use.
+`assets/transcript-viewer.html` is the whole viewer, around 55 KB: vendored `marked.min.js` v15.0.12 (MIT), the viewer's CSS and JS, an empty payload slot, and a dropzone. `scripts/render-transcript.py` resolves an identifier to a job directory, reads its state files, substitutes the payload, writes `.handoff/sessions/<session>/transcript-<jobId>.html` (the session is the job's owner, *The session folder*), and opens it; `--no-open` prints the path for headless use.
 
 All log parsing lives in the page's JavaScript. A dropped file has no Python beside it, so any parsing done in Python would need a second implementation in another language to keep the drop path working. Python only finds the job and injects `log_text` unparsed, so both entry points run the same normalizer.
 
@@ -206,7 +243,7 @@ The five pairs are `codex_jobs` / `codex_job_durations`, `cc_jobs` / `cc_job_dur
 
 ### Validated before it is written
 
-`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/receipts/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `8`; a v7 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
+`make-receipt.py` builds the fields, runs `validate-receipt.py`'s validation on them, and prints nothing when any check fails, so nothing invalid reaches disk. What passes is written to `.handoff/sessions/<claude_session>/receipt-<YYYYMMDDTHHMMSSZ>.md`, stamped from the same `now` the receipt measures to. Validation is that one pass, before the write; `validate-receipt.py` re-reads a written receipt on demand and in CI. One check lives here rather than in the validator, because it is about serialization rather than about a field: a value carrying a newline is refused, since the receipt is one line per field and such a value splits the block where `extract_block()` stops reading, losing every field after it. Printing a truncated receipt made that visible to whoever ran the command; saving one by default would leave it on disk for the cost receipt and the session page. Until v3.8.1 this section claimed the generator re-read its own output. It never did. The claim is dropped rather than implemented: re-reading a file the same process serialized a line earlier checks the filesystem, not the receipt. `receipt_schema_version` must be exactly `8`; a v7 receipt fails, and that failure is the signal to regenerate rather than hand-patch.
 
 ### The save is the default, because the readers were already promised it
 
@@ -215,6 +252,22 @@ Writing the receipt used to be a `--save` flag, and neither of the two files the
 From v3.8.1 the write is the default and `--no-save` is the opt-out, kept for the two cases that want the block alone: the CI roundtrip that pipes into `validate-receipt.py`, and a past run's receipt regenerated with `--ended-at` that should not deposit a second file. A same-stamp write still overwrites, which is why regeneration is the case that has an opt-out at all.
 
 The guard moves from prose into the script, the direction the rest of this document argues for. What stays prompt-shaped is one step earlier: nothing makes the driver reach Phase 5 and run the generator. The flag is no longer a way to lose the evidence; skipping wrap up still is.
+
+### The session id is read, not recalled
+
+`claude_session` used to be typed by the driver. The runtime prose said "`claude_session` is the current session" and gave the driver no way to learn it. Drivers that recorded it correctly had copied it out of the scratchpad path in their system prompt. Drivers without that path passed `--claude-session none`. In local data that was 7 receipts of 53, every one from a run Claude Code drove. Each lost its driver row in the cost receipt, and under the session folder each would have lost its folder too.
+
+Claude Code sets `CLAUDE_CODE_SESSION_ID` in every Bash tool subprocess, so from v3.11.0 the generator reads the id itself and the prose tells the driver to leave the flag out:
+
+| `--claude-session` | `CLAUDE_CODE_SESSION_ID` | Recorded |
+| --- | --- | --- |
+| omitted | set | the env value |
+| omitted | unset | refused: pass an id, or `none` for a run no Claude Code session drove |
+| `none` | set | refused: this shell is inside a Claude Code session, so omit the flag |
+| `none` | unset | `none` |
+| an id | either | the id |
+
+The third row is the bug's own shape, refused rather than corrected, because a driver that still types `none` is following prose that has since changed. The last row is what lets a past run's receipt be regenerated with `--ended-at` from a different session. Regenerating a receipt for a run no Claude Code session drove, from inside one, means unsetting the variable for that one command. The refusal says so.
 
 ### Arbitration rides in `anomalies`
 
@@ -226,7 +279,7 @@ All rulings share one line with the other anomalies, joined with `; `. `make-rec
 
 ## Flow 4 — Cost receipt generation
 
-`/agent-handoff cost-receipt [<receipt-file>]` reads a written session receipt plus the job state it indexes, and writes a markdown and an HTML cost receipt to `.handoff/cost-receipts/`.
+`/agent-handoff cost-receipt [<receipt-file>]` reads a written session receipt plus the job state it indexes, and writes a markdown and an HTML cost receipt into that receipt's session folder, as `cost-receipt-<stamp>.{md,html}`. With no receipt named it reads the newest under `.handoff/sessions/`: the greatest stamp, ties going to the greater session id. Both this command and the session page resolve the input path, following symlinks, before naming anything from it, so the two never disagree on an output name.
 
 ### The premise that changed
 
@@ -324,6 +377,11 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | A jobId cannot escape the jobs directory | path-segment check before any open | a receipt reading arbitrary files |
 | Counts and duration lists agree | cost reader cross-check | a receipt describing more than it indexes |
 | The run's receipt reaches disk | `make-receipt.py` writes unless `--no-save` | a run whose cost receipt and session page have no input |
+| A receipt names the session that drove it | `make-receipt.py` reads `CLAUDE_CODE_SESSION_ID`, and refuses `none` while it is set | a Claude Code run filed under `none`, with no driver row |
+| A session id cannot leave `.handoff/sessions/` | one path helper, used by every writer, checks the raw id's grammar and refuses a symlinked component | a receipt or an environment value choosing where a page is written |
+| Two entry points agree on every output path | one owner function for transcripts, computed once per render; both cost entry points resolve their input first | a page written where the other reader never looks |
+| A migration never destroys evidence | the plan is computed before any move; each file goes in with a hard link that fails on an existing target, and its source is removed only after that | an overwritten receipt, or files misfiled after an interrupted run |
+| A rewritten legacy session id is the generator's | only on exactly one session whose transcript holds the generator's `saved:` line; every other field must read back unchanged | a recovered id that is really a guess |
 | A review round past its cap | `resume` refuses before the job directory exists | an argument with no end, and `-r<n>` directories for rounds past the configured bound |
 | One log line cannot blank a transcript | per-line parse with a visible `unparsed line N` row | evidence dropped without a mark |
 | Log content never becomes markup | `textContent` everywhere but agent prose, three renderer overrides, scheme allowlist | an active handler from captured output |
@@ -343,6 +401,8 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 - **Codex multi-turn additivity is assumed.** Every job observed so far has one turn. A two-turn fixture asserts the behaviour this design chose; it does not prove the CLI emits cumulative rather than incremental counts. A real multi-turn job is the check, and a human has to produce one.
 - **Fixture tests prove arithmetic, not telemetry.** The suites read synthetic logs. Whether real CLI output still carries these fields is only observable by running a real job.
 - **The transcript inlines a whole log.** Observed logs ran 72–656 KB, comfortable in one page. No cap exists, so a much larger log is an untested size.
+- **`CLAUDE_CODE_SESSION_ID` follows `/clear`.** The id changes on `/clear`. A run spanning one records the later id and is filed under it. Its duration and job index still cover the whole run, but the driver row reads only the later session's transcript, while still labelled scoped to the run. Driver usage before the `/clear` is missing from it. `--continue`, or `--resume` without an explicit id, may also carry the startup id rather than the resumed one. Transcripts rendered before the `/clear` stay in the earlier folder.
+- **Recovery rests on an unpublished layout.** The migration's `none` recovery assumes Claude Code still keeps transcripts at `~/.claude/projects/*/<session>.jsonl` with tool output stored as text. When either changes, recovery finds nothing and files the receipt under `none`: a named gap, not a guess.
 - **The measurement invites the claim it refuses to make.** A page showing a CLI-reported figure beside several hundred thousand subscription tokens makes a reader want the difference. The overlapping populations, the stated non-addend rule, and the refusal to price the driver or codex are the mitigations, and the positive two-figure assertions are what keep them from eroding into one blended number.
 
 ## Not doing
@@ -356,6 +416,8 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 - **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-job.sh` were needed to add it.
 - **Aggregation across runs.** One receipt in, one cost receipt out.
 - **A `references/*.md` flow document for either command.** Each is one command with one optional argument; `SKILL.md` carries both directly.
+- **Moving `jobs/`, `goal.md`, `session-start`, `rejected/` or `e2e/` into a session folder.** A job directory is a runtime primitive's state, and it is written before any session folder could name it. The other four are working state for the repo or the run. No reader produces them.
+- **Reading the legacy layout at runtime.** See *The session folder*; the migration is the bridge.
 - **A validated arbitration verdict.** A `verdict.json` per ruling with its own validator, read into a receipt field, would prove mechanically that the recorded ruling is the arbiter's. Deferred until a recorded ruling is caught disagreeing with its job log; until then the jobId is the check.
 
 ## Verification
@@ -372,9 +434,9 @@ Receipt roundtrip, and the cost receipt end to end in the order that measures so
 ```bash
 python3 scripts/make-receipt.py --start --repo .
 # ... run at least one codex-backed and one claude-backed job ...
-python3 scripts/make-receipt.py --repo . --phase review --claude-session <sid> \
+python3 scripts/make-receipt.py --repo . --phase review \
   --checks ci --codex-jobs 1 --cc-jobs 1 --copilot-jobs 0 \
-  --scope project --config-source project --roles-used '[]'
+  --scope project --config-source project --roles-used '[]'   # claude_session from CLAUDE_CODE_SESSION_ID
 python3 scripts/render-cost-receipt.py --repo . --no-open
 python3 scripts/render-transcript.py --repo . --no-open
 ```
