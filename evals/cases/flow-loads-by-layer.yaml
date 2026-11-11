@@ -6,12 +6,14 @@ title: Loads the delegation flow and nothing from the other layers
 description: |
   A split-only request on a config that uses claude and codex needs the
   delegation flow. It does not need the setup wizard, the identity tryout, PR
-  delivery, the session-evidence commands, or the backend rules of copilot,
-  cursor and antigravity, which no identity here runs on.
+  delivery, the session-evidence commands, the artefact-row rules (a plain
+  software run has no artefact row), or the backend rules of copilot, cursor
+  and antigravity, which no identity here runs on.
   The judge reads the tool trace: the flow doc (claude-driven.md in v3.11.1,
   delegation-flow.md in v3.12.0) was read, and none of the other layers were,
-  under either name. On v3.11.1 the backend files do not exist, so those three
-  checks pass trivially there; the rest are the same on both versions. No job
+  under either name. On v3.11.1 the backend files and artefact-rows.md do not
+  exist, so those four checks pass trivially there; the rest are the same on
+  both versions. No job
   directory may be added, which also catches a spec review submitted anyway.
 
 input:

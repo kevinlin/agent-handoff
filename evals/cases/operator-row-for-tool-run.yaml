@@ -1,0 +1,80 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: operator-row-for-tool-run
+# Human-readable summary shown in case lists and reports.
+title: Gives a long render and a media assembly to the operator identity, after reading the artefact rules
+# Background explaining the behavior this case covers.
+description: |
+  Artefact rows (references/delegation-flow.md and artefact-rows.md in v4.0.0):
+  a row whose result is not a text diff, or whose command outlasts a monitor
+  tick, follows the artefact-row rules whatever its identity, and the driver
+  reads them before it writes the row. A row whose work is running tools goes
+  to operator when it is configured. A headless Blender render of 240 frames,
+  about 40 minutes, and the ffmpeg assembly of those frames into an mp4 are such
+  rows. The workspace config has the three core identities plus operator. The
+  prompt asks for the split only: nothing is submitted, the spec review is
+  skipped and no file is written.
+  The script judge reads the tool trace and the answer's table rows: the
+  artefact-row rules were read, and one table row has a cell that is exactly
+  operator. No job may be claimed as submitted or started, and no job directory
+  may be added.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Agent handoff: render the 240-frame turntable animation in scenes/turntable.blend headless with Blender at 1080p, which takes about 40 minutes, then assemble the frames into an mp4 with ffmpeg. Give me the split and the task table only. Do not submit any job, do not run the spec review, and do not write any file.
+
+context:
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      operator-row-for-tool-run
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "claude"
+      model = "opus"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [operator]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
+
+# Cheap pre-judge checks; when these fail, the judge block is skipped.
+expect:
+  must_contain:
+    - "operator"
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

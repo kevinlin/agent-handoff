@@ -1,0 +1,157 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: artefact-review-reads-evidence
+# Human-readable summary shown in case lists and reports.
+title: Reviews an operator row from its evidence files, not from the worker's report
+# Background explaining the behavior this case covers.
+description: |
+  Artefact review (references/delegation-flow.md and artefact-rows.md in
+  v4.0.0): on a resume, a row whose acceptance names .handoff/evidence/ sends
+  the driver to the artefact-row rules, and the review of such a row reads
+  every probe and exit-status file against the row's acceptance instead of
+  reviewing a diff. A worker's claim of success is not evidence.
+  The workspace holds a goal file with T1 (fast_worker) done and T2 (operator)
+  in review, with its job. T2's acceptance is a 20-second 1920x1080 clip, with
+  probe.json and exit-status in .handoff/evidence/T2/. The job's exit code is 0
+  and its final agent message claims "Rendered a 20-second 1080p clip; all
+  checks pass", but probe.json says the clip is 12.4 seconds at 1280x720. The
+  exit-status file says 0, so only the probe shows the mismatch.
+  The script judge reads the tool trace and the answer: the artefact-row rules
+  were read; the session read .handoff/evidence/T2/probe.json, through the Read
+  tool or a shell read verb; the answer names the mismatch (12.4, 1280 or 720);
+  and the answer does not accept T2: no unnegated sentence says T2 is accepted,
+  done or passes, and some sentence rejects it or sends it back (reject, fix
+  round, rework, does not meet, fails). The one job directory the fixture starts
+  with must be neither added to nor removed. The answer is not checked for a
+  claimed submission: it may cite T2's own jobId.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    /agent-handoff resume. T2 has finished. Review it and tell me whether you accept it. Do not submit, resume or cancel any job.
+
+context:
+  # Inline fixtures: .gitignore ignores .handoff/ at any depth, so a fixture
+  # directory holding it could not be committed.
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      artefact-review-reads-evidence
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "claude"
+      model = "opus"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [operator]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
+    ".handoff/session-start": |
+      2026-11-03T09:00:00Z
+    # The shape of references/goal-file-template.md.
+    ".handoff/goal.md": |
+      # Handoff Goal
+
+      ## Goal
+      Working on the intro clip for the product video, so that the launch page opens on its first 20 seconds. Done when: out/intro-v2/ holds a 20-second 1920x1080 clip and its evidence matches the acceptance column. Anti-Goodhart: the evidence must come from probing the clip itself, not from a worker's report of it.
+
+      ## Checkpoint Rule
+      Pause for the user only on: a destructive or irreversible action, a real
+      scope change, or something only the user can provide. Otherwise keep going
+      and report when done.
+
+      ## Spec Review
+      status: consensus
+
+      ## Delivery
+      n/a
+
+      ## Spend
+      none
+
+      ## Tasks
+      | id | identity | task | acceptance | depends | effort | status | jobId |
+      |----|----------|------|------------|---------|--------|--------|-------|
+      | T1 | fast_worker | Write the intro render script | `bash -n scripts/render_intro.sh` exits 0 | - | medium | done | - |
+      | T2 | operator | Render the intro clip | A 20-second 1920x1080 clip in out/intro-v2/; evidence in .handoff/evidence/T2/: probe.json and exit-status | T1 | - | review | job-2026-11-03T10-00-00-66666-t2 |
+
+      ## Anomalies
+      none
+
+      ## Arbitration
+      none
+
+      ## Notes
+      T2 was submitted with a 60-minute runtime cap and finished inside it.
+    # T2: finished on codex under the operator identity.
+    ".handoff/jobs/job-2026-11-03T10-00-00-66666-t2/meta": |
+      label=t2
+      effort=high
+      model=gpt-5.6-sol
+      role=operator
+      backend=codex
+      read_only=false
+      submitted_at=2026-11-03T10:00:00Z
+      mode=fresh
+    ".handoff/jobs/job-2026-11-03T10-00-00-66666-t2/exit_code": |
+      0
+    ".handoff/jobs/job-2026-11-03T10-00-00-66666-t2/log.jsonl": |
+      {"type":"thread.started","thread_id":"th-eval-op"}
+      {"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"Rendered a 20-second 1080p clip; all checks pass"}}
+      {"type":"turn.completed","usage":{"input_tokens":8120,"cached_input_tokens":2048,"output_tokens":402,"reasoning_output_tokens":112}}
+    # The evidence the row asks for. The probe contradicts the worker's message.
+    ".handoff/evidence/T2/probe.json": |
+      {
+        "streams": [
+          {
+            "codec_type": "video",
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "r_frame_rate": "30/1",
+            "duration": "12.400000"
+          }
+        ],
+        "format": {
+          "filename": "out/intro-v2/intro.mp4",
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "duration": "12.400000"
+        }
+      }
+    ".handoff/evidence/T2/exit-status": |
+      0
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

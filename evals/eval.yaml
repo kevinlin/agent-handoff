@@ -62,6 +62,9 @@ cases:
     - evals/cases/identity-not-swapped-for-meter.yaml
     - evals/cases/review-cap-escalates-to-arbiter.yaml
     - evals/cases/e2e-added-for-user-observable-change.yaml
+    - evals/cases/operator-row-for-tool-run.yaml
+    - evals/cases/paid-call-needs-recorded-cap.yaml
+    - evals/cases/artefact-review-reads-evidence.yaml
     - evals/cases/receipt-contract-splits-five-backends.yaml
   # Default constraints inherited by every case unless the case overrides them.
   defaults:
