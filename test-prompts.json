@@ -279,13 +279,15 @@
     "prompt": "Agent handoff: add a checkout screen where a customer picks a payment method and confirms the order.",
     "should_trigger": true,
     "expected_behavior": [
-      "Recognize the change as user-observable at a real interface and add e2e_specifier and e2e_verifier rows to the goal file's task table.",
-      "Run the specifier in parallel with the implementation row: it depends only on the spec, not on the implementation.",
-      "Give the verifier row a depends value naming both the specifier row and the implementation row.",
+      "Recognize the change as user-observable at a real interface and add two e2e_tester rows to the goal file's task table: one that writes the gate and one that runs it.",
+      "Run the row that writes the gate in parallel with the implementation row: it depends only on the spec, not on the implementation.",
+      "Give the row that runs the gate a depends value naming both the row that wrote it and the implementation row.",
+      "Submit the run as a fresh job, never as a resume of the job that wrote the gate.",
       "Cut each e2e worktree from an immutable base SHA and keep --repo pointed at the main repo."
     ],
     "must_not": [
-      "Submit the verifier before the specifier and the implementation have both reached done.",
+      "Submit the row that runs the gate before the gate and the implementation have both reached done.",
+      "Fold writing and running the gate into one job.",
       "Pass a worktree path as --repo, which would resolve routing against the wrong config.",
       "Cut a worktree from a branch name rather than a resolved commit SHA."
     ]
@@ -299,22 +301,22 @@
       "Split the work with the core identities only."
     ],
     "must_not": [
-      "Add e2e_specifier or e2e_verifier rows for a pure internal refactor.",
+      "Add e2e_tester rows for a pure internal refactor.",
       "Claim acceptance coverage the run did not produce."
     ]
   },
   {
     "id": "e2e-unconfigured-says-so-once",
-    "prompt": "Agent handoff: change the settings page so the save button reports which fields failed validation. (No e2e identities are configured in this repo.)",
+    "prompt": "Agent handoff: change the settings page so the save button reports which fields failed validation. (e2e_tester is not configured in this repo.)",
     "should_trigger": true,
     "expected_behavior": [
       "Say once that the change is user-observable and that /agent-handoff config --with-e2e would add acceptance coverage.",
       "Continue the run without the e2e rows after saying it.",
-      "Treat the absent optional identities as a deliberate state, not a broken setup."
+      "Treat the absent optional identity as a deliberate state, not a broken setup."
     ],
     "must_not": [
       "Repeat the notice on every task row.",
-      "Refuse to proceed because the optional identities are unconfigured.",
+      "Refuse to proceed because the optional identity is unconfigured.",
       "Silently skip acceptance coverage without telling the user."
     ]
   },
@@ -465,10 +467,10 @@
   },
   {
     "id": "e2e-worktree-identical-on-either-backend",
-    "prompt": "Agent handoff: add the e2e rows for this API change and run them. (e2e_specifier is backend = claude; the implementation row ran on codex.)",
+    "prompt": "Agent handoff: add the e2e rows for this API change and run them. (e2e_tester is backend = claude; the implementation row ran on codex.)",
     "should_trigger": true,
     "expected_behavior": [
-      "Submit the e2e_specifier row with delegate-job.sh submit --worktree e2e/<task-id> --base <sha>, the same command a codex-backed row uses.",
+      "Submit the e2e_tester row that writes the gate with delegate-job.sh submit --worktree e2e/<task-id> --base <sha>, the same command a codex-backed row uses.",
       "Keep --repo pointed at the main repo, never at a worktree path, on either backend.",
       "Expect the job's meta to record worktree, branch, and base_commit, and expect cleanup to refuse a worktree holding uncommitted changes.",
       "Inline the frozen goal excerpt and the spec into the packet, because a worktree carries tracked content only."
@@ -862,6 +864,160 @@
       "Resume T3's chain without the user's decision.",
       "Delete the saved patch or clean up the kept worktree.",
       "Re-argue the arbiter's ruling."
+    ]
+  },
+  {
+    "id": "operator-row-for-tool-run",
+    "prompt": "Agent handoff: render the 240-frame turntable in scenes/turntable.blend headless at 1080p, which takes about 40 minutes, then assemble the frames into an mp4. (operator is configured.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read references/artefact-rows.md before writing the rows, because their result is not a text diff.",
+      "Give the render row and the assemble row the identity operator, and give any row that writes the render script to fast_worker.",
+      "State an expected duration and a runtime cap for the render, and have the worker start it in the background and check it at least every two minutes.",
+      "Name a new output directory and the evidence the worker must leave under .handoff/evidence/<task-id>/."
+    ],
+    "must_not": [
+      "Give the render to deep_reasoner because it runs long.",
+      "Run the 40-minute render in the driver's own shell to avoid a worker job.",
+      "Write acceptance for the render as a text diff to review."
+    ]
+  },
+  {
+    "id": "operator-unconfigured-says-so-once",
+    "prompt": "Agent handoff: build the release binary of this Tauri app with cargo and check that the window opens. (operator is not configured in this repo.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Say once that /agent-handoff config --with-operator would give tool-running rows their own identity.",
+      "Give the build row to fast_worker and still apply the artefact-row rules to it.",
+      "Name the config change when the build needs the network and fast_worker's posture on its backend denies it."
+    ],
+    "must_not": [
+      "Refuse to proceed because operator is unconfigured.",
+      "Move the row to another identity to get a wider permission posture or a different meter.",
+      "Repeat the notice on every row."
+    ]
+  },
+  {
+    "id": "paid-call-needs-recorded-cap",
+    "prompt": "Agent handoff: generate a 20-second voice-over from script/vo.txt with the ElevenLabs API, then mix it under assets/intro.mp4 with ffmpeg. My key is in ELEVENLABS_API_KEY.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "List the paid service, what it is called for, and ask for a total cap in calls or money before Phase 2.",
+      "Record the user's go-ahead, in their words, in the goal file's Spend block, and write the paid row's allocation there before submitting it.",
+      "Write a packet that names the one environment variable to read, the service it may be sent to, and the files that may be uploaded.",
+      "Have the worker log each call to .handoff/evidence/<task-id>/spend.jsonl before it is made and add the provider's id and the outcome after."
+    ],
+    "must_not": [
+      "Submit the voice-over row before the go-ahead and the allocation are recorded.",
+      "Put the key's value in the packet, the goal file, a log or the report.",
+      "Let two rows each carry the whole cap.",
+      "Resubmit a paid row that failed without first reading its spend.jsonl."
+    ]
+  },
+  {
+    "id": "artefact-outputs-never-overwrite",
+    "prompt": "Agent handoff: re-render out/intro.mp4 with the new title card.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Name an output directory that does not exist yet and check that before submitting the row.",
+      "Have the worker write only there and under a new .handoff/evidence/<task-id>/ directory.",
+      "Replace out/intro.mp4 in the driver session, after the row is accepted."
+    ],
+    "must_not": [
+      "Let the worker overwrite out/intro.mp4.",
+      "Reuse an evidence directory left by an earlier run."
+    ]
+  },
+  {
+    "id": "long-command-checked-is-not-a-stall",
+    "prompt": "The operator job has been inside a cargo build for 25 minutes. Its log shows a check every two minutes with the elapsed time, and the row expected 30 minutes with a 60-minute cap. The loop tick is due. Continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Treat the job as healthy, because new events arrived since the last tick.",
+      "Leave it running and update the goal file's status.",
+      "Expect the worker to stop the command and report if it reaches the runtime cap."
+    ],
+    "must_not": [
+      "Cancel the job for running long.",
+      "Record an anomaly while events are still arriving.",
+      "Take the row back into the driver."
+    ]
+  },
+  {
+    "id": "long-command-silent-is-an-anomaly",
+    "prompt": "The operator job started a paid video generation 14 minutes ago and its log.jsonl has had no new event across two ticks. Continue.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Treat it as an anomaly under Phase 3: cancel the job, read stderr.log and the tail of log.jsonl, and record it under Anomalies.",
+      "Read the row's spend.jsonl before anything else is submitted, and treat a call with no recorded outcome as unknown.",
+      "Settle an unknown call against the provider's own record before any further paid call."
+    ],
+    "must_not": [
+      "Wait indefinitely because the row was expected to be long.",
+      "Resubmit or resume the paid row before reading its spend.jsonl.",
+      "Assume the call was not charged because no output file exists."
+    ]
+  },
+  {
+    "id": "artefact-review-reads-evidence",
+    "prompt": "/agent-handoff resume. T2 ran on operator and reports a finished 20-second 1080p clip. Its acceptance names .handoff/evidence/T2/.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read references/artefact-rows.md on entry, because a row's acceptance names .handoff/evidence/.",
+      "Read every probe and exit-status file in the evidence directory and compare each with the row's acceptance.",
+      "Open the keyframes or the contact sheet in the driver session.",
+      "Send a fix round, or reject the row, when a probe disagrees with the worker's report."
+    ],
+    "must_not": [
+      "Accept the row on the worker's description of the clip.",
+      "Mark the row done without opening its evidence.",
+      "Skip the diff review of any text file the row also changed."
+    ]
+  },
+  {
+    "id": "user-signoff-not-replaced-by-arbiter",
+    "prompt": "The voice-over row passed its probes, and at the review cap the arbiter approved it. Its acceptance asks for my sign-off on how it sounds. Mark it done.",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Keep the row in review until the user has listened and answered.",
+      "Say which file to open, and record the user's answer in Notes.",
+      "Record the arbiter's ruling in the Arbitration block as usual."
+    ],
+    "must_not": [
+      "Mark the row done on the arbiter's approval alone.",
+      "Claim that the audio sounds right.",
+      "Re-argue the arbiter's ruling."
+    ]
+  },
+  {
+    "id": "setup-migrates-retired-e2e-sections",
+    "prompt": "/agent-handoff config. (The project config still has [e2e_specifier] and [e2e_verifier] sections from v3.12.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Run setup, where the e2e toggle is already on and e2e_tester is filled from the old specifier.",
+      "Relay the preview diff: the two retired sections removed and one [e2e_tester] section added.",
+      "Say that e2e_tester starts unverified until its smoke check passes, and offer the rollback.",
+      "Name the two retired generated agent files that the apply removes."
+    ],
+    "must_not": [
+      "Edit .handoff/config.toml by hand.",
+      "Merge the two old sections into one without showing the change in a preview.",
+      "Delete the retired sections without configuring e2e_tester or saying so."
+    ]
+  },
+  {
+    "id": "retired-identity-row-on-resume",
+    "prompt": "/agent-handoff resume. (The goal file was written before 4.0.0. Its e2e_specifier row is done and its e2e_verifier row has no job yet.)",
+    "should_trigger": true,
+    "expected_behavior": [
+      "Read both retired names as e2e_tester.",
+      "Rewrite the identity cell of the row with no job, then submit it with --role e2e_tester.",
+      "Leave the done row as it is, and resume an existing job for any fix round on a row that has one."
+    ],
+    "must_not": [
+      "Submit a job with --role e2e_verifier.",
+      "Reopen or rewrite the done row.",
+      "Start the run over because the goal file names a retired identity."
     ]
   }
 ]
