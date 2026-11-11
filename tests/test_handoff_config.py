@@ -548,13 +548,19 @@ class OptionalIdentityTests(unittest.TestCase):
             handoff_config.CORE_IDENTITIES,
         )
         self.assertEqual(
-            ("e2e_specifier", "e2e_verifier"),
+            ("e2e_tester", "operator"),
             handoff_config.OPTIONAL_IDENTITIES,
         )
         self.assertEqual(
             handoff_config.CORE_IDENTITIES + handoff_config.OPTIONAL_IDENTITIES,
             handoff_config.IDENTITIES,
         )
+        # A retired name is never an identity again, or its sections would be owned.
+        self.assertEqual(
+            ("e2e_specifier", "e2e_verifier"),
+            handoff_config.RETIRED_IDENTITIES,
+        )
+        self.assertFalse(set(handoff_config.RETIRED_IDENTITIES) & set(handoff_config.IDENTITIES))
 
     def test_three_identity_config_is_written_unchanged_by_the_widening(self):
         # Appending identities must not reorder what an existing three-identity
@@ -576,41 +582,62 @@ class OptionalIdentityTests(unittest.TestCase):
         )
 
     def test_optional_identity_round_trips(self):
-        text = handoff_config.update_host(
-            "",
-            identities={
-                "e2e_verifier": {
-                    "backend": "codex",
-                    "model": "gpt-test",
-                    "effort": "high",
-                    "verified": False,
-                }
-            },
+        for name in handoff_config.OPTIONAL_IDENTITIES:
+            with self.subTest(identity=name):
+                text = handoff_config.update_host(
+                    "",
+                    identities={
+                        name: {
+                            "backend": "codex",
+                            "model": "gpt-test",
+                            "effort": "high",
+                            "verified": False,
+                        }
+                    },
+                )
+                self.assertIn(f"[{name}]", text)
+                parsed = handoff_config.parse_config(text)
+                identity = handoff_config.identities_of(parsed)[name]
+                self.assertEqual("codex", identity["backend"])
+                self.assertEqual("gpt-test", identity["model"])
+
+    def test_identities_for_treats_the_two_optional_identities_independently(self):
+        core = handoff_config.CORE_IDENTITIES
+        cases = (
+            ((False, False), core),
+            ((True, False), core + ("e2e_tester",)),
+            ((False, True), core + ("operator",)),
+            ((True, True), core + ("e2e_tester", "operator")),
         )
-        self.assertIn("[e2e_verifier]", text)
-        parsed = handoff_config.parse_config(text)
-        identity = handoff_config.identities_of(parsed)["e2e_verifier"]
-        self.assertEqual("codex", identity["backend"])
-        self.assertEqual("gpt-test", identity["model"])
+        for (with_e2e, with_operator), expected in cases:
+            with self.subTest(with_e2e=with_e2e, with_operator=with_operator):
+                self.assertEqual(expected, handoff_config.identities_for(with_e2e, with_operator))
+        # The operator flag is optional, and off by default.
+        self.assertEqual(core, handoff_config.identities_for(False))
+        self.assertEqual(core + ("e2e_tester",), handoff_config.identities_for(True))
 
     def test_emitted_sections_follow_identity_order(self):
         text = handoff_config.emit_host_sections(
             {
-                "e2e_verifier": {"backend": "codex", "model": "m", "effort": "high"},
+                "operator": {"backend": "codex", "model": "m", "effort": "high"},
                 "deep_reasoner": {"backend": "claude", "model": "opus", "effort": "high"},
-                "e2e_specifier": {"backend": "codex", "model": "m", "effort": "xhigh"},
+                "e2e_tester": {"backend": "codex", "model": "m", "effort": "xhigh"},
             }
         )
         positions = [
             text.index("[deep_reasoner]"),
-            text.index("[e2e_specifier]"),
-            text.index("[e2e_verifier]"),
+            text.index("[e2e_tester]"),
+            text.index("[operator]"),
         ]
         self.assertEqual(sorted(positions), positions)
 
     def test_override_accepts_optional_identity(self):
-        override = handoff_config._parse_override(["e2e_verifier.effort=low"])
-        self.assertEqual({"e2e_verifier": {"effort": "low"}}, override)
+        override = handoff_config._parse_override(["e2e_tester.effort=low", "operator.effort=medium"])
+        self.assertEqual({"e2e_tester": {"effort": "low"}, "operator": {"effort": "medium"}}, override)
+
+    def test_override_refuses_a_retired_identity(self):
+        with self.assertRaises(handoff_config.ConfigError):
+            handoff_config._parse_override(["e2e_verifier.effort=low"])
 
 
 class RetiredSpecReviewFieldTests(unittest.TestCase):
@@ -872,8 +899,12 @@ class IdentityHelperTests(unittest.TestCase):
             f"{legacy}deep_reasonr": "deep_reasonr",
             f"{legacy}review": "review",
             f"{legacy}deep_reasoner.x": "deep_reasoner.x",
+            f"{legacy}e2e_tester": "e2e_tester",
+            f"{legacy}e2e_specifer": "e2e_specifer",
+            f"{legacy}e2e_specifier.x": "e2e_specifier.x",
             "deep_reasoner": "deep_reasoner",
-            "e2e_verifier": "e2e_verifier",
+            "e2e_tester": "e2e_tester",
+            "operator": "operator",
             "deep_reasoner.x": "deep_reasoner.x",
         }
         for header, name in owned.items():
@@ -888,6 +919,11 @@ class IdentityHelperTests(unittest.TestCase):
             legacy.rstrip("."),
             "hosts.codex.identities.deep_reasoner",
             "hosts.claude_code.roles.deep_reasoner",
+            # Retired in 4.0.0: unowned in both header forms, so the bytes stay.
+            "e2e_specifier",
+            "e2e_verifier",
+            f"{legacy}e2e_specifier",
+            f"{legacy}e2e_verifier",
         ):
             with self.subTest(header=header):
                 self.assertIsNone(handoff_config._identity_name(header))
@@ -1181,6 +1217,133 @@ class IdentityLayoutTests(unittest.TestCase):
         self.assertFalse(identity["verified"])
         self.assertNotIn("verified_at", identity)
         self.assertEqual((0, "xhigh\n", ""), self.run_cli("resolve", "deep_reasoner.effort"))
+
+
+    # Retired in 4.0.0, when the e2e pair became the one identity e2e_tester:
+    # a file written by an older release still carries the two old sections,
+    # and the engine must neither refuse them nor rewrite them.
+    CORE_VALUES = {
+        "deep_reasoner": ("claude", "opus", "high"),
+        "fast_worker": ("codex", "gpt-fast", "medium"),
+        "arbiter": ("codex", "gpt-arbiter", "xhigh"),
+    }
+    RETIRED_BODIES = {
+        "e2e_specifier": 'backend = "codex"\nmodel = "gpt-spec"\neffort = "xhigh"\n',
+        "e2e_verifier": 'backend = "claude"\nmodel = "sonnet"\neffort = "high" # retired inline\n',
+    }
+
+    def retired_file(self, form: str) -> str:
+        """The core identities and both retired sections, every header in ``form``."""
+
+        prefix = handoff_config.LEGACY_IDENTITY_PREFIX if form == "legacy" else ""
+        core = "".join(
+            f'[{prefix}{name}]\nbackend = "{backend}"\nmodel = "{model}"\neffort = "{effort}"\n\n'
+            for name, (backend, model, effort) in self.CORE_VALUES.items()
+        )
+        retired = "".join(f"[{prefix}{name}]\n{body}\n" for name, body in self.RETIRED_BODIES.items())
+        review = "[review]\nspec_max_rounds = 1\nimplementation_max_rounds = 3\n"
+        return self.PREAMBLE + core + retired + review
+
+    def retired_chunks(self, text: str):
+        return {
+            chunk.name: chunk.text
+            for chunk in handoff_config.split_sections(text)
+            if chunk.name and chunk.name.rsplit(".", 1)[-1] in handoff_config.RETIRED_IDENTITIES
+        }
+
+    def assert_retired_sections_load_inert(self, form: str):
+        text = self.retired_file(form)
+        self.assertEqual(2, len(self.retired_chunks(text)))
+        parsed = handoff_config.validate_config(text)
+        self.assertEqual(list(self.CORE_VALUES), list(handoff_config.identities_of(parsed)))
+        for name in handoff_config.RETIRED_IDENTITIES:
+            self.assertNotIn(name, parsed)
+        self.write_project(text)
+        resolved = handoff_config.resolve_config(self.repo, env=self.env)
+        identities = handoff_config.identities_of(resolved)
+        self.assertEqual(list(handoff_config.CORE_IDENTITIES), list(identities))
+        for name, values in self.CORE_VALUES.items():
+            self.assertEqual(
+                values,
+                (identities[name]["backend"], identities[name]["model"], identities[name]["effort"]),
+            )
+        for name in handoff_config.RETIRED_IDENTITIES:
+            self.assertNotIn(name, resolved)
+        status, output, _ = self.run_cli(
+            "resolve", "deep_reasoner.model", "fast_worker.effort", "arbiter.backend"
+        )
+        self.assertEqual((0, "opus\nmedium\ncodex\n"), (status, output))
+        self.assertEqual(0, self.run_cli("validate")[0])
+
+    def test_bare_retired_sections_load_and_are_not_identities(self):
+        self.assert_retired_sections_load_inert("bare")
+
+    def test_legacy_prefixed_retired_sections_load_and_are_not_identities(self):
+        self.assert_retired_sections_load_inert("legacy")
+
+    def test_writes_keep_each_retired_chunk_byte_for_byte_and_converge(self):
+        writes = (
+            ("set", "--role", "fast_worker", "--effort", "high"),
+            ("set-review", "--spec-max-rounds", "2"),
+        )
+        for form in ("bare", "legacy"):
+            with self.subTest(form=form):
+                original = self.retired_file(form)
+                retired = self.retired_chunks(original)
+                self.assertEqual(2, len(retired))
+                path = self.write_project(original)
+                for command in writes:
+                    self.assertEqual(0, self.run_cli(*command)[0], command)
+                    first = path.read_bytes()
+                    self.assertEqual(retired, self.retired_chunks(first.decode("utf-8")), command)
+                    self.assertEqual(0, self.run_cli(*command)[0], command)
+                    self.assertEqual(first, path.read_bytes(), command)
+
+    def test_retired_names_do_not_loosen_the_refusals(self):
+        legacy = handoff_config.LEGACY_IDENTITY_PREFIX
+        cases = {
+            "misspelt legacy header": (
+                f"[{legacy}deep_reasonr]\n{self.BODY}",
+                handoff_config.ConfigValidationError,
+                "unsupported identity: 'deep_reasonr'",
+            ),
+            "misspelt legacy retired header": (
+                f"[{legacy}e2e_specifer]\n{self.BODY}",
+                handoff_config.ConfigValidationError,
+                "unsupported identity: 'e2e_specifer'",
+            ),
+            "dotted legacy retired header": (
+                f"[{legacy}e2e_specifier.x]\nk = 1\n",
+                handoff_config.ConfigParseError,
+                f"invalid owned identity section [{legacy}e2e_specifier.x]",
+            ),
+            "array bare retired header": (
+                '[[e2e_specifier]]\nbackend = "codex"\n',
+                handoff_config.ConfigParseError,
+                "array-of-tables headers are not supported",
+            ),
+            "array bare verifier header": (
+                '[[e2e_verifier]]\nbackend = "codex"\n',
+                handoff_config.ConfigParseError,
+                "array-of-tables headers are not supported",
+            ),
+            "array legacy retired header": (
+                f'[[{legacy}e2e_verifier]]\nbackend = "codex"\n',
+                handoff_config.ConfigParseError,
+                "array-of-tables headers are not supported",
+            ),
+        }
+        for label, (extra, error_type, message) in cases.items():
+            with self.subTest(label):
+                text = self.retired_file("bare") + "\n" + extra
+                with self.assertRaises(error_type) as raised:
+                    handoff_config.validate_config(text)
+                self.assertIn(message, str(raised.exception))
+                path = self.write_project(text)
+                before = path.read_bytes()
+                self.assertEqual(2, self.run_cli("validate")[0])
+                self.assertEqual(2, self.run_cli("set", "--role", "deep_reasoner", "--effort", "xhigh")[0])
+                self.assertEqual(before, path.read_bytes())
 
 
 class RetiredRoutingSectionTests(unittest.TestCase):

@@ -272,6 +272,8 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("python3 scripts/handoff-config.py init", result.stderr)
         self.assertIn("set --role deep_reasoner", result.stderr)
+        # The hint names every backend, not just the first two.
+        self.assertIn("--backend <codex|claude|copilot|cursor|antigravity>", result.stderr)
 
     def test_without_role_uses_default_effort(self):
         result, _ = self.run_submit(None)
@@ -319,12 +321,39 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("high", parsed["effort"])
         self.assertEqual("codex", parsed["backend"])
 
-    def test_e2e_roles_are_accepted(self):
-        for role in ("e2e_specifier", "e2e_verifier"):
+    def test_optional_roles_are_accepted(self):
+        for role in ("e2e_tester", "operator"):
             with self.subTest(role=role):
                 result, _ = self.run_submit(self.config_with(role), "--role", role)
                 self.assertEqual((0, ""), (result.returncode, result.stderr))
                 self.assertEqual(role, self.parsed(result.stdout)["role"])
+
+    def test_retired_roles_are_refused_and_name_their_replacement(self):
+        for role in ("e2e_specifier", "e2e_verifier"):
+            for label, config in (("configured", self.config_with(role)), ("unconfigured", self.config())):
+                with self.subTest(role=role, config=label):
+                    result, repo = self.run_submit(config, "--role", role)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(
+                        f"--role {role} was retired in 4.0.0; use --role e2e_tester "
+                        "(run /agent-handoff config to migrate the config)",
+                        result.stderr,
+                    )
+                    self.assertNotIn("invalid --role", result.stderr)
+                    self.assertFalse((repo / ".handoff" / "jobs").exists())
+
+    def test_retired_sections_in_a_config_do_not_stop_the_core_roles(self):
+        for form, prefix in (("bare", ""), ("legacy", "hosts.claude_code.identities.")):
+            with self.subTest(form=form):
+                config = (
+                    self.config()
+                    + f'\n[{prefix}e2e_specifier]\nbackend = "codex"\nmodel = "gpt-spec"\neffort = "xhigh"\n'
+                    + f'\n[{prefix}e2e_verifier]\nbackend = "codex"\nmodel = "gpt-verify"\neffort = "high"\n'
+                )
+                result, _ = self.run_submit(config, "--role", "fast_worker")
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                parsed = self.parsed(result.stdout)
+                self.assertEqual(("fast_worker", "gpt-fast"), (parsed["role"], parsed["model"]))
 
     def test_claude_backend_is_delegated_on_its_own_backend(self):
         result, _ = self.run_submit(
@@ -747,6 +776,21 @@ class BackendLifecycle:
                                      self.read_meta(child)["permission_posture_source"])
                     if read_only:
                         self.assertNotIn("permission checks bypassed", result.stderr)
+
+    def test_a_fix_round_resumes_a_parent_whose_role_was_retired(self):
+        # Retired in 4.0.0: submit refuses the old name, but resume reads no role
+        # from config, so a round already in flight still finishes.
+        for role in ("e2e_specifier", "e2e_verifier"):
+            with self.subTest(role=role):
+                job_id = self.submit()
+                job = self.finish(job_id)
+                meta = job / "meta"
+                text = meta.read_text(encoding="utf-8")
+                self.assertIn("role=none\n", text)
+                meta.write_text(text.replace("role=none\n", f"role={role}\n"), encoding="utf-8")
+                result = self.resume(job_id)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(role, self.read_meta(result.stdout.strip())["role"])
 
     def test_legacy_parent_missing_posture_resumes_default(self):
         job_id = self.configured_submit("allow-all")

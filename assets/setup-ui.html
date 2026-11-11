@@ -368,11 +368,12 @@
           </div>
           <div class="matrix" id="identities"><p class="loading-copy">Reading available models...</p></div>
           <details id="e2eAddOn" class="e2e-addon">
-            <summary>E2E acceptance testing (optional)</summary>
-            <p>Adds two identities that write and run acceptance tests for
-               user-observable changes. Leave off if you do not run end-to-end tests.</p>
-            <label class="e2e-toggle"><input type="checkbox" id="withE2e"> Configure e2e identities</label>
+            <summary>Optional identities</summary>
+            <p>Each toggle adds one identity. Leave it off if you do not need it.</p>
+            <label class="e2e-toggle"><input type="checkbox" id="withE2e"> Configure e2e_tester (acceptance gate)</label>
             <div class="matrix" id="e2eCards"></div>
+            <label class="e2e-toggle"><input type="checkbox" id="withOperator"> Configure operator (builds, renders, media and API calls)</label>
+            <div class="matrix" id="operatorCards"></div>
           </details>
           <p class="permission-note">Permission applies to writing jobs. Review and other read-only jobs always run read-only.</p>
           <div class="review-gates">
@@ -447,6 +448,11 @@
     };
     const BACKEND_LABELS = {claude:'Claude Code', codex:'Codex', copilot:'GitHub Copilot', cursor:'Cursor', antigravity:'Antigravity'};
     const BACKEND_LABELS_ORDER = ['claude','codex','copilot','cursor','antigravity'];
+    // Each optional identity has its own checkbox and its own card container.
+    const OPTIONAL_CONTROLS = {
+      e2e_tester: {toggle:'withE2e', cards:'e2eCards'},
+      operator: {toggle:'withOperator', cards:'operatorCards'},
+    };
     // Cursor and Antigravity carry the effort in the model id, so the effort field is locked to
     // `model` for them. Keyed by this set, as the engine's MODEL_EFFORT_BACKENDS is.
     const MODEL_EFFORT_BACKENDS = ['cursor','antigravity'];
@@ -617,10 +623,11 @@
       });
       $('currentMode').textContent = `Current mode: ${MODE_LABELS[mode]}`;
     }
+    function optionalOn(identity) {
+      return $(OPTIONAL_CONTROLS[identity].toggle).checked;
+    }
     function activeIdentities() {
-      return $('withE2e').checked
-        ? state.core_identities.concat(state.optional_identities)
-        : state.core_identities;
+      return state.core_identities.concat(state.optional_identities.filter(optionalOn));
     }
     function syncPermissionWarning() {
       const active = activeIdentities();
@@ -696,7 +703,9 @@
     }
     function renderIdentities() {
       renderCards('identities', state.core_identities);
-      renderCards('e2eCards', $('withE2e').checked ? state.optional_identities : []);
+      for (const identity of state.optional_identities) {
+        renderCards(OPTIONAL_CONTROLS[identity].cards, optionalOn(identity) ? [identity] : []);
+      }
       bindIdentityInputs();
       syncPermissionWarning();
     }
@@ -801,7 +810,6 @@
       });
     }
     function payload() {
-      const withE2e = $('withE2e').checked;
       const identities = {};
       for (const identity of activeIdentities()) {
         identities[identity] = {
@@ -814,7 +822,8 @@
       return {
         mode,
         identities,
-        with_e2e: withE2e,
+        with_e2e: $('withE2e').checked,
+        with_operator: $('withOperator').checked,
         review: {
           spec_max_rounds: Number($('specMaxRounds').value),
           implementation_max_rounds: Number($('implementationMaxRounds').value),
@@ -916,10 +925,10 @@
       syncReadiness();
       $('configWorkspace').setAttribute('aria-busy', 'false');
     }
-    $('withE2e').addEventListener('change', () => {
+    ['withE2e', 'withOperator'].forEach(id => $(id).addEventListener('change', () => {
       renderIdentities();
       invalidate();
-    });
+    }));
     ['specMaxRounds', 'implementationMaxRounds'].forEach(id => $(id).addEventListener('input', () => {
       validateCap(id);
       invalidate();

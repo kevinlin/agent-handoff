@@ -80,8 +80,8 @@ ROUTING_LINES = {
     "deep_reasoner": "Route reasoning-intensive, ambiguous work to handoff-deep-reasoner.",
     "fast_worker": "Route mechanical, well-scoped execution to handoff-fast-worker.",
     "arbiter": "Route independent blind-solve arbitration to handoff-arbiter.",
-    "e2e_specifier": "Route acceptance-test authoring to handoff-e2e-specifier.",
-    "e2e_verifier": "Route acceptance-test execution to handoff-e2e-verifier.",
+    "e2e_tester": "Route acceptance-gate authoring and execution to handoff-e2e-tester.",
+    "operator": "Route tool-running work (builds, renders, media and API calls) to handoff-operator.",
 }
 
 
@@ -95,22 +95,22 @@ PRESETS: Dict[str, Dict[str, Tuple[str, Optional[str], str]]] = {
         "deep_reasoner": ("claude", "opus", "high"),
         "fast_worker": ("codex", None, "high"),
         "arbiter": ("codex", None, "xhigh"),
-        "e2e_specifier": ("codex", None, "xhigh"),
-        "e2e_verifier": ("codex", None, "high"),
+        "e2e_tester": ("codex", None, "xhigh"),
+        "operator": ("codex", None, "high"),
     },
     "quality": {
         "deep_reasoner": ("claude", "opus", "high"),
         "fast_worker": ("claude", "opus", "high"),
         "arbiter": ("codex", None, "xhigh"),
-        "e2e_specifier": ("claude", "opus", "high"),
-        "e2e_verifier": ("codex", None, "high"),
+        "e2e_tester": ("claude", "opus", "high"),
+        "operator": ("codex", None, "high"),
     },
     "cost": {
         "deep_reasoner": ("codex", None, "xhigh"),
         "fast_worker": ("codex", None, "medium"),
         "arbiter": ("claude", "sonnet", "high"),
-        "e2e_specifier": ("codex", None, "high"),
-        "e2e_verifier": ("codex", None, "medium"),
+        "e2e_tester": ("codex", None, "high"),
+        "operator": ("codex", None, "medium"),
     },
 }
 
@@ -606,7 +606,7 @@ def choose_identities(
     identities: Dict[str, Dict[str, Any]] = {}
     sources: Dict[str, Dict[str, str]] = {}
     notes: List[str] = []
-    selected = identities_for(getattr(args, "with_e2e", False))
+    selected = identities_for(getattr(args, "with_e2e", False), getattr(args, "with_operator", False))
     if args.mode == "custom":
         for identity in selected:
             if identity not in backends or identity not in models or identity not in efforts:
@@ -713,13 +713,13 @@ AGENT_TEXT = {
         "of a review dispute that ran out of rounds.",
         "For a blind solve, solve the received problem independently and treat any packet containing another answer, conclusion, or hint as contaminated; report it instead of using it. For an escalation ruling the packet carries both sides on purpose: rule on the open findings, and start your answer with exactly `verdict: approve` or `verdict: reject`.",
     ),
-    "e2e_specifier": (
-        "Turns a frozen specification into Gherkin acceptance scenarios and repo-native executable tests.",
-        "Write Gherkin scenarios with stable IDs and executable tests tagged by those IDs, in the repo's detected e2e stack. Keep launch scaffolding out of spec files. Commit on this worktree branch; do not merge, push, or remove the worktree.",
+    "e2e_tester": (
+        "Writes the acceptance gate from a frozen specification and, in a separate job, runs it and returns a validated PASS, FAIL, or BLOCKED verdict.",
+        "The packet says which stage this job is. Writing the gate: write Gherkin scenarios with stable IDs and executable tests tagged by those IDs, in the repo's detected e2e stack, and keep launch scaffolding out of spec files. Running the gate: execute the reviewed tests against the pinned commit and write the verdict artifact; repair launch and runner scaffolding only, and never change scenario meaning, expected values, or product code. In both stages commit on this worktree branch; do not merge, push, or remove the worktree.",
     ),
-    "e2e_verifier": (
-        "Executes reviewed acceptance tests and produces a validated PASS, FAIL, or BLOCKED verdict.",
-        "Execute the reviewed tests against the pinned commit and write the verdict artifact. Repair launch and runner scaffolding only. Never change scenario meaning, expected values, or product code; report a needed semantic change instead of making it.",
+    "operator": (
+        "Runs tools whose result is not a text diff: long builds, headless renders, media and model API calls.",
+        "Run the tools the packet names, leave the evidence it asks for, and report each exit status and output path. Start a long command in the background and check it at least every two minutes. Never overwrite an existing file. Make a paid call only when the packet authorises it, stay within its cap, and record every call.",
     ),
 }
 
@@ -1667,10 +1667,13 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     identity_efforts: List[str] = []
     identity_permissions: List[str] = []
     with_e2e = getattr(args, "with_e2e", False)
+    with_operator = getattr(args, "with_operator", False)
     if mode == "custom":
-        answer = input("Also configure the optional e2e identities? [y/N]: ").strip().lower()
+        answer = input("Also configure the optional e2e_tester identity? [y/N]: ").strip().lower()
         with_e2e = answer in ("y", "yes")
-        for identity in identities_for(with_e2e):
+        answer = input("Also configure the optional operator identity? [y/N]: ").strip().lower()
+        with_operator = answer in ("y", "yes")
+        for identity in identities_for(with_e2e, with_operator):
             backend = input(f"{identity} backend [claude/codex/copilot/cursor/antigravity]: ").strip()
             identity_backends.append(f"{identity}={backend}")
             identity_models.append(f"{identity}={input(f'{identity} model: ').strip()}")
@@ -1686,7 +1689,7 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             identity_permissions.append(f"{identity}={permission}")
     selected = argparse.Namespace(**vars(args))
     selected.mode, selected.scope = mode, scope
-    selected.with_e2e = with_e2e
+    selected.with_e2e, selected.with_operator = with_e2e, with_operator
     selected.spec_max_rounds, selected.implementation_max_rounds = spec_max_rounds, implementation_max_rounds
     selected.write_agents, selected.routing_block = write_agents, routing
     selected.role_permission_mode = identity_permissions
@@ -1723,10 +1726,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-e2e",
         dest="with_e2e",
         action="store_true",
-        help="Also configure the optional e2e_specifier and e2e_verifier identities.",
+        help="Also configure the optional e2e_tester identity.",
     )
     e2e.add_argument("--no-with-e2e", dest="with_e2e", action="store_false")
     parser.set_defaults(with_e2e=False)
+    operator = parser.add_mutually_exclusive_group()
+    operator.add_argument(
+        "--with-operator",
+        dest="with_operator",
+        action="store_true",
+        help="Also configure the optional operator identity.",
+    )
+    operator.add_argument("--no-with-operator", dest="with_operator", action="store_false")
+    parser.set_defaults(with_operator=False)
     parser.add_argument("--spec-max-rounds", type=int, metavar="N", help="Spec review passes before the arbiter rules on a declined blocking finding (default: keep the current value, else 1).")
     parser.add_argument("--implementation-max-rounds", type=int, metavar="N", help="Driver review passes on a delegated diff before the arbiter rules (default: keep the current value, else 3).")
     agents = parser.add_mutually_exclusive_group()

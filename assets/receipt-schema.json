@@ -126,7 +126,7 @@
       "description": "Highest-priority layer that supplied the resolved config, per docs/specs/design_agent-identities-and-config.md; n/a when no configured role was touched."
     },
     "roles_used": {
-      "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. Here 'host' is the CLI that executed the role, not the runtime that loaded SKILL.md. An unverified role is still listed, never omitted. The optional e2e roles appear only on runs that used them; widening this enum is additive.",
+      "description": "'none', or a JSON array of every role invoked this run: {role, host, model, effort, verified}. Here 'host' is the CLI that executed the role, not the runtime that loaded SKILL.md. An unverified role is still listed, never omitted. The optional roles (e2e_tester, operator) appear only on runs that used them. e2e_specifier and e2e_verifier are retired names, kept for receipts written before 4.0.0. Widening this enum is additive.",
       "oneOf": [
         {
           "const": "none"
@@ -148,8 +148,10 @@
                   "deep_reasoner",
                   "fast_worker",
                   "arbiter",
-                "e2e_specifier",
-                "e2e_verifier"
+                  "e2e_tester",
+                  "operator",
+                  "e2e_specifier",
+                  "e2e_verifier"
                 ]
               },
               "host": {

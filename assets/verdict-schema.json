@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "handoff.verdict.v1",
   "title": "Handoff E2E Verdict",
-  "description": "The artifact an e2e_verifier job writes to .handoff/e2e/<jobId>/verdict.json. Structural validity is necessary but not sufficient: the contract is the set of cross-field rules in scripts/validate-verdict.py, which check a PASS against the exit code, the scenario counts, and the hash of the scenarios the driver reviewed. A verdict is a merge-decision input, so check it with that script rather than by shape alone.",
+  "description": "The artifact an e2e_tester verify job writes to .handoff/e2e/<jobId>/verdict.json. Structural validity is necessary but not sufficient: the contract is the set of cross-field rules in scripts/validate-verdict.py, which check a PASS against the exit code, the scenario counts, and the hash of the scenarios the driver reviewed. A verdict is a merge-decision input, so check it with that script rather than by shape alone.",
   "type": "object",
   "additionalProperties": true,
   "required": [

@@ -4,8 +4,9 @@
 This is deliberately a TOML subset implementation.  It splits the document
 into raw section chunks, then parses only top-level metadata, [review], and
 the identity sections ([deep_reasoner], [fast_worker], [arbiter], and the optional
-[e2e_specifier] and [e2e_verifier]).  Every other chunk -- comments,
-unknown sections -- is preserved byte-for-byte, never reformatted.
+[e2e_tester] and [operator]).  Every other chunk -- comments,
+unknown sections, retired identity sections -- is preserved byte-for-byte,
+never reformatted.
 """
 
 from __future__ import annotations
@@ -27,18 +28,27 @@ CORE_IDENTITIES = ("deep_reasoner", "fast_worker", "arbiter")
 # Optional add-on identities. Appended, never inserted: emit_host_sections
 # orders sections by IDENTITIES, so an existing three-identity document must
 # keep writing back byte-identically.
-OPTIONAL_IDENTITIES = ("e2e_specifier", "e2e_verifier")
+OPTIONAL_IDENTITIES = ("e2e_tester", "operator")
 IDENTITIES = CORE_IDENTITIES + OPTIONAL_IDENTITIES
+# Retired in 4.0.0, when the e2e pair became the one identity e2e_tester. A
+# retired name is not an identity: its sections are unowned, so they load and
+# keep their bytes through every write, and setup migrates them.
+RETIRED_IDENTITIES = ("e2e_specifier", "e2e_verifier")
 # Releases before 3.9.2 wrote identity headers with this prefix (a leftover of
 # the dual-host layout). The engine still reads them so an older config loads
 # unchanged; the next write re-emits every identity section bare.
 LEGACY_IDENTITY_PREFIX = "hosts.claude_code.identities."
 
 
-def identities_for(with_e2e: bool) -> Tuple[str, ...]:
-    """The identity set a setup run configures."""
+def identities_for(with_e2e: bool, with_operator: bool = False) -> Tuple[str, ...]:
+    """The identity set a setup run configures, in IDENTITIES order."""
 
-    return IDENTITIES if with_e2e else CORE_IDENTITIES
+    selected = set(CORE_IDENTITIES)
+    if with_e2e:
+        selected.add("e2e_tester")
+    if with_operator:
+        selected.add("operator")
+    return tuple(identity for identity in IDENTITIES if identity in selected)
 
 
 def ordered(names: Iterable[str]) -> List[str]:
@@ -147,14 +157,16 @@ def _identity_name(section: Optional[str]) -> Optional[str]:
 
     None means the section is unowned and round-trips byte-for-byte:
     [review], [hosts.codex.*], the bare legacy table without its trailing dot,
-    and any unknown section. A returned name is not yet checked against
-    IDENTITIES -- parse_config refuses a legacy header naming anything else.
+    a retired identity in either header form, and any unknown section. A
+    returned name is not yet checked against IDENTITIES -- parse_config
+    refuses a legacy header naming anything else.
     """
 
     if section is None:
         return None
     if section.startswith(LEGACY_IDENTITY_PREFIX):
-        return section[len(LEGACY_IDENTITY_PREFIX):]
+        name = section[len(LEGACY_IDENTITY_PREFIX):]
+        return None if name in RETIRED_IDENTITIES else name
     if section.split(".", 1)[0] in IDENTITIES:
         return section
     return None
@@ -172,7 +184,7 @@ def split_sections(text: str) -> List[SectionChunk]:
     current_lines: List[str] = []
     start_line = 1
 
-    interpreted = ("review", LEGACY_IDENTITY_PREFIX.rstrip("."), *IDENTITIES)
+    interpreted = ("review", LEGACY_IDENTITY_PREFIX.rstrip("."), *IDENTITIES, *RETIRED_IDENTITIES)
     for line_number, line in enumerate(lines, 1):
         stripped = line.lstrip(" \t")
         match = ARRAY_SECTION_RE.match(line) or SECTION_RE.match(line)

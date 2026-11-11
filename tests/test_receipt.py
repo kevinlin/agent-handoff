@@ -49,16 +49,27 @@ def fields(**overrides) -> dict:
 
 
 class ValidateReceiptTests(unittest.TestCase):
-    def test_roles_used_accepts_e2e_roles(self):
-        self.assertEqual(
-            [],
-            validate_receipt.validate(
-                fields(
-                    roles_used='[{"role": "e2e_verifier", "host": "codex", '
-                    '"model": "gpt-x", "effort": "high", "verified": true}]'
+    def test_roles_used_accepts_the_optional_roles_and_the_retired_e2e_pair(self):
+        # e2e_specifier and e2e_verifier were retired in 4.0.0; receipts written
+        # before then still name them and must keep validating.
+        for role in ("e2e_tester", "operator", "e2e_specifier", "e2e_verifier"):
+            with self.subTest(role=role):
+                self.assertEqual(
+                    [],
+                    validate_receipt.validate(
+                        fields(
+                            roles_used=f'[{{"role": "{role}", "host": "codex", '
+                            '"model": "gpt-x", "effort": "high", "verified": true}]'
+                        )
+                    ),
                 )
-            ),
-        )
+
+    def test_roles_match_the_schema_enum(self):
+        schema = json.loads((ROOT / "assets" / "receipt-schema.json").read_text(encoding="utf-8"))
+        array = next(option for option in schema["properties"]["roles_used"]["oneOf"] if option.get("type") == "array")
+        enum = array["items"]["properties"]["role"]["enum"]
+        self.assertEqual(len(enum), len(set(enum)))
+        self.assertEqual(validate_receipt.ROLES, set(enum))
 
     def test_roles_used_still_rejects_an_unknown_role(self):
         self.assert_one_failure(

@@ -459,42 +459,62 @@ class SetupUITests(unittest.TestCase):
             set(handoff_setup_ui.engine.IDENTITIES),
             set(handoff_setup_ui.IDENTITY_META),
         )
+        self.assertEqual(
+            {"deep_reasoner", "fast_worker", "arbiter", "e2e_tester", "operator"},
+            set(handoff_setup_ui.IDENTITY_META),
+        )
 
-    def test_payload_without_the_flag_ignores_optional_identities(self):
+    def test_payload_without_the_flags_ignores_optional_identities(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
         raw = self.payload(controller)
         normalized = handoff_setup_ui.normalize_payload(
             raw, repo=self.repo, env=self.env
         )
         self.assertFalse(normalized["with_e2e"])
-        self.assertNotIn("e2e_specifier", normalized["identities"])
+        self.assertFalse(normalized["with_operator"])
+        self.assertNotIn("e2e_tester", normalized["identities"])
+        self.assertNotIn("operator", normalized["identities"])
 
-    def test_payload_with_the_flag_keeps_optional_identities(self):
+    def test_payload_with_a_flag_keeps_only_that_optional_identity(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
-        raw = self.payload(controller)
-        raw["with_e2e"] = True
-        normalized = handoff_setup_ui.normalize_payload(
-            raw, repo=self.repo, env=self.env
-        )
-        self.assertTrue(normalized["with_e2e"])
-        self.assertIn("e2e_verifier", normalized["identities"])
+        for with_e2e, with_operator in ((True, False), (False, True), (True, True)):
+            with self.subTest(with_e2e=with_e2e, with_operator=with_operator):
+                raw = self.payload(controller)
+                raw["with_e2e"] = with_e2e
+                raw["with_operator"] = with_operator
+                normalized = handoff_setup_ui.normalize_payload(
+                    raw, repo=self.repo, env=self.env
+                )
+                self.assertEqual(with_e2e, normalized["with_e2e"])
+                self.assertEqual(with_operator, normalized["with_operator"])
+                self.assertEqual(
+                    list(handoff_setup_ui.engine.identities_for(with_e2e, with_operator)),
+                    list(normalized["identities"]),
+                )
 
-    def test_payload_with_the_flag_rejects_a_missing_optional_identity(self):
+    def test_payload_with_a_flag_rejects_a_missing_optional_identity(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
-        raw = self.payload(controller)
-        raw["with_e2e"] = True
-        del raw["identities"]["e2e_specifier"]
-        with self.assertRaisesRegex(handoff_setup_ui.UIError, "e2e_specifier"):
-            handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+        for flag, identity in (("with_e2e", "e2e_tester"), ("with_operator", "operator")):
+            with self.subTest(flag=flag):
+                raw = self.payload(controller)
+                raw[flag] = True
+                del raw["identities"][identity]
+                with self.assertRaisesRegex(handoff_setup_ui.UIError, identity):
+                    handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
 
-    def test_engine_arguments_always_state_the_flag(self):
+    def test_engine_arguments_always_state_both_flags(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
-        raw = self.payload(controller)
-        off = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        self.assertIn("--no-with-e2e", handoff_setup_ui.engine_arguments(off, "preview"))
-        raw["with_e2e"] = True
-        on = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
-        self.assertIn("--with-e2e", handoff_setup_ui.engine_arguments(on, "preview"))
+        for with_e2e, with_operator in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(with_e2e=with_e2e, with_operator=with_operator):
+                raw = self.payload(controller)
+                raw["with_e2e"] = with_e2e
+                raw["with_operator"] = with_operator
+                normalized = handoff_setup_ui.normalize_payload(raw, repo=self.repo, env=self.env)
+                args = handoff_setup_ui.engine_arguments(normalized, "preview")
+                self.assertIn("--with-e2e" if with_e2e else "--no-with-e2e", args)
+                self.assertIn("--with-operator" if with_operator else "--no-with-operator", args)
+                self.assertNotIn("--no-with-e2e" if with_e2e else "--with-e2e", args)
+                self.assertNotIn("--no-with-operator" if with_operator else "--with-operator", args)
 
     def test_payload_carries_both_review_caps(self):
         controller = handoff_setup_ui.SetupController(self.repo, self.env)
@@ -549,7 +569,34 @@ class SetupUITests(unittest.TestCase):
         self.assertIn("implementation_max_rounds: Number($('implementationMaxRounds').value)", source)
         self.assertNotIn("specReview", source)
 
-    def test_state_fills_unconfigured_e2e_identities_from_balanced(self):
+    def test_state_names_the_core_and_optional_identities(self):
+        state = handoff_setup_ui.build_state(self.repo, self.env)
+        self.assertEqual(["deep_reasoner", "fast_worker", "arbiter"], state["core_identities"])
+        self.assertEqual(["e2e_tester", "operator"], state["optional_identities"])
+        self.assertEqual(
+            state["core_identities"] + state["optional_identities"], list(state["identity_meta"])
+        )
+
+    def test_the_page_has_one_toggle_and_one_card_row_per_optional_identity(self):
+        source = PAGE.read_text(encoding="utf-8")
+        for required in (
+            'id="withE2e"',
+            'id="withOperator"',
+            'id="e2eCards"',
+            'id="operatorCards"',
+            "e2e_tester: {toggle:'withE2e', cards:'e2eCards'}",
+            "operator: {toggle:'withOperator', cards:'operatorCards'}",
+            "state.optional_identities.filter(optionalOn)",
+            "with_e2e: $('withE2e').checked",
+            "with_operator: $('withOperator').checked",
+            "['withE2e', 'withOperator'].forEach(id => $(id).addEventListener('change'",
+        ):
+            self.assertIn(required, source)
+        self.assertNotIn("Adds two identities", source)
+        self.assertNotIn("e2e_specifier", source)
+        self.assertNotIn("e2e_verifier", source)
+
+    def test_state_fills_unconfigured_optional_identities_from_balanced(self):
         with contextlib.redirect_stdout(io.StringIO()):
             handoff_setup_ui.engine.main(
                 ["--apply", "--repo", str(self.repo), "--exclude-choice", "track", "--no-write-agents"],

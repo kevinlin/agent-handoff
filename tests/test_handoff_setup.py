@@ -125,7 +125,7 @@ class SetupTests(unittest.TestCase):
 
     def test_terminal_custom_wizard_asks_each_permission(self):
         from unittest.mock import patch
-        answers = ["4", "1", "n", "n", "", "", "n"]
+        answers = ["4", "1", "n", "n", "", "", "n", "n"]
         for identity in handoff_setup.CORE_IDENTITIES:
             answers.extend(["claude", "opus", "high", "allow-all" if identity == "fast_worker" else ""])
         answers.append("n")
@@ -135,9 +135,44 @@ class SetupTests(unittest.TestCase):
         for identity in handoff_setup.CORE_IDENTITIES:
             self.assertIn(unittest.mock.call(f"{identity} permission [default/allow-all] (default): "),
                           prompt.call_args_list)
+        self.assertIn(unittest.mock.call("Also configure the optional e2e_tester identity? [y/N]: "),
+                      prompt.call_args_list)
+        self.assertIn(unittest.mock.call("Also configure the optional operator identity? [y/N]: "),
+                      prompt.call_args_list)
         self.assertIn("permission=allow-all", output)
         self.assertIn("permission=default", output)
         self.assertFalse((self.repo / ".handoff" / "config.toml").exists())
+
+    def test_terminal_custom_wizard_asks_about_each_optional_identity_on_its_own(self):
+        from unittest.mock import call, patch
+        for optional_answers, expected in (
+            (("y", "n"), ("deep_reasoner", "fast_worker", "arbiter", "e2e_tester")),
+            (("n", "y"), ("deep_reasoner", "fast_worker", "arbiter", "operator")),
+            (("y", "y"), handoff_setup.IDENTITIES),
+        ):
+            with self.subTest(optional_answers=optional_answers):
+                answers = ["4", "1", "n", "n", "", "", *optional_answers]
+                for _ in expected:
+                    answers.extend(["claude", "opus", "high", ""])
+                answers.append("n")
+                with patch("sys.stdin.isatty", return_value=True), \
+                        patch("builtins.input", side_effect=answers) as prompt:
+                    status, output, error = self.run_cli("--interactive", "--repo", str(self.repo))
+                self.assertEqual(0, status, error)
+                asked = [
+                    entry.args[0] for entry in prompt.call_args_list
+                    if entry.args[0].endswith(" backend [claude/codex/copilot/cursor/antigravity]: ")
+                ]
+                self.assertEqual(
+                    [f"{identity} backend [claude/codex/copilot/cursor/antigravity]: " for identity in expected],
+                    asked,
+                )
+                for identity in handoff_setup.OPTIONAL_IDENTITIES:
+                    self.assertEqual(
+                        identity in expected,
+                        f"{identity}: backend=claude [custom]" in output,
+                        identity,
+                    )
 
     def test_preview_is_zero_write_and_lists_every_target_with_diffs(self):
         before = self.snapshot()
@@ -721,15 +756,69 @@ always_on_host_rules = false
             [name for name in handoff_setup.IDENTITIES if name in identities],
         )
 
-    def test_with_e2e_writes_both_optional_identities(self):
+    def test_with_e2e_writes_the_e2e_tester_only(self):
         status, _, error = self.run_cli(
             *self.claude_args("--apply", "--mode", "balanced", "--with-e2e")
         )
         self.assertEqual((0, ""), (status, error))
         identities = self.configured()
-        self.assertEqual("xhigh", identities["e2e_specifier"]["effort"])
-        self.assertEqual("high", identities["e2e_verifier"]["effort"])
-        self.assertEqual("codex", identities["e2e_specifier"]["backend"])
+        self.assertEqual("xhigh", identities["e2e_tester"]["effort"])
+        self.assertEqual("codex", identities["e2e_tester"]["backend"])
+        self.assertNotIn("operator", identities)
+
+    def test_with_operator_writes_the_operator_only(self):
+        status, _, error = self.run_cli(
+            *self.claude_args("--apply", "--mode", "balanced", "--with-operator")
+        )
+        self.assertEqual((0, ""), (status, error))
+        identities = self.configured()
+        self.assertEqual("high", identities["operator"]["effort"])
+        self.assertEqual("codex", identities["operator"]["backend"])
+        self.assertNotIn("e2e_tester", identities)
+
+    def test_the_two_optional_flags_are_independent(self):
+        for index, (with_e2e, with_operator) in enumerate(
+            ((False, False), (True, False), (False, True), (True, True))
+        ):
+            with self.subTest(with_e2e=with_e2e, with_operator=with_operator):
+                self.repo = self.root / f"repo-{index}"
+                self.repo.mkdir()
+                status, _, error = self.run_cli(*self.claude_args(
+                    "--apply", "--mode", "balanced",
+                    "--with-e2e" if with_e2e else "--no-with-e2e",
+                    "--with-operator" if with_operator else "--no-with-operator",
+                ))
+                self.assertEqual((0, ""), (status, error))
+                expected = list(handoff_setup.identities_for(with_e2e, with_operator))
+                self.assertEqual(
+                    expected,
+                    [name for name in handoff_setup.IDENTITIES if name in self.configured()],
+                )
+                text = (self.repo / ".handoff" / "config.toml").read_text(encoding="utf-8")
+                self.assertEqual(
+                    expected,
+                    [
+                        chunk.name for chunk in handoff_setup.handoff_config.split_sections(text)
+                        if chunk.name and chunk.name != "review"
+                    ],
+                )
+
+    def test_the_name_tables_cover_exactly_the_identity_set(self):
+        identities = set(handoff_setup.IDENTITIES)
+        self.assertEqual(identities, set(handoff_setup.ROUTING_LINES))
+        self.assertEqual(identities, set(handoff_setup.AGENT_TEXT))
+        for mode, preset in handoff_setup.PRESETS.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(identities, set(preset))
+        # e2e_tester takes the retired e2e_specifier column in every preset.
+        self.assertEqual(
+            {"balanced": ("codex", None, "xhigh"), "quality": ("claude", "opus", "high"), "cost": ("codex", None, "high")},
+            {mode: preset["e2e_tester"] for mode, preset in handoff_setup.PRESETS.items()},
+        )
+        self.assertEqual(
+            {"balanced": ("codex", None, "high"), "quality": ("codex", None, "high"), "cost": ("codex", None, "medium")},
+            {mode: preset["operator"] for mode, preset in handoff_setup.PRESETS.items()},
+        )
 
     def test_apply_succeeds_without_the_optional_identities(self):
         # The "identities are not configured" gate must be scoped to core:
@@ -743,8 +832,13 @@ always_on_host_rules = false
         self.run_cli(*self.claude_args("--apply", "--mode", "balanced"))
         status, output, _ = self.run_cli(*self.claude_args("--status"))
         self.assertEqual(0, status)
-        self.assertIn("e2e_specifier: backend=<unset>", output)
-        self.assertIn("e2e_verifier: backend=<unset>", output)
+        self.assertIn("e2e_tester: backend=<unset>", output)
+        self.assertIn("operator: backend=<unset>", output)
+        listed = [line.split(":", 1)[0] for line in output.splitlines()]
+        self.assertEqual(
+            list(handoff_setup.IDENTITIES),
+            [name for name in listed if name in handoff_setup.IDENTITIES],
+        )
 
     def test_custom_mode_requires_optional_settings_only_with_the_flag(self):
         core = {
@@ -756,26 +850,48 @@ always_on_host_rules = false
         self.assertEqual((0, ""), (status, error))
         status, _, error = self.run_cli(*self.custom_args(core), "--with-e2e")
         self.assertNotEqual(0, status)
-        self.assertIn("e2e_specifier", error)
+        self.assertIn("e2e_tester", error)
+        self.assertNotIn("operator", error)
+        status, _, error = self.run_cli(*self.custom_args(core), "--with-operator")
+        self.assertNotEqual(0, status)
+        self.assertIn("operator", error)
+        self.assertNotIn("e2e_tester", error)
 
     def test_claude_backend_optional_identity_generates_an_agent(self):
         choices = {
             "deep_reasoner": ("claude", "opus", "high"),
             "fast_worker": ("codex", "gpt-detected", "medium"),
             "arbiter": ("codex", "gpt-detected", "xhigh"),
-            "e2e_specifier": ("claude", "sonnet", "high"),
-            "e2e_verifier": ("codex", "gpt-detected", "high"),
+            "e2e_tester": ("claude", "sonnet", "high"),
+            "operator": ("codex", "gpt-detected", "high"),
         }
         status, _, error = self.run_cli(
-            *self.custom_args(choices), "--with-e2e", "--write-agents"
+            *self.custom_args(choices), "--with-e2e", "--with-operator", "--write-agents"
         )
         self.assertEqual((0, ""), (status, error))
         agents = self.repo / ".claude" / "agents"
-        specifier = agents / "handoff-e2e-specifier.md"
-        self.assertTrue(specifier.exists())
-        self.assertIn("name: handoff-e2e-specifier", specifier.read_text(encoding="utf-8"))
+        tester = agents / "handoff-e2e-tester.md"
+        self.assertTrue(tester.exists())
+        self.assertIn("name: handoff-e2e-tester", tester.read_text(encoding="utf-8"))
         # backend=codex identities never get a Claude subagent definition
-        self.assertFalse((agents / "handoff-e2e-verifier.md").exists())
+        self.assertFalse((agents / "handoff-operator.md").exists())
+
+    def test_claude_backend_operator_generates_an_agent(self):
+        choices = {
+            "deep_reasoner": ("claude", "opus", "high"),
+            "fast_worker": ("codex", "gpt-detected", "medium"),
+            "arbiter": ("codex", "gpt-detected", "xhigh"),
+            "operator": ("claude", "sonnet", "medium"),
+        }
+        status, _, error = self.run_cli(
+            *self.custom_args(choices), "--with-operator", "--write-agents"
+        )
+        self.assertEqual((0, ""), (status, error))
+        operator = self.repo / ".claude" / "agents" / "handoff-operator.md"
+        text = operator.read_text(encoding="utf-8")
+        self.assertIn("name: handoff-operator", text)
+        self.assertIn("Never overwrite an existing file.", text)
+        self.assertFalse((self.repo / ".claude" / "agents" / "handoff-e2e-tester.md").exists())
 
 
 class ReviewCapsSetupTests(SetupTests):
@@ -1253,7 +1369,7 @@ class CursorSetupTests(SetupTests):
 
     def test_terminal_wizard_names_five_backends_and_fills_cursor_effort(self):
         from unittest.mock import call, patch
-        answers = ["4", "1", "n", "n", "", "", "n"]
+        answers = ["4", "1", "n", "n", "", "", "n", "n"]
         for identity in handoff_setup.CORE_IDENTITIES:
             if identity == "fast_worker":
                 answers.extend(["cursor", "gpt-5.4-mini-low", ""])  # no effort question
@@ -1736,7 +1852,7 @@ class AntigravitySetupTests(SetupTests):
 
     def test_terminal_wizard_names_five_backends_and_skips_the_antigravity_effort_question(self):
         from unittest.mock import call, patch
-        answers = ["4", "1", "n", "n", "", "", "n"]
+        answers = ["4", "1", "n", "n", "", "", "n", "n"]
         for identity in handoff_setup.CORE_IDENTITIES:
             if identity == "fast_worker":
                 answers.extend(["antigravity", "gemini-3.8-flash-low", ""])  # no effort question

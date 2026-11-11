@@ -82,13 +82,13 @@ IDENTITY_META = {
         "label": "Independent arbitration",
         "hint": "Blind second solve for contested conclusions",
     },
-    "e2e_specifier": {
-        "label": "Acceptance authoring",
-        "hint": "Gherkin scenarios and repo-native executable tests",
+    "e2e_tester": {
+        "label": "E2E tester",
+        "hint": "Writes the acceptance gate, then runs it and reports a validated verdict",
     },
-    "e2e_verifier": {
-        "label": "Acceptance execution",
-        "hint": "Runs the reviewed tests and reports a validated verdict",
+    "operator": {
+        "label": "Operator",
+        "hint": "Long builds, renders, and media or API calls whose result is not a text diff",
     },
 }
 
@@ -764,7 +764,7 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
                     values.get("effort"),
                 )
     initial_mode = "custom" if current else "balanced"
-    # Identities absent from config (usually the optional e2e pair) start from Balanced.
+    # Identities absent from config (usually the optional identities) start from Balanced.
     initial_matrix = {**presets["balanced"], **current}
     return {
         "repo": str(repo),
@@ -848,7 +848,8 @@ def normalize_payload(
     if not isinstance(supplied, dict):
         raise UIError("Missing identity matrix")
     with_e2e = bool(raw.get("with_e2e"))
-    required = engine.identities_for(with_e2e)
+    with_operator = bool(raw.get("with_operator"))
+    required = engine.identities_for(with_e2e, with_operator)
     identities: Dict[str, Dict[str, str]] = {}
     for identity in required:
         values = supplied.get(identity)
@@ -931,6 +932,7 @@ def normalize_payload(
         "write_agents": bool(raw.get("write_agents")),
         "smoke": bool(raw.get("smoke", True)),
         "with_e2e": with_e2e,
+        "with_operator": with_operator,
         "review": caps,
         "identities": identities,
     }
@@ -956,6 +958,7 @@ def engine_arguments(payload: Mapping[str, Any], action: str) -> list[str]:
             args.extend(("--role-effort", f"{identity}={values['effort']}"))
             args.extend(("--role-permission-mode", f"{identity}={values['permission_mode']}"))
     args.append("--with-e2e" if payload["with_e2e"] else "--no-with-e2e")
+    args.append("--with-operator" if payload["with_operator"] else "--no-with-operator")
     for key in engine.handoff_config.REVIEW_FIELDS:
         args.extend((f"--{key.replace('_', '-')}", str(payload["review"][key])))
     args.append("--write-agents" if payload["write_agents"] else "--no-write-agents")

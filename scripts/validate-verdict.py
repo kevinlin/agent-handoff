@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an e2e verdict artifact written by the e2e_verifier role.
+"""Validate an e2e verdict artifact written by the verify job of the e2e_tester role.
 
 The verdict is the input to a merge decision, so its fields are checked
 against each other rather than trusted: a PASS must agree with the exit

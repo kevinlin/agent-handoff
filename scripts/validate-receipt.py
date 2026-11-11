@@ -38,7 +38,12 @@ SCOPES = {"project", "global", "n/a"}
 CONFIG_SOURCES = {"session", "project", "global", "default", "n/a"}
 # The CLI that executed a role, not the runtime that loaded SKILL.md.
 ROLE_HOSTS = {"claude_code", "codex", "copilot", "cursor", "antigravity"}
-ROLES = {"deep_reasoner", "fast_worker", "arbiter", "e2e_specifier", "e2e_verifier"}
+# e2e_specifier and e2e_verifier were retired in 4.0.0 and stay valid here, so a
+# receipt written before then still validates.
+ROLES = {
+    "deep_reasoner", "fast_worker", "arbiter", "e2e_tester", "operator",
+    "e2e_specifier", "e2e_verifier",
+}
 # Only make-receipt.py writes these, so the shape is exact: "74min 05sec".
 _DURATION = r"\d+min [0-5]\dsec"
 _JOB_ENTRY = rf"[^=;]+=(?:{_DURATION}|running)"

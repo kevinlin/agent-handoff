@@ -38,7 +38,7 @@ Usage:
   delegate-job.sh submit --repo <path> --prompt-file <file>
                     [--label <name>] [--effort <level>] [--model <model>]
                     [--backend codex|claude|copilot|cursor|antigravity]
-                    [--role deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier]
+                    [--role deep_reasoner|fast_worker|arbiter|e2e_tester|operator]
                     [--worktree <branch>] [--base <commit-ish>]
                     [--read-only] [--dry-run]
   delegate-job.sh status  <jobId> --repo <path> [--wait] [--timeout <seconds>]
@@ -583,7 +583,11 @@ cmd_submit() {
   done
   require_repo
   [ -n "$PROMPT_FILE" ] && [ -f "$PROMPT_FILE" ] || die "--prompt-file is required and must exist"
-  case "$ROLE" in ""|deep_reasoner|fast_worker|arbiter|e2e_specifier|e2e_verifier) ;; *) die "invalid --role: $ROLE" ;; esac
+  case "$ROLE" in
+    ""|deep_reasoner|fast_worker|arbiter|e2e_tester|operator) ;;
+    e2e_specifier|e2e_verifier) die "--role $ROLE was retired in 4.0.0; use --role e2e_tester (run /agent-handoff config to migrate the config)" ;;
+    *) die "invalid --role: $ROLE" ;;
+  esac
   case "$BACKEND" in codex|claude|copilot|cursor|antigravity) ;; *) die "invalid --backend: $BACKEND" ;; esac
 
   if [ -n "$WORKTREE_BRANCH" ]; then
@@ -599,12 +603,12 @@ cmd_submit() {
     local IDENTITY="$ROLE" FIELDS CONFIG_SOURCE ROLE_BACKEND ROLE_MODEL ROLE_EFFORT
     if ! FIELDS="$(python3 "$SCRIPT_DIR/handoff-config.py" --repo "$REPO" resolve \
         source "$IDENTITY.backend" "$IDENTITY.model" "$IDENTITY.effort" "$IDENTITY.permission_mode")"; then
-      die "failed to resolve Handoff identity '$ROLE'; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
+      die "failed to resolve Handoff identity '$ROLE'; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude|copilot|cursor|antigravity> --model <model> --effort <effort>'"
     fi
     { IFS= read -r CONFIG_SOURCE; IFS= read -r ROLE_BACKEND; IFS= read -r ROLE_MODEL
       IFS= read -r ROLE_EFFORT; IFS= read -r PERMISSION_POSTURE; } <<<"$FIELDS"
     if [ -z "$ROLE_BACKEND" ] || [ -z "$ROLE_MODEL" ] || [ -z "$ROLE_EFFORT" ]; then
-      die "Handoff identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude> --model <model> --effort <effort>'"
+      die "Handoff identity '$ROLE' is missing backend, model, or effort; run 'python3 scripts/handoff-config.py init' and then 'set --role $ROLE --backend <codex|claude|copilot|cursor|antigravity> --model <model> --effort <effort>'"
     fi
     # The configured backend decides which CLI runs the job — always. An
     # explicit --backend that contradicts the config is refused rather than
