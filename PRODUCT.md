@@ -30,7 +30,7 @@ The driver never accepts delegated work on a worker's summary. It reviews the co
 
 ## Capabilities and Constraints
 
-- Five identities, each a backend + model + effort triple: core `deep_reasoner`, `fast_worker`, `arbiter`; optional `e2e_specifier`, `e2e_verifier`.
+- Five identities, each a backend + model + effort triple: core `deep_reasoner`, `fast_worker`, `arbiter`; optional `e2e_tester`, `operator`.
 - Five backends: `codex`, `claude`, `copilot`, `cursor`, `antigravity`. Cursor and Antigravity effort is always `model`.
 - Config writes are atomic with backups, and the wizard shows the exact diff before confirming.
 - Pages are self-contained. They load no CDN scripts or web fonts.

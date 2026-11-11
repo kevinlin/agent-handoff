@@ -265,12 +265,15 @@ Five identities, each a `backend + model + effort` triple set on its own. `backe
 | `deep_reasoner` | architecture, ambiguous requirements, root-cause diagnosis, review of every plan | core |
 | `fast_worker` | mechanical, spec-complete implementation and checks | core |
 | `arbiter` | blind second solve for contested calls; rules when a review gate runs out of rounds | core |
-| `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
-| `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
+| `e2e_tester` | writes the acceptance gate (Gherkin scenarios plus repo-native tests), then in a second job runs it and returns a validated PASS/FAIL/BLOCKED verdict | optional |
+| `operator` | work whose result comes from running tools and is not a text diff: a long build, a headless render, a media or model API call | optional |
 
-Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-acceptance.md`](references/e2e-acceptance.md)). All values live in `.handoff/config.toml`, project or global, and nowhere else.
+Setup writes `e2e_tester` only with `--with-e2e` (see [`references/e2e-acceptance.md`](references/e2e-acceptance.md)) and `operator` only with `--with-operator`, and it keeps an optional identity the config already has. All values live in `.handoff/config.toml`, project or global, and nowhere else.
+
+**Upgrading from 3.x.** v4.0.0 replaces `e2e_specifier` and `e2e_verifier` with the one identity `e2e_tester`. An existing config keeps working: the core identities load as before, the two old sections are ignored, and each command prints a notice that names them. Run `/agent-handoff config` to migrate. The wizard fills `e2e_tester` from the old specifier, shows the diff, backs the file up, and `handoff-setup.py --rollback` restores it. For a global config, run `handoff-setup.py --scope global --preview`, then `--apply`. A job submitted with `--role e2e_specifier` or `--role e2e_verifier` is refused, and a fix round already in flight on one still resumes.
 
 - `/agent-handoff config` opens the setup wizard: balanced, quality, or cost presets, editable per identity. It shows the exact diff before writing. Codex and Claude models come from their CLIs, Copilot models from account entitlements, Cursor models from `cursor-agent models`, and Antigravity models from `agy --output-format json models`. Cursor and Antigravity effort is fixed at `model`. After install it smoke-tests each configured backend.
+- Rows that are not a text diff ([`references/artefact-rows.md`](references/artefact-rows.md)): a Rust release build, a Blender render, a clip assembled with ffmpeg, a voice track from a paid API. The worker leaves evidence files (a probe of each output, exit statuses, a contact sheet) and the driver reviews those in place of a diff. What no model can judge, such as how a voice-over sounds, waits for your sign-off.
 - Skill change gate ([`references/skill-change-gate.md`](references/skill-change-gate.md)): change the workflow one dimension at a time, and keep a change only when repo evidence improves.
 
 ## Safety
@@ -282,7 +285,8 @@ Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-acce
   - A resumed job inherits its parent's posture and read-only setting. If the parent has no recorded posture, the resume uses `default`, never `allow-all`. Warnings follow the mode that actually runs.
   - No OS-level sandbox is added for Claude under `default`. Codex denials are not counted, and `permission_denied` is advisory, so verify edits and check results on disk.
 - Delegating is not handing over control: architecture, the split decision, cross-task integration, security- and correctness-critical paths, and final acceptance all stay with the driving session.
-- Never accept a diff you have not read, and never mark a task done because a worker said it finished.
+- Never accept a diff you have not read, or an output whose evidence you have not opened, and never mark a task done because a worker said it finished.
+- A worker makes no paid API call until you have agreed to a cap, which the goal file records. Each paid row gets its own allocation, and the worker logs every call before and after it is made. A worker inherits the driving session's environment, API keys included; a Claude worker runs without the `ANTHROPIC_*` and `CLAUDE_CODE_*` variables.
 - Do not change repo visibility, tag releases, publish to registries, or announce externally without explicit permission.
 - Do not use `git reset --hard` as the default rollback path. Prefer reviewable diffs or reverts.
 - Git does not track `.handoff/config.toml` by default. Setup adds it to `.git/info/exclude` and leaves your `.gitignore` alone.
