@@ -26,7 +26,7 @@ When a review gate reaches its cap without consensus, the dispute goes to `arbit
    | Spec | the plan goes to the user as you revised it | final: no row is delegated, the run stops before Phase 2, the user gets the plan with the ruling, and Phase 5 still writes a receipt with phase `planning` |
    | Implementation | the diff is accepted over your open findings and the row goes to `done` | final: the row becomes `rejected` and its diff is set aside (Phase 4 of the flow) |
 
-   An approval never stands in for an e2e PASS. With a validated FAIL among the open findings, approval means the scenario was judged wrong: the scenario goes back to step 1 of the e2e sequence, a new hash is recorded, and the verifier reruns.
+   An approval never stands in for an e2e PASS, nor for a user sign-off on an artefact row (`references/artefact-rows.md`): that row stays in `review` until the user answers. With a validated FAIL among the open findings, approval means the scenario was judged wrong: the scenario goes back to step 1 of the e2e sequence, a new hash is recorded, and the verifier reruns.
 4. An arbiter job that fails, stalls, is cancelled, or returns anything but a well-formed verdict is an anomaly. Resubmit one fresh arbiter job with the same packet. A second failure, or a `submit` refused before any job exists, is recorded as `no verdict`. The row, or the plan, stays in `arbitration`, the run wraps up, and only the user moves it.
 5. Record every ruling, approvals included, as one line in the goal file's `## Arbitration` block: the gate, the task (`plan` for the spec gate), the arbiter's jobId or the refusal message, the verdict (`approve`, `reject` or `no verdict`), a one-line reason, and `same-vendor` when the arbiter's backend matches either party's. A rejection also writes a handover into Notes: what the reviewer found, what the arbiter ruled, and what continuing would take (raise the cap, rewrite the brief, or take the task over). Every line also goes into the receipt's `anomalies` (`references/session-receipt.md`).
 
@@ -45,7 +45,8 @@ Gate: [spec | implementation]. Task: [task id, or "plan"].
 
 ## Evidence
 [Implementation: the full scoped diff and the results of the checks the
-driver ran. Spec: the plan as the driver revised it.]
+driver ran. For an artefact row, its evidence files in place of a diff.
+Spec: the plan as the driver revised it.]
 
 ## Dispute
 [Every round in order: each finding with its tag, and the other side's

@@ -24,6 +24,7 @@ What the agent-handoff skill loads into context, and when. Introduced in v3.12.0
 | L3 | `references/packet-templates.md` | Phase 1 and 2, writing a delegation or spec-review packet |
 | L3 | `references/arbitration.md` | a review gate at its cap, a contested call, or a resumed run with a row in `arbitration` or `rejected` |
 | L3 | `references/e2e-acceptance.md` | the change alters user-observable behaviour |
+| L3 | `references/artefact-rows.md` | a row's result is not a text diff, one of its commands outlasts a monitor tick, or it calls a paid service; on a resume, when the goal file has evidence rows or a `## Spend` block |
 | L3 | `references/pr-delivery.md` | the user asks for the full protocol |
 | L3 | `references/session-receipt.md` | Phase 5, and the close of a setup or a tryout |
 | L3 | `references/wrap-up-memory.md` | Phase 5 |

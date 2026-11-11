@@ -47,6 +47,8 @@ I'm working on [the larger task] for [who it's for]. They need
 
 **E2E packets** (`references/e2e-acceptance.md`) replace the "Do not commit" line with a commit-on-this-worktree-branch rule. They are the only packets that do. Never append a commit permission to this template.
 
+**Artefact rows** (`references/artefact-rows.md`) add output, evidence and long-command lines to this packet. A row that makes a paid call replaces the secrets clause with the one that file gives. No other packet relaxes it.
+
 ## Spec Review Packet
 
 Sent on every plan before it reaches the user, as a read-only job to `deep_reasoner` with the label `spec-review` (Phase 1 of the flow). Put the plan in verbatim. The reviewer starts cold and judges what it is given, so it must not have to go looking for the plan. Where the backend's read-only mode cannot run commands, inline everything the reviewer must see and state check results instead of asking for them.

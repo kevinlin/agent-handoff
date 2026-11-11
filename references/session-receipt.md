@@ -62,6 +62,7 @@ When a run, a setup or a tryout ends, tell the user:
 - the files changed and the checks run;
 - the review findings fixed, and those still open;
 - whether the work is ready to commit. Do not commit by default;
+- each paid call made, against its row's allocation, and any user sign-off still open;
 - every monitoring anomaly: an idle job, a permission wait, an empty review output, no diff, a failed check;
 - the receipt block.
 

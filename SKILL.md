@@ -18,7 +18,7 @@ This file routes. Find the command below, read the file it names, and read furth
 - **The identity's configured `backend` decides which CLI runs a job.** A task row names an identity (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_tester`, `operator`), and the config maps it to a backend (`codex`, `claude`, `copilot`, `cursor`, `antigravity`), a model and an effort. All five backends run the same kind of job: a jobId, state under `.handoff/jobs/`, the monitor loop, a bounded `resume` fix round, worktrees, and receipt evidence.
 - **Never move a task to another identity to change its vendor or meter.** That is a config change (`/agent-handoff config`, or `handoff-config.py set`), and you say so. A user who asks for such a swap is asking for that config change: name it and offer it, and do not re-route the task. If the configured identity is wrong for the work, say so and ask.
 - **Identity values live only in config**: `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global). Never copy them into a prompt or a doc.
-- **The user owns the work.** Accept nothing on a worker's summary. Review the diff against the acceptance criteria first.
+- **The user owns the work.** Accept nothing on a worker's summary. Review the diff, or the evidence of a row that is not a diff, against the acceptance criteria first.
 - **Report only what was measured.** Never state a token saving, an avoided cost, or context kept out of the driver.
 - **Say what is missing.** When a worker CLI the config needs is not installed, say so up front.
 
@@ -29,7 +29,8 @@ and writes delegated changes and `.handoff/` evidence. Setup previews configurat
 writes before applying them. Helpers read the process environment to locate tools
 and isolate child authentication. Copilot model discovery sends the existing GitHub
 bearer only to the fixed Copilot catalogue endpoint and refuses redirects. Worker
-CLIs use their configured providers. Local viewers bind to loopback and require a
+CLIs use their configured providers, and a worker inherits the driving session's
+environment apart from the Claude variables a claude worker runs without. Local viewers bind to loopback and require a
 per-run token. These capabilities describe the workflow; they grant no additional
 host permissions. Read-only jobs retain their backend restrictions, and an
 unrestricted permission mode requires explicit configuration.
@@ -67,6 +68,7 @@ The files above name these at the step that needs them. Do not read one ahead of
 | `references/packet-templates.md` | writing a prompt for a delegated job or a spec review |
 | `references/arbitration.md` | a review gate runs out of rounds, the user says "arbitrate" or asks for a second opinion, you judge a call disputable, or the goal file has a row in `arbitration` or `rejected` |
 | `references/e2e-acceptance.md` | the change alters user-observable behaviour, or the run has e2e rows |
+| `references/artefact-rows.md` | a row's result is not a text diff, one of its commands outlasts a monitor tick, or it calls a paid service |
 | `references/session-receipt.md` | closing a run, a setup or a tryout, or answering what the receipt holds |
 | `references/wrap-up-memory.md` | wrapping up a run |
 | `references/skill-change-gate.md` | improving this workflow, or applying it to a substantial task |

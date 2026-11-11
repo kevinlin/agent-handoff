@@ -27,6 +27,9 @@ status: not run
 - live: <status, or n/a — production/deploy state, verified independently of ci/preview>
 - authorization: <one line per hard-stop action actually authorized, verbatim user intent, or none yet>
 
+## Spend
+[none, or per references/artefact-rows.md: one line per paid service: <service> · <what it is called for> · <total cap> · <the user's go-ahead, verbatim>. Then one line per paid row: <task id> · <allocation> · <used>]
+
 ## Tasks
 | id | identity | task | acceptance | depends | effort | status | jobId |
 |----|----------|------|------------|---------|--------|--------|-------|
@@ -50,9 +53,11 @@ status: pending | in_progress | delegated | review | rework-<n> | arbitration | 
 
 - One row per task. `identity` is the capability the work needs (Phase 1 of the flow), or `-` for a row the driver keeps inline. Which CLI runs a row is the identity's config and is never written in this table.
 - `arbiter` takes no routine rows. `references/arbitration.md` invokes it.
-- `acceptance` is verifiable: a command to run or a behaviour to observe. Phase 4 reviews against it.
+- `acceptance` is verifiable: a command to run, a behaviour to observe, or evidence to inspect (`references/artefact-rows.md`). Phase 4 reviews against it.
+- `effort` is `-` for the identity's configured effort, or a value that `submit` gets as `--effort`. It must be one the row's backend accepts.
 - `depends` is a comma-separated list of task ids that must reach `done` before the row is submitted, or `-`. The `e2e_tester` row that runs the gate lists both the row that wrote it and the implementation row.
 - `jobId` comes from `delegate-job.sh submit`. Every delegated row gets one, and a `-` row stays at `-`.
 - Keep statuses current. The monitor loop reads this file first, and a stale row causes a duplicate delegation.
 - `## Spec Review` holds the status line and one line per round. The file is rewritten per run, so the marker resets by itself.
 - `## Arbitration` records every escalation ruling, approvals included.
+- `## Spend` is `none` unless a row calls a paid service. No paid row is submitted before its allocation is written there.
