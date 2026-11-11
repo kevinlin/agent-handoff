@@ -201,7 +201,7 @@ class SetupTests(unittest.TestCase):
         status, _, error = self.run_cli(*self.claude_args("--apply", "--mode", "quality"))
         self.assertEqual(1, status)
         self.assertIn("REFUSED", error)
-        self.assertIn("references/setup.md", error)
+        self.assertIn("references/setup-wizard.md", error)
         self.assertEqual("user content\n", protected.read_text(encoding="utf-8"))
         self.assertTrue((agent_dir / "handoff-fast-worker.md").is_file())
         self.assertTrue((self.repo / ".handoff" / "config.toml").is_file())

@@ -1,0 +1,69 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: tryout-loads-backends-first
+# Human-readable summary shown in case lists and reports.
+title: Loads the tryout doc and the configured backends' rules before submitting
+# Background explaining the behavior this case covers.
+description: |
+  /agent-handoff tryout runs one micro-task per identity on that identity's
+  backend, so the driver must know each configured backend's preflight check,
+  posture and quirks before it submits anything. The tryout doc (tryout.md in
+  v3.11.1, identity-tryout.md in v3.12.0) must therefore send the driver to the
+  backend rules first.
+  The config puts deep_reasoner on copilot and the other two identities on
+  codex. The judge reads the tool trace: the tryout doc was read, the rules of
+  copilot and of codex were loaded (backends/<name>.md in v3.12.0, the flow doc
+  in v3.11.1), the answer names all three identities, and no job directory was
+  added.
+  This case is expected to fail on v3.11.1, whose tryout doc never sends the
+  driver to the backend rules. That is what it is for: v3.12.0 must pass it.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    /agent-handoff tryout. Get everything ready, then stop before the first submit and tell me which task each identity gets and which CLI will run it.
+
+context:
+  # Inline fixtures: .gitignore ignores .handoff/ at any depth, so a fixture
+  # directory holding it could not be committed.
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      tryout-loads-backends-first
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "copilot"
+      model = "gpt-5.2"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

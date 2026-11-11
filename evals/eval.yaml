@@ -1,8 +1,15 @@
+# Run this suite with evals/run-evals.sh, never with `skill-up run` directly: the
+# wrapper starts skill-up from a clean Claude environment and sets BROWSER=true.
+# A personal install at ~/.claude/skills/agent-handoff outranks the workspace
+# copy, so on a machine that has one the suite measures that install.
+
 # Evaluation config schema version used by skill-up. Do not change this value.
 schema_version: v1alpha1
 
 environment:
-  # No sandbox needed: every case is graded on the driver's decision text.
+  # Runs on the host: nothing stops a browser launch or a real worker job. So
+  # the renderer prompts ask for a path, the decision-only prompts say not to
+  # submit, and every script judge checks that no job directory was added.
   # Options: none | opensandbox | docker.
   type: none
 
@@ -11,34 +18,55 @@ skills:
   # source options: local_path.
   - source: local_path
     path: .
-    # Install the shipped payload only; drop CI, tests and harness evidence so
-    # each case copies roughly what install.sh puts in a user's skills dir.
+    # Install the runtime surface only, so each case copies what a user gets
+    # and the workspace holds neither test-prompts.json nor docs/.
+    include:
+      - SKILL.md
+      - "references/**"
+      - "scripts/**"
+      - "assets/*.html"
+      - "assets/*.json"
+      - LICENSE
     exclude:
-      - ".git/**"
-      - ".github/**"
-      - "tests/**"
-      - "*-workspace/**"
+      # CI-only scripts: nothing at runtime calls them.
+      - scripts/check-skill-repo.sh
+      - scripts/run-test-prompts.py
+      - scripts/showcase-cost-ledger.py
+      # Bytecode left behind by the unit suite.
+      - "**/__pycache__/**"
 
 engine:
+  # No case uses agent_judge: skill-up 0.11.0 cannot run it on this machine (it fails to materialize the judge context, "path escapes context dir", and grades nothing), so every case uses a script judge or rule_based.
   # Agent Engine used to execute prompts and produce outputs for grading.
   # Built-in options: claude_code | codex | qodercli | qwen_code.
   name: claude_code
+  # Sonnet 5.5 is the supported floor. skill-up 0.11.0 has no effort setting
+  # for this engine, so effort stays at the default.
+  model:
+    provider: anthropic
+    name: claude-sonnet-5-5
 
 cases:
   # Case YAML files included in this eval suite, relative to the Skill root.
   files:
-    - evals/cases/identity-not-swapped-for-meter.yaml
-    - evals/cases/driver-keeps-quality-critical-work.yaml
-    - evals/cases/no-fabricated-token-savings.yaml
-    - evals/cases/receipt-contract-splits-five-backends.yaml
-    - evals/cases/cost-receipt-renders-not-delegates.yaml
     - evals/cases/transcript-renders-not-delegates.yaml
-    - evals/cases/review-cap-escalates-to-arbiter.yaml
+    - evals/cases/cost-receipt-renders-not-delegates.yaml
+    - evals/cases/migrate-plans-then-applies.yaml
+    - evals/cases/flow-loads-by-layer.yaml
+    - evals/cases/resume-loads-recorded-backend.yaml
+    - evals/cases/tryout-loads-backends-first.yaml
     - evals/cases/unrelated-handoff-doc-no-trigger.yaml
+    - evals/cases/code-review-no-trigger.yaml
+    - evals/cases/no-fabricated-token-savings.yaml
+    - evals/cases/driver-keeps-quality-critical-work.yaml
+    - evals/cases/identity-not-swapped-for-meter.yaml
+    - evals/cases/review-cap-escalates-to-arbiter.yaml
+    - evals/cases/e2e-added-for-user-observable-change.yaml
+    - evals/cases/receipt-contract-splits-five-backends.yaml
   # Default constraints inherited by every case unless the case overrides them.
   defaults:
-    timeout_seconds: 300
-    max_turns: 10
+    timeout_seconds: 420
+    max_turns: 16
   # Cases share no state, so they run concurrently.
   parallelism: 4
 
@@ -46,3 +74,5 @@ report:
   # The evaluate gate parses this report; keep json.
   # Options: json | junit | html.
   formats: [json]
+  # The transcript is what the script judges read.
+  artifacts: [transcript]

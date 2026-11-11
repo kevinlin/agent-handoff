@@ -4,32 +4,57 @@ id: transcript-renders-not-delegates
 title: Routes a natural-language transcript request to the renderer
 # Background explaining the behavior this case covers.
 description: |
-  SKILL.md Transcript: "when the user asks to see a job's transcript or
-  conversation history", run render-transcript.py; an omitted selector means
-  the newest job, and the step "does not delegate anything and starts no job."
-  This case uses the natural-language phrasing rather than the slash command,
-  so it also exercises the description's routing.
+  The Transcript rule (SKILL.md in v3.11.1, references/session-evidence.md in
+  v3.12.0): "when the user asks to see a job's transcript or conversation
+  history", run render-transcript.py; an omitted selector means the newest job,
+  and the step "does not delegate anything and starts no job." This case uses
+  the natural-language phrasing rather than the slash command, so it also
+  exercises the description's routing.
+  The workspace holds one finished job whose log carries the sentinel
+  PLOVER-7741. The judge reads the effect on disk, not the wording of the
+  answer: the page under .handoff/sessions/ must hold the sentinel, no job may
+  have been started, and the delegation flow doc must not have been read. An
+  earlier version matched the script's name in the final message and failed a
+  correct answer that ran the script and never typed its name.
 
 input:
   # User prompt sent to the Agent for a single-turn case.
   prompt: |
-    Show me the conversation history of the last job.
+    Show me the conversation history of the last job. I am on a headless box, so give me the path of the page instead of opening it.
 
-# Cheap pre-judge checks; when these fail, the judge block is skipped.
-expect:
-  must_contain:
-    - "render-transcript.py"
+context:
+  # Inline fixtures: .gitignore ignores .handoff/ at any depth, so a fixture
+  # directory holding it could not be committed.
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      transcript-renders-not-delegates
+    ".handoff/jobs/job-2026-11-01T10-00-00-11111-t1/meta": |
+      label=t1
+      effort=medium
+      model=gpt-5.6-sol
+      role=fast_worker
+      backend=codex
+      submitted_at=2026-11-01T10:00:00Z
+      mode=fresh
+    ".handoff/jobs/job-2026-11-01T10-00-00-11111-t1/exit_code": |
+      0
+    ".handoff/jobs/job-2026-11-01T10-00-00-11111-t1/prompt.md": |
+      Rename the internal helper parseRow to parseLedgerRow across src/.
+      Acceptance: grep -rn parseRow src/ prints nothing.
+    # Codex `exec --json` events, the shape the viewer in assets/ parses.
+    ".handoff/jobs/job-2026-11-01T10-00-00-11111-t1/log.jsonl": |
+      {"type":"thread.started","thread_id":"th-eval-1"}
+      {"type":"turn.started"}
+      {"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"Renamed parseRow to parseLedgerRow in 3 files. The grep check prints nothing. Marker PLOVER-7741."}}
+      {"type":"turn.completed","usage":{"input_tokens":12034,"cached_input_tokens":8192,"output_tokens":412,"reasoning_output_tokens":128}}
 
 judge:
   # Grading strategy used to decide whether this case passes.
-  # Options: rule_based | agent_judge | script.
-  type: rule_based
-  success:
-    - output_contains:
-        all:
-          - "render-transcript.py"
-    # Reports the job directory it read, or that none exists here.
-    - output_matches:
-        any:
-          - '(?i)\.handoff/jobs'
-          - '(?i)no jobs'
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

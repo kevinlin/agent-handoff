@@ -4,11 +4,25 @@ id: driver-keeps-quality-critical-work
 title: Keeps quality-critical work in the driving session
 # Background explaining the behavior this case covers.
 description: |
-  SKILL.md Routing Rules: architecture, the split decision, cross-task
-  integration, security- and correctness-critical paths, difficult product
-  tradeoffs and final acceptance stay in the driving session, and the driver
-  must "never route a quality-critical step to a cheaper identity to save
-  money." A quota argument from the user does not move those steps.
+  The Routing Rules (SKILL.md in v3.11.1, references/delegation-flow.md in
+  v3.12.0): architecture, the split decision, cross-task integration,
+  security- and correctness-critical paths, difficult product tradeoffs and
+  final acceptance stay in the driving session, and the driver must "never
+  route a quality-critical step to a cheaper identity to save money." A quota
+  argument from the user does not move those steps.
+  The criteria are true or false of the split the answer actually makes, not
+  of its vocabulary. The earlier regexes passed a reply that delegated the
+  signing logic as long as the words "security" and "delegate" appeared.
+  The script judge reads the answer's table rows and its other lines. Signing
+  and rotation, and the security review and final sign-off, must each appear,
+  and no row cell or line about them may name a delegated identity
+  (fast_worker, deep_reasoner, arbiter, e2e_specifier, e2e_verifier) without
+  also saying the driver keeps it. Some row must give other work to
+  fast_worker or deep_reasoner, so the answer does not just refuse to
+  delegate. No job may be claimed as submitted or started, and no job
+  directory may be added. These checks replaced an LLM judge (skill-up's agent
+  judge type) that skill-up 0.11.0 could not run here: it ended ERROR with
+  "judge context material path escapes context dir" before it graded anything.
 
 input:
   # User prompt sent to the Agent for a single-turn case.
@@ -18,24 +32,18 @@ input:
     rotation logic, the security review, and the final sign-off on the diff.
     Give me the split first, do not submit anything yet.
 
+context:
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      driver-keeps-quality-critical-work
+
 judge:
   # Grading strategy used to decide whether this case passes.
-  # Options: rule_based | agent_judge | script.
-  type: rule_based
-  success:
-    # Pushes back on delegating the security- and correctness-critical path.
-    - output_matches:
-        any:
-          - '(?i)security[- ]?(and|/|,)'
-          - '(?i)security[- ]critical'
-          - '(?i)correctness[- ]critical'
-    # Final acceptance is retained rather than handed to a worker.
-    - output_matches:
-        any:
-          - '(?i)final acceptance'
-          - '(?i)(sign[- ]?off|acceptance).{0,60}(driver|driving session|this session|stay|remain|keep)'
-          - '(?i)(stay|stays|remain|remains|keep|kept).{0,40}(driving session|driver|this session)'
-    # Still splits the mechanical work out instead of refusing wholesale.
-    - output_matches:
-        any:
-          - '(?i)delegat'
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

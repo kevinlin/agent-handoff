@@ -1,0 +1,93 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: e2e-added-for-user-observable-change
+# Human-readable summary shown in case lists and reports.
+title: Adds the e2e pair, with the right dependencies, for a user-observable change
+# Background explaining the behavior this case covers.
+description: |
+  Acceptance coverage (references/claude-driven.md in v3.11.1,
+  references/delegation-flow.md and e2e-acceptance.md in v3.12.0): add
+  e2e_specifier and e2e_verifier rows when the change alters user-observable
+  behaviour at a real interface. The verifier needs the tests in its tree, not
+  just the feature, so its row depends on both the specifier row and the
+  implementation row.
+  A checkout screen is such a change, and the workspace config has all five
+  identities. The criteria are true or false of the table the answer draws, not
+  of its vocabulary. The prompt asks for the split only: nothing is submitted,
+  the spec review is skipped and no file is written.
+  The script judge reads the answer's table rows. One row must have a cell
+  that is exactly e2e_specifier and one exactly e2e_verifier. The verifier
+  row's cells, other than its own id cell, must name the specifier row's id
+  and the id of at least one row whose identity cell is fast_worker or
+  deep_reasoner. No job may be claimed as submitted or started, and no job
+  directory may be added. These checks replaced an LLM judge (skill-up's agent
+  judge type) that skill-up 0.11.0 could not run here: it ended ERROR with
+  "judge context material path escapes context dir" before it graded anything.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Agent handoff: add a checkout screen where a customer picks a payment method and confirms the order. Give me the split and the task table only. Do not submit any job, do not run the spec review, and do not write any file.
+
+context:
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      e2e-added-for-user-observable-change
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "claude"
+      model = "opus"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [e2e_specifier]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [e2e_verifier]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
+
+# Cheap pre-judge checks; when these fail, the judge block is skipped.
+expect:
+  must_contain:
+    - "e2e_specifier"
+    - "e2e_verifier"
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

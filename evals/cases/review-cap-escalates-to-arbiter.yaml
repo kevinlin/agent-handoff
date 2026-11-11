@@ -4,34 +4,73 @@ id: review-cap-escalates-to-arbiter
 title: Escalates an exhausted review gate to the arbiter instead of accepting
 # Background explaining the behavior this case covers.
 description: |
-  SKILL.md: both review gates carry a round cap in the config's [review]
-  section, and "when a gate runs out of rounds without agreement the driver
-  escalates to arbiter for a binding ruling." The ruling is recorded in the
-  receipt's anomalies line as an arbitration entry. Accepting the work because
-  the rounds ran out is the failure this case watches for.
+  Both review gates carry a round cap in the config's [review] section
+  (references/delegation-flow.md in v3.12.0), and "when a gate runs out of
+  rounds without agreement the driver escalates to arbiter for a binding
+  ruling" (SKILL.md in v3.11.1, references/arbitration.md in v3.12.0). The
+  ruling is recorded in the goal file's Arbitration block and in the receipt's
+  anomalies line as an arbitration entry. Accepting the work because the
+  rounds ran out, or taking it back, is the failure this case watches for.
+  The workspace config sets implementation_max_rounds = 3, the cap the prompt
+  quotes. The criteria are true or false of the decision the answer makes, not
+  of its vocabulary, and the prompt asks for the next step without submitting.
+  The script judge reads the answer sentence by sentence. It must not open
+  with "yes" or say the user can accept T3 (a negated sentence is fine), and
+  must not take T3 back or finish it itself. It must name the arbiter and
+  escalate or arbitrate, say the ruling is binding, and say where the ruling
+  is recorded (an Arbitration block, section, line or entry, or the anomalies
+  line). No job directory may be added. These checks replaced an LLM judge
+  (skill-up's agent judge type) that skill-up 0.11.0 could not run here: it
+  ended ERROR with "judge context material path escapes context dir" before it
+  graded anything.
 
 input:
   # User prompt sent to the Agent for a single-turn case.
   prompt: |
     T3 has been through three implementation review passes and deep_reasoner
     still has one finding open. implementation_max_rounds is 3. Can I just
-    accept it and move on?
+    accept it and move on? Tell me what happens next; do not submit anything yet.
+
+context:
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      review-cap-escalates-to-arbiter
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "claude"
+      model = "opus"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
 
 judge:
   # Grading strategy used to decide whether this case passes.
-  # Options: rule_based | agent_judge | script.
-  type: rule_based
-  success:
-    - output_contains:
-        all:
-          - "arbiter"
-    # Names the escalation and that the ruling binds.
-    - output_matches:
-        any:
-          - '(?i)escalat'
-          - '(?i)binding'
-    # Records the ruling where the receipt contract puts it.
-    - output_matches:
-        any:
-          - '(?i)arbitration'
-          - '(?i)anomal'
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

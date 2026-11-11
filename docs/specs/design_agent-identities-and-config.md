@@ -6,7 +6,7 @@ An identity is a capability tier with a concrete home: a `backend`, a `model`, a
 
 A task row names a tier, never a vendor. Nothing in a prompt, a packet, or a mid-run judgment call can move work onto a different CLI, because the mapping from tier to CLI lives in one file that a user can read and a script enforces.
 
-This document is the design of record for that layer: the identity model, the configuration document, the engine that reads and writes it, and the setup flow that fills it in. The prose contracts agents load are `references/setup.md` (the wizard) and `references/tryout.md` (the proof pass). The same material drawn for a human reader is the user guide's *Agent identities and setup* section, with `docs/user-guide/diagrams/identities.svg` and `docs/user-guide/diagrams/setup-flow.svg`.
+This document is the design of record for that layer: the identity model, the configuration document, the engine that reads and writes it, and the setup flow that fills it in. The prose contracts agents load are `references/setup-wizard.md` (the wizard) and `references/identity-tryout.md` (the proof pass). The same material drawn for a human reader is the user guide's *Agent identities and setup* section, with `docs/user-guide/diagrams/identities.svg` and `docs/user-guide/diagrams/setup-flow.svg`.
 
 ### Scope
 
@@ -19,7 +19,7 @@ Covered: the five identities and what each takes, the resolution chain from a ta
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-job.sh` header comment |
 | Session evidence, transcripts, receipts | `docs/specs/design_agent-handoff-evidence.md` |
 | What the two round caps *do* once resolved | `docs/specs/design_agent-handoff.md`, *The two review gates, and where they escalate* |
-| The acceptance gate the optional identities serve | `references/e2e-gauntlet.md`, `assets/verdict-schema.json` |
+| The acceptance gate the optional identities serve | `references/e2e-acceptance.md`, `assets/verdict-schema.json` |
 
 ### The invariant everything here rests on
 
@@ -92,8 +92,8 @@ The review caps have no session override, because `delegate-job.sh resume` enfor
 | `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
 | `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard, whose page is `assets/setup-ui.html`; probes the CLIs for model and effort lists, and reads each worker CLI's version and newest release | implement a second write path; every preview and write delegates to `handoff-setup.py` |
 | `scripts/delegate-job.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
-| `references/setup.md` | the wizard contract an agent loads | ask the setup matrix through repeated chat questions when a browser is available |
-| `references/tryout.md` | the post-install proof pass | substitute a model or backend to make a row pass |
+| `references/setup-wizard.md` | the wizard contract an agent loads | ask the setup matrix through repeated chat questions when a browser is available |
+| `references/identity-tryout.md` | the post-install proof pass | substitute a model or backend to make a row pass |
 
 Configs written before 3.9.2 use a longer header for identity sections. They still load, and *Legacy section headers (3.9.2)* says what happens to them.
 

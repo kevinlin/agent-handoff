@@ -15,7 +15,7 @@ python3 -m unittest discover -s tests          # unit suite
 python3 -m unittest tests.test_handoff_config  # one module
 python3 -m unittest tests.test_handoff_config.ClassName.test_name  # one test
 
-bash scripts/check-skill-repo.sh .             # publish-readiness gate (required files, triggers, secret scan)
+bash scripts/check-skill-repo.sh .             # publish-readiness gate (required files, triggers, skill-surface budgets and reachability, secret scan)
 python3 scripts/run-test-prompts.py            # static validation of test-prompts.json
 bash install.sh --dry-run                      # install without writing
 ```
@@ -47,7 +47,7 @@ python3 scripts/validate-verdict.py .handoff/e2e/<jobId>/verdict.json
 
 ## Architecture
 
-**One flow.** `SKILL.md` is the core contract; `references/claude-driven.md` is the flow it loads — five phases (preflight, plan and split, delegate, monitor, full review, wrap up) plus an arbiter protocol. Claude Code drives; a worker CLI executes delegated work on the identity's configured backend — `codex`, a second `claude`, `copilot`, `cursor`, or `antigravity` — each on its own meter.
+**One flow.** `SKILL.md` is the router; `references/delegation-flow.md` is the flow it loads — six phases (preflight, plan and split, delegate, monitor, full review, wrap up) — and the arbiter protocols sit in `references/arbitration.md`. `docs/skill-structure.md` has the layer map. Claude Code drives; a worker CLI executes delegated work on the identity's configured backend — `codex`, a second `claude`, `copilot`, `cursor`, or `antigravity` — each on its own meter.
 
 The run terminates in a **Handoff Session Receipt** (schema v8, `assets/receipt-schema.json`). It carries five job counts, one per backend — `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs`, `antigravity_jobs` — with matching `*_job_durations`; a copilot, cursor, or antigravity job is never folded into another count. Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. `claude_session` comes from `CLAUDE_CODE_SESSION_ID`, and all of a session's evidence lives in `.handoff/sessions/<date>_<claude_session>/`, with the run stamp in each file name because one session can hold several runs. The date only sorts the listing: the session id is the key, and a folder keeps the date it was created with. `handoff_runtime.py` owns those paths (`session_path`, `transcript_path`), so no caller derives one itself. `scripts/migrate-sessions.py` moves a pre-3.11 repo. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
 
@@ -66,13 +66,14 @@ The run terminates in a **Handoff Session Receipt** (schema v8, `assets/receipt-
 ## Conventions that CI enforces
 
 - Adding a top-level doc means updating both the doc and `check-skill-repo.sh`'s required-file list.
-- **Version strings appear in several places** — `SKILL.md` frontmatter, README badges, `CHANGELOG.md`, `docs/releases/`. Bump them together.
+- **Version strings appear in several places** — `SKILL.md` frontmatter, the README badge, `CHANGELOG.md`, the user guide header, `docs/skill-structure.svg`. Bump them together.
+- A new file under `references/` must be named in `SKILL.md` and in `docs/skill-structure.md`; `check-skill-repo.sh` fails when it is not.
 - Risky command text (a hard Git reset, `rm -rf`, `--force`) in docs is scanned. `check-skill-repo.sh` warns; `run-test-prompts.py` requires such text to sit in a `must_not` list. Use the `# risk-ok:` marker for genuine detection patterns.
 - Don't fabricate token savings. The cost numbers are a workload *pressure model*, not billing telemetry. Report verifiable behavior instead: which work ran on the Codex subscription, job and fix-round counts, the full diff reviewed against acceptance criteria, checks passed.
 
 ## Changing the workflow itself
 
-`references/darwin-ratchet.md` is the gate: change one dimension at a time (planning, the split decision, delegation, monitoring, review, permissions, reporting), validate against test prompts or a real miniloop, and keep the change only when repo evidence improves. Don't let one agent be both sole maker and sole judge on high-risk changes.
+`references/skill-change-gate.md` is the gate: change one dimension at a time (planning, the split decision, delegation, monitoring, review, permissions, reporting), validate against test prompts or a real miniloop, and keep the change only when repo evidence improves. Don't let one agent be both sole maker and sole judge on high-risk changes.
 
 ## Agent output
 

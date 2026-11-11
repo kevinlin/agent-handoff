@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hash-checked read/write for .handoff/goal.md.
 
-goal.md has no lock (see the neighbor design in references/goal-to-pr.md):
+goal.md has no lock (see the neighbor design in references/pr-delivery.md):
 write frequency is low and the driver usually writes alone. But the Phase 3
 /loop monitor tick writes task statuses into the same file, so a write must
 state the sha256 it last read; if the file changed since, the write aborts

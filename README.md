@@ -5,7 +5,7 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 3.11.1](https://img.shields.io/badge/version-3.11.1-ef6f4f)](CHANGELOG.md)
+[![Version: 3.12.0](https://img.shields.io/badge/version-3.12.0-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -128,7 +128,9 @@ The [user guide](docs/user-guide/agent-handoff.html) walks through the whole thi
 | [Feedback loop and drift control](docs/user-guide/agent-handoff.html#drift) | Why every gate judges against the same written goal, and where that is enforced | [the goal-drift loop](docs/user-guide/diagrams/feedback-loop.svg) |
 | [Evidence](docs/user-guide/agent-handoff.html#evidence) | What a run writes, the receipt, and the three ways to read a finished run back | [evidence](docs/user-guide/diagrams/evidence-flow.svg), [the session page](docs/user-guide/diagrams/session-page.svg) |
 
-The prose those diagrams illustrate is [`references/claude-driven.md`](references/claude-driven.md).
+The prose those diagrams illustrate is [`references/delegation-flow.md`](references/delegation-flow.md).
+
+[`docs/skill-structure.md`](docs/skill-structure.md) is the map of what the skill loads into context, and when.
 
 ## Cost Pressure Model
 
@@ -231,7 +233,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 - Full review: the driver reads the whole diff against the acceptance criteria in `.handoff/goal.md`. A task gets three review passes by default (`implementation_max_rounds`); if findings are still open after the last one, the arbiter rules, and a rejection stops that task for you to pick up.
 - Blind arbitration: on a contested call, `deep_reasoner` and `arbiter` answer without seeing each other's work. The driver rules, and the receipt records it.
 - Plan review (every run): `deep_reasoner` reads the plan, read-only, before it reaches you. A blocking finding the driver declines goes to the arbiter once `spec_max_rounds` (default 1) runs out.
-- Full protocol (opt-in, [`references/goal-to-pr.md`](references/goal-to-pr.md)): runs unattended from plan to a merge-ready, preview-verified PR. Merge, production, tags, force-push, deletion, destructive migrations, and external publishing each still need your explicit go-ahead.
+- Full protocol (opt-in, [`references/pr-delivery.md`](references/pr-delivery.md)): runs unattended from plan to a merge-ready, preview-verified PR. Merge, production, tags, force-push, deletion, destructive migrations, and external publishing each still need your explicit go-ahead.
 
 ### Jobs
 
@@ -266,10 +268,10 @@ Five identities, each a `backend + model + effort` triple set on its own. `backe
 | `e2e_specifier` | Gherkin scenarios plus repo-native executable acceptance tests | optional |
 | `e2e_verifier` | runs the reviewed tests, returns a validated PASS/FAIL/BLOCKED verdict | optional |
 
-Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-gauntlet.md`](references/e2e-gauntlet.md)). All values live in `.handoff/config.toml`, project or global, and nowhere else.
+Setup writes the optional pair only with `--with-e2e` (see [`references/e2e-acceptance.md`](references/e2e-acceptance.md)). All values live in `.handoff/config.toml`, project or global, and nowhere else.
 
 - `/agent-handoff config` opens the setup wizard: balanced, quality, or cost presets, editable per identity. It shows the exact diff before writing. Codex and Claude models come from their CLIs, Copilot models from account entitlements, Cursor models from `cursor-agent models`, and Antigravity models from `agy --output-format json models`. Cursor and Antigravity effort is fixed at `model`. After install it smoke-tests each configured backend.
-- Darwin ratchet ([`references/darwin-ratchet.md`](references/darwin-ratchet.md)): change the workflow one dimension at a time, and keep a change only when repo evidence improves.
+- Skill change gate ([`references/skill-change-gate.md`](references/skill-change-gate.md)): change the workflow one dimension at a time, and keep a change only when repo evidence improves.
 
 ## Safety
 
@@ -309,6 +311,6 @@ MIT
 
 <sub>Forked from **[LearnPrompt/partner-skill](https://github.com/LearnPrompt/partner-skill)** — MIT.</sub>
 
-<sub>Acknowledgment: the done_when / anti-Goodhart / imperative-authorization vocabulary in `references/goal-to-pr.md` draws on [loop-engineering](https://github.com/LearnPrompt/loop-engineering)'s goal-forging.md and guardrails.md (vocabulary and invariants only — not its YAML format or ceremony).</sub>
+<sub>Acknowledgment: the done_when / anti-Goodhart / imperative-authorization vocabulary in `references/pr-delivery.md` draws on [loop-engineering](https://github.com/LearnPrompt/loop-engineering)'s goal-forging.md and guardrails.md (vocabulary and invariants only — not its YAML format or ceremony).</sub>
 
 </div>

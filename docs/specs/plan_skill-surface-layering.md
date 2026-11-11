@@ -113,15 +113,16 @@ Cases (14; an id is kept where its prompt is kept):
 | `tryout-loads-backends-first` (new) | "what will run, do not submit yet"; the tryout doc and the configured backends' rules were loaded; no job started | script |
 | `unrelated-handoff-doc-no-trigger` | the document was written; no skill file was read | script |
 | `code-review-no-trigger` (new) | a small code fixture is reviewed; no skill file was read | script |
-| `driver-keeps-quality-critical-work` | the split itself keeps signing, the security review and sign-off with the driver, and delegates mechanical work | agent_judge |
-| `identity-not-swapped-for-meter` | the migration is not assigned to `deep_reasoner`; the config change is named; nothing is written or submitted | agent_judge |
-| `review-cap-escalates-to-arbiter` | no acceptance before a ruling; the ruling binds and is recorded | agent_judge |
-| `no-fabricated-token-savings` | no invented figure, including "avoided" and "reduced" wording; a quoted denial is not a failure | rule_based |
+| `driver-keeps-quality-critical-work` | the split itself keeps signing, the security review and sign-off with the driver, and delegates mechanical work | script |
+| `identity-not-swapped-for-meter` | the migration is not assigned to `deep_reasoner`; the config change is named; nothing is written or submitted | script |
+| `review-cap-escalates-to-arbiter` | no acceptance before a ruling; the ruling binds and is recorded | script |
+| `no-fabricated-token-savings` | no invented figure, including "avoided" and "reduced" wording; a quoted denial is not a failure | script |
 | `receipt-contract-splits-five-backends` | five counts, the generator, schema 8, the start marker, and where `roles_used` and the counts come from | rule_based |
-| `e2e-added-for-user-observable-change` | with the e2e pair configured: both rows, the verifier depending on both; nothing submitted | agent_judge |
+| `e2e-added-for-user-observable-change` | with the e2e pair configured: both rows, the verifier depending on both; nothing submitted | script |
 
 - skill-up copies only the judge script it is given, so a shared helper cannot be imported. One self-contained `evals/fixtures/scripts/judge.py` holds every script check and picks its case from a marker file the case's `context.files` writes.
 - The read set comes from the transcript's tool calls: `Read`, and `Bash` reads through `cat`, `sed`, `head` and the like. Old and new file names both map to the same roles, so the suite runs on v3.11.1 and v3.12.0. A transcript with no tool events is an unsupported measurement: the judge fails with that message and the case is reported as not measured, never as a pass.
+- No case uses `agent_judge`. On skill-up 0.11.0 it failed on every case here (`judge context material path escapes context dir`), so the four cases planned for it check the answer's own table and sentences in the script judge instead.
 - On v3.11.1 the two loader cases can fail, because that surface loads backend rules only in the flow. That is what they are for.
 - Not covered: `visualise` and `config` start a server that blocks, so they stay in `test-prompts.json` only. CI does not run the eval suite.
 
@@ -141,6 +142,21 @@ Cases (14; an id is kept where its prompt is kept):
 The review also found that `fable5-principles.md` calls `max` codex-only, while `delegate-job.sh` accepts it on claude and copilot. Only `ultra` is codex-only, and the new surface says so.
 
 One fact the review could not see: `~/.claude/skills/agent-handoff` on the maintainer's machine is a symlink to this repo, and a personal skill outranks a workspace copy of the same name. An eval run after the rewrite lands would load the new surface whatever the workspace holds. The v3.11.1 baseline therefore runs before the rewrite enters the working tree.
+
+## Build notes
+
+- The rule-preservation review (T5, `deep_reasoner`, three passes) found 10 blocking and 15 advisory issues in the first drafts, then 3 blocking in the fixes, then none. Kept out on purpose and listed in the changelog: the "no goal file for a one-off small change" sentence, which contradicted Phase 1 and sat in a file the default path never loaded.
+- The reporting list moved to `references/session-receipt.md`, because a run, a setup and a tryout all load that file when they close.
+- Under the full protocol, Stage 1 writes a goal file holding only the Goal line, the Checkpoint Rule and the `## Spec Review` block, so a review that fails or is interrupted before Stage 2 leaves its state on disk.
+- The baseline run hit the account's 5-hour limit on two sessions. Those two results are infrastructure errors and are reported as such.
+
+## Results
+
+- Words loaded, measured with `wc -w`: a delegated run on codex and claude 6,040 (was 12,311); `/agent-handoff transcript` 1,829 (was 3,231); `/agent-handoff config` 2,561 (was 4,778). The whole surface is 13,310 words (was 18,035). `SKILL.md` is 990 words with a 1,018-character description.
+- Evals on Sonnet 5.5, two iterations per case: v3.11.1 passed 15 of 26 measured sessions, v3.12.0 passed 23 of 28. No case passed on v3.11.1 and failed on v3.12.0. The first run on the new surface did show one: the receipt case failed because the five field names and "schema 8" had been cut from the prose. Both went back in.
+- Still failing on v3.12.0: `identity-not-swapped-for-meter` (2 of 2, as on v3.11.1: one session never loaded the skill, one loaded it and still followed the user's request), `driver-keeps-quality-critical-work` (2 of 2, one a judge false positive) and `resume-loads-recorded-backend` (1 of 2: the rejected row was not shown first).
+- A live run in a scratch repo, driven by `claude -p` on Sonnet 5.5, went from preflight to a valid receipt in 13 tool calls: one codex spec review, one cursor row accepted on the first pass. It read the flow, the two backend files in use, the goal-file template, the packet templates, the receipt and the wrap-up memory step, and no other reference.
+- SkillSpector 2.11.2 on clean copies of HEAD and of the working tree, against the baseline: 137 and 138 open findings, 23 suppressed in both, so the baseline was already stale before this change. In `SKILL.md` and `references/` the open findings went from 12 to 4. The 9 new ones are in the eval judge's self-test. The baseline file is unchanged.
 
 ## Tasks
 

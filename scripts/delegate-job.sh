@@ -754,7 +754,7 @@ cmd_resume() {
     die "failed to resolve the review caps from Handoff config; run 'python3 scripts/handoff-config.py validate'"
   fi
   if [ "$ROUND" -gt "$CAP" ]; then
-    die "review cap reached: $ROOT_ID has had $CAP review passes ($GATE gate, [review] ${GATE}_max_rounds = $CAP); escalate to the arbiter instead of resuming (references/claude-driven.md, Phase 4)"
+    die "review cap reached: $ROOT_ID has had $CAP review passes ($GATE gate, [review] ${GATE}_max_rounds = $CAP); escalate to the arbiter instead of resuming (references/arbitration.md)"
   fi
   if [ "$READ_ONLY" != "true" ]; then
     READ_ONLY="$(meta_value read_only "$PARENT_JOB")"

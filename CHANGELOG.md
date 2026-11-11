@@ -1,5 +1,64 @@
 # Changelog
 
+## v3.12.0 (2026-11-11)
+
+### The skill loads by layer
+
+- **breaking**: `SKILL.md` is now a router. It holds the rules that always apply, where the scripts are, a command table and a reference map, in 990 words (was 3,231). Each command loads one reference, and that reference names further files at the step that needs them. `docs/skill-structure.md` has the map, and `docs/skill-structure.svg` draws it.
+- **breaking**: the references are renamed for what they are for. A link to an old name breaks.
+
+  | v3.11.1 | v3.12.0 |
+  |---|---|
+  | `references/claude-driven.md` | `references/delegation-flow.md` |
+  | `references/handoff-template.md` | `references/packet-templates.md` |
+  | `references/goal-template.md` | `references/goal-file-template.md` |
+  | `references/goal-to-pr.md` | `references/pr-delivery.md` |
+  | `references/memory-protocol.md` | `references/wrap-up-memory.md` |
+  | `references/darwin-ratchet.md` | `references/skill-change-gate.md` |
+  | `references/e2e-gauntlet.md` | `references/e2e-acceptance.md` |
+  | `references/setup.md` | `references/setup-wizard.md` |
+  | `references/tryout.md` | `references/identity-tryout.md` |
+  | `references/fable5-principles.md` | removed; its packet rules are in `packet-templates.md`, its effort and channel rules in `delegation-flow.md` |
+  | `docs/skill-file-structure.svg` | `docs/skill-structure.svg` |
+
+- feat: new references hold what used to sit in `SKILL.md` or in the flow. `session-evidence.md` has the transcript, cost-receipt, visualise and migrate commands. `session-receipt.md` has the receipt contract and the reporting list. `arbitration.md` has both arbiter protocols and the Arbitration Packet. The Goal Packet moved to `pr-delivery.md`.
+- feat: backend rules moved to `references/backends/<backend>.md`, one file per CLI: its preflight check, what the permission modes mean, read-only limits and failure signs. The flow reads only the files for backends in use. A resumed run also reads the file for each existing job's recorded backend, and a tryout reads them before it submits.
+- Measured with `wc -w`: a delegated run on codex and claude loads 6,040 words (was 12,311), `/agent-handoff transcript` 1,829 (was 3,231), `/agent-handoff config` 2,561 (was 4,778). The whole surface is 13,310 words (was 18,035).
+- fix: the description is 1,018 characters. It was 1,583, over the 1,024 limit, and Claude Code's skill listing cut off its last sentence, the rule against triggering on the bare word "handoff". It now also triggers on a request that names a Handoff identity.
+- Config schema stays `2`. Receipt schema stays `8`. No script changes behaviour: two error messages and one docstring name a renamed reference.
+
+### Rules that changed
+
+- **breaking**: Phase 0 no longer asks to append `DO NOT send optional commentary` to the target repo's `AGENTS.md`. Every packet already ends with that rule.
+- **breaking**: Phase 4 no longer offers the optional gstack `/codex` review of the final diff.
+- **breaking**: the wrap-up memory step keeps Claude Code auto-memory only. The claude-mem, mem0 and Codex rollout layers are gone. Packets still end with the lessons-learned line.
+- removed: the full protocol's "do not create `.handoff/goal.md` for a one-off small change". It contradicted Phase 1, which always writes the goal file, and sat in a file the default path never loaded.
+- removed: prose that repeated what a script prints or enforces by itself: the lane-map drawing contract (`handoff-session-ui.py` prints it), per-backend command lines and flag mappings, the setup page's detection detail, the verdict's cross-field rules (`validate-verdict.py` reports them), and version history. `docs/specs/` keeps the design record.
+- fix: setup and tryout stamp the session start before they run. Both were told to close with a receipt, and neither stamped a start for it to measure from.
+- fix: under the full protocol, Stage 1 writes a goal file holding only the Goal line, the Checkpoint Rule and the `## Spec Review` block. A review that fails or is interrupted before Stage 2 now leaves its state on disk.
+- fix: on a resume, only an arbitration that ended in `no verdict` waits for the user. An arbiter job still running, or still owed its one retry, is finished.
+- fix: `max` is no longer described as codex-only. `delegate-job.sh` accepts it on claude and copilot too; only `ultra` is codex-only.
+- fix: a receipt's `roles_used` writes the claude backend as `host: claude_code`, as the schema requires.
+- fix: the tryout says it covers the three core identities, and writes `verified` to the config file that defines the identity.
+- docs: a user who asks for an identity swap is asking for a config change. The driver names it and offers it, and does not re-route the task.
+
+### The gate holds the structure
+
+- feat: `check-skill-repo.sh` has four new checks. The description is at most 1,024 characters. The `SKILL.md` body is at most 900 words. Every file under `references/` is named in `SKILL.md` and in `docs/skill-structure.md`, and every named file exists. `SKILL.md` and `references/` name no path under `docs/` or `tests/`, and no script names a file under `docs/specs/`.
+- The receipt-contract check reads `references/session-receipt.md`.
+
+### Evals
+
+- feat: 14 cases (was 8), each with a fixture written through `context.files`. One script, `evals/fixtures/scripts/judge.py`, judges 13 of them from the workspace and the session's tool trace: the rendered page holds the fixture's own text, no job directory was added, the plan ran before `--apply`, and which skill files the session read. `python3 evals/fixtures/scripts/judge.py --self-test` checks the judge itself.
+- feat: new cases: `migrate-plans-then-applies`, `flow-loads-by-layer`, `resume-loads-recorded-backend`, `tryout-loads-backends-first`, `code-review-no-trigger`, `e2e-added-for-user-observable-change`.
+- fix: the old judges matched vocabulary. `driver-keeps-quality-critical-work` passed a reply that delegated the signing logic, and `transcript-renders-not-delegates` failed a correct run that never typed the script's name.
+- fix: `eval.yaml` installs only `SKILL.md`, `references/`, `scripts/` and the page templates. It used to install `test-prompts.json`, which holds the expected behaviour for near-identical prompts. The engine is pinned to Sonnet 5.5, the supported floor.
+- feat: `evals/run-evals.sh` runs the suite from a clean environment, so the nested `claude` sessions do not inherit the caller's `ANTHROPIC_*` and `CLAUDE_CODE_*` variables.
+- note: no case uses `agent_judge`. On skill-up 0.11.0 it errored on every case here.
+- Measured on Sonnet 5.5, two iterations per case: v3.11.1 passed 15 of 26 measured sessions, v3.12.0 passed 23 of 28. No case passed on v3.11.1 and failed on v3.12.0. Three went from failing to passing: `flow-loads-by-layer`, `tryout-loads-backends-first` (its prompt changed between the two runs) and `e2e-added-for-user-observable-change` (one measured iteration on v3.11.1). Two v3.11.1 sessions hit the account's rate limit and are left out.
+- Still failing on v3.12.0: `identity-not-swapped-for-meter` (2 of 2; it also fails on v3.11.1), `driver-keeps-quality-critical-work` (2 of 2; one is a judge false positive) and `resume-loads-recorded-backend` (1 of 2). The judge has three known false verdicts: a file read through a shell loop variable, a test row whose note says "implements", and a keep phrase outside its vocabulary.
+- note: a personal install at `~/.claude/skills/agent-handoff` outranks the copy the suite installs. On a machine that has one, the suite measures that install.
+
 ## v3.11.1 (2026-10-31)
 
 ### `/agent-handoff migrate`

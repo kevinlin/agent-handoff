@@ -6,7 +6,7 @@ Handoff is one flow with one driver. Claude Code plans, splits, delegates, monit
 
 Both claims are cheap to make and easy to fake. A driver that accepts a worker's summary has bought neither: it has bought a story about a diff it never read. The four phases below exist to keep the claim honest, and Phase 4 is where that happens.
 
-This document is the design of record for those four phases as implemented. The prose contract users and agents actually load is `references/claude-driven.md`; this doc records *why* each phase is shaped the way it is, and which of its guards are enforced by a script versus asserted by a prompt.
+This document is the design of record for those four phases as implemented. The prose contract users and agents actually load is `references/delegation-flow.md`; this doc records *why* each phase is shaped the way it is, and which of its guards are enforced by a script versus asserted by a prompt.
 
 ### Scope
 
@@ -91,7 +91,7 @@ An `e2e_verifier` row carries both the specifier row and the implementation row 
 
 ### Spec review — every plan, capped, and last
 
-The gate above has the driver judging its own plan. `references/darwin-ratchet.md` names that failure directly: no agent should be sole maker and sole judge on high-risk work, and every later phase is judged against the plan this one produces.
+The gate above has the driver judging its own plan. `references/skill-change-gate.md` names that failure directly: no agent should be sole maker and sole judge on high-risk work, and every later phase is judged against the plan this one produces.
 
 So `deep_reasoner` takes a second responsibility alongside its task-row tier: an informed read of the plan, on its own configured backend, fired at the moment the workflow hands the plan to the user. It runs on every plan. There is no toggle, and it is not a sixth identity: the review wants exactly the tier `deep_reasoner` already names, and a sixth identity would mean configuring another triple for it.
 
@@ -122,7 +122,7 @@ It runs as a real job (`submit --role deep_reasoner --read-only --label spec-rev
 
 The arbiter's contamination rule deliberately does not apply to the spec review. The plan under review *is* the driver's answer, so withholding it would leave nothing to review. That makes it a second pair of eyes, not a second opinion: it inherits the driver's framing and will catch a wrong premise less often than an independent solve would, and the flow prose says so rather than letting a reader read arbitration into it. Same-vendor config gets the arbiter's treatment. The review still runs, and the weaker independence is recorded rather than claimed away.
 
-The contamination rule does not apply to an escalation ruling either, which judges a dispute and cannot do that without hearing both sides. The `arbiter` identity serves both of the last two rows. They are different protocols, and the flow names them separately so that the independence of one is never read into the other.
+The contamination rule does not apply to an escalation ruling either, which judges a dispute and cannot do that without hearing both sides. The `arbiter` identity serves both of the last two rows. They are different protocols, and `references/arbitration.md` names them separately so that the independence of one is never read into the other.
 
 ### Concurrent writes: compare-and-set, not a lock
 
@@ -147,7 +147,7 @@ One task row becomes one durable background job. The phase has two paths, and th
 
 ### The prompt path carries the work
 
-The driver composes the delegation packet in its own context from `references/handoff-template.md`: why-forward context, one-sentence task, acceptance written as commands, scope paths, checkpoint rule, no-commentary output discipline, at most three lines of lessons learned. It writes that to `$(mktemp)` and passes the path.
+The driver composes the delegation packet in its own context from the Delegation Packet in `references/packet-templates.md`: why-forward context, one-sentence task, acceptance written as commands, scope paths, checkpoint rule, no-commentary output discipline, at most three lines of lessons learned. It writes that to `$(mktemp)` and passes the path.
 
 `delegate-job.sh` does not generate, template, or validate this prompt. Its only check is that the file exists. That is authorship discipline rather than validation, and it is the deliberate choice: a packet the script assembled would be a packet the driver did not have to think about.
 
@@ -356,11 +356,11 @@ When the last pass still has findings open, the argument no longer ends in a tak
 
 A rejection is final: the row becomes `rejected`, rows depending on it are held, independent rows continue, and the run ends with its receipt. The rejected diff does not stay in the tree the other rows run against. In the main repo the driver saves the row's scoped diff as `.handoff/rejected/<task-id>.patch` and restores those paths. A worktree row keeps its worktree, uncleaned, which is also what lets a later `resume` find it. A row already integrated onto the feature branch for e2e is backed out with a revert commit, never a history rewrite. The user picks the rejected row up on `/agent-handoff resume`.
 
-The takeback this replaces had the driver finish a task it had just failed to get accepted, with nobody checking whether its own findings were right. Takeback survives only for Phase 3 anomalies, where a job failed or stalled and there is no dispute to rule on. Escalations and their outcomes go to the memory protocol, which is how it learns that a task type does not delegate well.
+The takeback this replaces had the driver finish a task it had just failed to get accepted, with nobody checking whether its own findings were right. Takeback survives only for Phase 3 anomalies, where a job failed or stalled and there is no dispute to rule on. Escalations and their outcomes go to the wrap-up memory step (`references/wrap-up-memory.md`), which is how it learns that a task type does not delegate well.
 
 ### Hard stops
 
-Merge, production, tags, force-push, deletion, destructive migration, and external publish are each an independent hard stop needing its own fresh imperative sentence from the user. None of them is implied by "finish it", by an earlier authorization for a different action, or by a question about whether to proceed. Phase 4.5 delivery runs only on explicit authorization.
+Merge, production, tags, force-push, deletion, destructive migration, and external publish are each an independent hard stop needing its own fresh imperative sentence from the user. None of them is implied by "finish it", by an earlier authorization for a different action, or by a question about whether to proceed. PR delivery (Stage 3 of `references/pr-delivery.md`, which the flow runs at the end of Phase 4) runs only on explicit authorization.
 
 ---
 
@@ -401,7 +401,7 @@ Of the guards on the argument, the cap is the one a script can hold, so it leave
 
 Blind arbitration sends the same problem to two solvers, and neither may see the other's answer. An escalation ruling is the opposite on purpose. It judges a dispute, so it gets the whole dispute: the brief or plan, the acceptance criteria, the evidence (the diff with the driver's check results, or the revised plan), and every round's findings with the other side's response. Withholding either side would leave it ruling on half an argument.
 
-It runs as a real read-only job, `submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan), built from the Arbitration Packet in `references/handoff-template.md`. The packet asks for one thing: a first line of `verdict: approve` or `verdict: reject`, then one reason per disputed point, citing the evidence. It does not ask for a better solution, and it keeps closed the points both sides already agreed on.
+It runs as a real read-only job, `submit --role arbiter --read-only --label arbitrate-<task-id>` (`arbitrate-spec` for the plan), built from the Arbitration Packet in `references/arbitration.md`. The packet asks for one thing: a first line of `verdict: approve` or `verdict: reject`, then one reason per disputed point, citing the evidence. It does not ask for a better solution, and it keeps closed the points both sides already agreed on.
 
 Three rules follow:
 
@@ -492,4 +492,4 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 
 ## Changing this flow
 
-`references/darwin-ratchet.md` is the gate. Change one dimension at a time (planning, the split decision, delegation, monitoring, review, permissions, reporting), validate against `test-prompts.json` or a real miniloop, and keep the change only when repo evidence improves. Do not let one agent be both sole maker and sole judge on a high-risk change to the flow itself; the flow's own instruments exist for exactly that reason.
+`references/skill-change-gate.md` is the gate. Change one dimension at a time (planning, the split decision, delegation, monitoring, review, permissions, reporting), validate against `test-prompts.json` or a real miniloop, and keep the change only when repo evidence improves. Do not let one agent be both sole maker and sole judge on a high-risk change to the flow itself; the flow's own instruments exist for exactly that reason.

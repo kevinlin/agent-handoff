@@ -1,0 +1,177 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: resume-loads-recorded-backend
+# Human-readable summary shown in case lists and reports.
+title: Resumes from the goal file, rejected row first, with the recorded backend's rules
+# Background explaining the behavior this case covers.
+description: |
+  On /agent-handoff resume the driver re-enters mid-flow. The flow's rule: present
+  rows marked rejected first, with their Arbitration line, the handover in Notes
+  and the saved patch, and never reopen one. A resumed run also needs the
+  backend rules of the backend recorded in the meta of every job the goal file
+  still refers to, which can differ from today's config, and the arbitration
+  rules when a row is rejected or in arbitration.
+  The workspace holds a goal file with T1 done, T2 delegated on a finished job
+  whose meta says backend=cursor (the config no longer has a cursor identity),
+  and T3 rejected by the arbiter, with its patch saved. The judge reads the tool
+  trace and the answer: the flow doc was read, the cursor rules and the
+  arbitration rules were loaded (on v3.11.1 the flow doc holds both), the
+  answer mentions T3 before T2, and no job directory was added. An answer that
+  never mentions T2 is not failed on the order check; one that never mentions T3
+  is.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    /agent-handoff resume. Tell me where the run stands and what you will do next. Do not submit, resume or cancel any job yet.
+
+context:
+  # Inline fixtures: .gitignore ignores .handoff/ at any depth, so a fixture
+  # directory holding it could not be committed.
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      resume-loads-recorded-backend
+    # No cursor identity: T2's job ran on cursor under an earlier config.
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "claude"
+      model = "opus"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
+    ".handoff/session-start": |
+      2026-11-02T08:20:00Z
+    # The shape of references/goal-template.md (goal-file-template.md in v3.12.0).
+    ".handoff/goal.md": |
+      # Handoff Goal
+
+      ## Goal
+      Working on the month-end ledger export for finance, so that close needs no hand-edited CSV. Done when: `python3 -m unittest discover -s tests` passes and `python3 -m ledger export --month 2026-10` writes the file the finance spec lists. Anti-Goodhart: the check must not pass by deleting tests or loosening the rounding assertions.
+
+      ## Checkpoint Rule
+      Pause for the user only on: a destructive or irreversible action, a real
+      scope change, or something only the user can provide. Otherwise keep going
+      and report when done.
+
+      ## Spec Review
+      status: consensus
+      round 1: job-2026-11-02T08-30-00-31111-spec-review — 1 blocking finding accepted (carry the cent into the next line), 0 declined.
+
+      ## Delivery
+      n/a
+
+      ## Tasks
+      | id | identity | task | acceptance | depends | effort | status | jobId |
+      |----|----------|------|------------|---------|--------|--------|-------|
+      | T1 | - | Settle the export column layout against the finance spec | layout recorded in Notes | - | - | done | - |
+      | T2 | fast_worker | Write the CSV exporter in src/export.py | `python3 -m unittest tests.test_export` passes | T1 | medium | delegated | job-2026-11-02T09-00-00-33333-t2 |
+      | T3 | fast_worker | Add the month-end rounding rule in src/rounding.py | `python3 -m unittest tests.test_rounding` passes | T1 | medium | rejected | job-2026-11-02T09-10-00-44444-t3 |
+
+      ## Anomalies
+      none
+
+      ## Arbitration
+      implementation · T3 · job-2026-11-02T09-40-00-55555-arbitrate-t3 · reject · the patch rounds each line before summing, which moves the month total by a cent; the reviewer's open finding stands · same-vendor
+
+      ## Notes
+      T1: columns are id, posted_at, amount_minor, currency, in that order.
+      T3 handover: the reviewer found that the patch rounds each line before summing, so the month total drifts by a cent. The arbiter ruled reject and the patch is saved at .handoff/rejected/T3.patch. Continuing takes a rewritten brief that sums first and rounds once, or the driver taking the task over.
+    ".handoff/rejected/T3.patch": |
+      diff --git a/src/rounding.py b/src/rounding.py
+      new file mode 100644
+      index 0000000..e69de29
+      --- /dev/null
+      +++ b/src/rounding.py
+      @@ -0,0 +1,2 @@
+      +def month_total(lines):
+      +    return sum(round(line) for line in lines)
+    # The spec-review job the goal file's Spec Review block cites.
+    ".handoff/jobs/job-2026-11-02T08-30-00-31111-spec-review/meta": |
+      label=spec-review
+      effort=high
+      model=opus
+      role=deep_reasoner
+      backend=claude
+      read_only=true
+      submitted_at=2026-11-02T08:30:00Z
+      mode=fresh
+    ".handoff/jobs/job-2026-11-02T08-30-00-31111-spec-review/exit_code": |
+      0
+    # T2: finished on cursor, which today's config does not use.
+    ".handoff/jobs/job-2026-11-02T09-00-00-33333-t2/meta": |
+      label=t2
+      effort=model
+      model=claude-sonnet-5-5-xhigh
+      role=fast_worker
+      backend=cursor
+      read_only=false
+      submitted_at=2026-11-02T09:00:00Z
+      mode=fresh
+    ".handoff/jobs/job-2026-11-02T09-00-00-33333-t2/exit_code": |
+      0
+    ".handoff/jobs/job-2026-11-02T09-00-00-33333-t2/log.jsonl": |
+      {"type":"system","subtype":"init","model":"claude-sonnet-5-5-xhigh"}
+      {"type":"result","subtype":"success","is_error":false,"result":"Wrote src/export.py and tests/test_export.py. The export tests pass.","usage":{"inputTokens":9120,"outputTokens":640,"cacheReadTokens":4096,"cacheWriteTokens":0}}
+    # T3: the implementation job the arbiter ruled on.
+    ".handoff/jobs/job-2026-11-02T09-10-00-44444-t3/meta": |
+      label=t3
+      effort=medium
+      model=gpt-5.6-sol
+      role=fast_worker
+      backend=codex
+      read_only=false
+      submitted_at=2026-11-02T09:10:00Z
+      mode=fresh
+    ".handoff/jobs/job-2026-11-02T09-10-00-44444-t3/exit_code": |
+      0
+    ".handoff/jobs/job-2026-11-02T09-10-00-44444-t3/log.jsonl": |
+      {"type":"thread.started","thread_id":"th-eval-t3"}
+      {"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"Added month_total in src/rounding.py. The rounding tests pass."}}
+      {"type":"turn.completed","usage":{"input_tokens":7210,"cached_input_tokens":2048,"output_tokens":388,"reasoning_output_tokens":96}}
+    # The arbiter's ruling on T3.
+    ".handoff/jobs/job-2026-11-02T09-40-00-55555-arbitrate-t3/meta": |
+      label=arbitrate-t3
+      effort=xhigh
+      model=gpt-5.6-sol
+      role=arbiter
+      backend=codex
+      read_only=true
+      submitted_at=2026-11-02T09:40:00Z
+      mode=fresh
+    ".handoff/jobs/job-2026-11-02T09-40-00-55555-arbitrate-t3/exit_code": |
+      0
+    ".handoff/jobs/job-2026-11-02T09-40-00-55555-arbitrate-t3/log.jsonl": |
+      {"type":"thread.started","thread_id":"th-eval-arb"}
+      {"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"verdict: reject\nThe patch rounds each line before summing, so the month total drifts by a cent."}}
+      {"type":"turn.completed","usage":{"input_tokens":6120,"cached_input_tokens":1024,"output_tokens":211,"reasoning_output_tokens":64}}
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

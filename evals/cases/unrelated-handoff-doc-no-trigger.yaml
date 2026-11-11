@@ -8,30 +8,50 @@ description: |
   'handoff' in unrelated contexts." A leave-cover document is that context.
   The correct behaviour is to write the document and leave the delegation
   workflow, its identities, its job runner and its receipt out of the answer.
+  The judge reads the tool trace and the workspace, not the wording of the
+  answer: no Skill call to agent-handoff, no skill file read, no .handoff/
+  directory created, and HANDOFF.md written with the on-call rota and the flaky
+  tests from the fixture README. The old success regex passed any answer that
+  said "flaky", with or without a document.
 
 input:
   # User prompt sent to the Agent for a single-turn case.
   prompt: |
     I am off for a month from Monday. Write a short handoff doc for whoever
     picks up the billing service: the key files, the on-call rota, and the two
-    flaky tests they will hit.
+    flaky tests they will hit. Save it as HANDOFF.md.
+
+context:
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      unrelated-handoff-doc-no-trigger
+    "billing/README.md": |
+      # Billing service
+
+      Invoices, card-charge retries and the month-end ledger export.
+
+      ## Key files
+      - `src/invoice.py` builds invoices from usage events.
+      - `src/retry_queue.py` retries failed card charges.
+      - `src/ledger_export.py` writes the month-end CSV for finance.
+
+      ## On-call
+      Mara covers Monday to Wednesday and Jin covers Thursday to Sunday. Page
+      them in #billing-oncall; the payments lead is the escalation point.
+
+      ## Known flaky tests
+      - `tests/test_retry_queue.py::test_backoff_window` depends on timing. Rerun
+        it once before investigating.
+      - `tests/test_ledger_export.py::test_month_boundary` fails when it runs in
+        the last hour of a UTC month.
 
 judge:
   # Grading strategy used to decide whether this case passes.
-  # Options: rule_based | agent_judge | script.
-  type: rule_based
-  failure:
-    # The delegation workflow firing on an unrelated use of the word.
-    - output_contains:
-        any:
-          - "delegate-job.sh"
-          - "Handoff Session Receipt"
-          - "fast_worker"
-          - "deep_reasoner"
-          - ".handoff/goal.md"
-  success:
-    # Actually produced the document that was asked for.
-    - output_matches:
-        any:
-          - '(?i)on[- ]call'
-          - '(?i)flaky'
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

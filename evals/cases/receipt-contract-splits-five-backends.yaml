@@ -4,11 +4,14 @@ id: receipt-contract-splits-five-backends
 title: States the schema v8 receipt contract with five separate job counts
 # Background explaining the behavior this case covers.
 description: |
-  SKILL.md Output Contract: the receipt partitions a run's jobs five ways by
-  the backend that executed them -- codex_jobs, cc_jobs, copilot_jobs, cursor_jobs,
+  The Output Contract (SKILL.md in v3.11.1, references/session-receipt.md in
+  v3.12.0): the receipt partitions a run's jobs five ways by the backend that
+  executed them -- codex_jobs, cc_jobs, copilot_jobs, cursor_jobs,
   antigravity_jobs -- and a copilot, cursor, or antigravity job is never folded
   into any other count. Receipt fields are generated with make-receipt.py,
-  never hand-typed, and receipt_schema_version is always 8.
+  never hand-typed, and receipt_schema_version is always 8. Each count comes
+  from the backend= line of the job's meta file, and the duration is measured
+  from the .handoff/session-start marker that make-receipt.py --start writes.
 
 input:
   # User prompt sent to the Agent for a single-turn case.
@@ -29,7 +32,8 @@ expect:
 
 judge:
   # Grading strategy used to decide whether this case passes.
-  # Options: rule_based | agent_judge | script.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
   type: rule_based
   failure:
     # Reject obsolete receipt fields, not prose explaining their removal.
@@ -40,7 +44,7 @@ judge:
           - '(?m)^\s*receipt_schema_version\s*:\s*6\b'
           - '(?m)^\s*receipt_schema_version\s*:\s*7\b'
   success:
-    # Five counts kept separate, and generated rather than typed.
+    # Five counts kept separate, generated rather than typed, and the roles list.
     - output_contains:
         all:
           - "codex_jobs"
@@ -49,8 +53,19 @@ judge:
           - "cursor_jobs"
           - "antigravity_jobs"
           - "make-receipt.py"
+          - "roles_used"
     # Pins the current schema version.
     - output_matches:
         any:
-          - '(?m)^\s*receipt_schema_version\s*:\s*8\b'
-          - '(?i)schema (version )?8'
+          - '(?i)(schema|version)[^\n]{0,24}\b8\b'
+          - '\bv8\b'
+          - 'receipt_schema_version:\s*8'
+    # Where the counts come from: each job's meta file.
+    - output_matches:
+        any:
+          - '(?i)\bmeta\b'
+    # What the duration is measured from: the start marker.
+    - output_matches:
+        any:
+          - 'session-start'
+          - '--start'

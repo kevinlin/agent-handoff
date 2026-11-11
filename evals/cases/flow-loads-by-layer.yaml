@@ -1,0 +1,87 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: flow-loads-by-layer
+# Human-readable summary shown in case lists and reports.
+title: Loads the delegation flow and nothing from the other layers
+# Background explaining the behavior this case covers.
+description: |
+  A split-only request on a config that uses claude and codex needs the
+  delegation flow. It does not need the setup wizard, the identity tryout, PR
+  delivery, the session-evidence commands, or the backend rules of copilot,
+  cursor and antigravity, which no identity here runs on.
+  The judge reads the tool trace: the flow doc (claude-driven.md in v3.11.1,
+  delegation-flow.md in v3.12.0) was read, and none of the other layers were,
+  under either name. On v3.11.1 the backend files do not exist, so those three
+  checks pass trivially there; the rest are the same on both versions. No job
+  directory may be added, which also catches a spec review submitted anyway.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Agent handoff: rename the internal helper parseRow to parseLedgerRow across src/. Give me the split and the task table only. Do not submit any job, do not run the spec review, and do not write any file.
+
+context:
+  # Inline fixtures: .gitignore ignores .handoff/ at any depth, so a fixture
+  # directory holding it could not be committed.
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      flow-loads-by-layer
+    # Schema 2, bare identity sections (docs/specs/design_agent-identities-and-config.md).
+    ".handoff/config.toml": |
+      schema_version = 2
+      revision = 0
+
+      [deep_reasoner]
+      backend = "claude"
+      model = "opus"
+      effort = "high"
+      permission_mode = "default"
+      verified = false
+
+      [fast_worker]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "medium"
+      permission_mode = "default"
+      verified = false
+
+      [arbiter]
+      backend = "codex"
+      model = "gpt-5.6-sol"
+      effort = "xhigh"
+      permission_mode = "default"
+      verified = false
+
+      [review]
+      spec_max_rounds = 1
+      implementation_max_rounds = 3
+    "src/ledger.js": |
+      // Parses one CSV row of the ledger export into a record.
+      function parseRow(line) {
+        const [id, amount, currency] = line.split(",");
+        return { id, amount: Number(amount), currency };
+      }
+
+      function parseAll(text) {
+        return text.trim().split("\n").map(parseRow);
+      }
+
+      module.exports = { parseRow, parseAll };
+    "src/report.js": |
+      const { parseRow } = require("./ledger");
+
+      function firstRecord(text) {
+        return parseRow(text.split("\n")[0]);
+      }
+
+      module.exports = { firstRecord };
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

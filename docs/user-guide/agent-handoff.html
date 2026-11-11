@@ -193,7 +193,7 @@
 <header>
   <h1>Agent Handoff — user guide</h1>
   <p class="lede">Agent Handoff (Handoff) is a Claude Code skill that divides coding work between a driver and worker agents. Claude Code is the driver: it plans the work, divides it into tasks, and accepts or rejects the result. Each delegated task runs as a background job on one of five worker CLIs: Codex, Claude Code, GitHub Copilot, Cursor, or Antigravity. The config of each identity selects its worker, and each worker pays from its own account. The driver uses less of its quota and its context window. It still reads the full diff against acceptance criteria that it wrote before the work started.</p>
-  <p class="meta">user guide · kevinlin/agent-handoff @ v3.11.1 · updated 2026-10-31</p>
+  <p class="meta">user guide · kevinlin/agent-handoff @ v3.12.0 · updated 2026-11-11</p>
 </header>
 
 <h2 id="overview">How a run works</h2>
@@ -682,7 +682,7 @@ receipt_schema_version: 8</code></pre>
 <p>A later session gets only this directory: the final statuses in the goal file, the job directories, the saved receipts, and the verdicts. <code>/agent-handoff resume</code> reads these files and does not calculate the state again from the repository. For the same reason, a monitor tick can continue after a crash.</p>
 
 <footer>
-  Read with: <span class="mono">SKILL.md</span>, <span class="mono">references/{claude-driven, handoff-template, e2e-gauntlet, goal-template, memory-protocol, darwin-ratchet}.md</span>, and the design documents in <span class="mono">docs/specs/</span>: identities and config in <span class="mono">design_agent-identities-and-config.md</span>, and the five worker CLIs in <span class="mono">design_cli-backends.md</span>. The diagrams are SVG files in <span class="mono">docs/user-guide/diagrams/</span>.
+  Read with: <span class="mono">SKILL.md</span>, <span class="mono">references/{delegation-flow, packet-templates, e2e-acceptance, goal-file-template, wrap-up-memory, skill-change-gate}.md</span>, and the design documents in <span class="mono">docs/specs/</span>: identities and config in <span class="mono">design_agent-identities-and-config.md</span>, and the five worker CLIs in <span class="mono">design_cli-backends.md</span>. The diagrams are SVG files in <span class="mono">docs/user-guide/diagrams/</span>.
 </footer>
 
 </div>

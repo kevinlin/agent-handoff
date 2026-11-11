@@ -17,10 +17,10 @@ Covered: the `.handoff/` evidence store, transcript rendering, session receipt g
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-job.sh` header comment |
 | Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md` |
-| E2E verdicts | `assets/verdict-schema.json`, `references/e2e-gauntlet.md` |
+| E2E verdicts | `assets/verdict-schema.json`, `references/e2e-acceptance.md` |
 | The illustrative workload model and its ledger | `examples/showcase-cost-ledger.json` |
 
-The prose contract agents load is `references/claude-driven.md`, Phase 0 and Phase 5; the same flow drawn for a human reader is `docs/user-guide/diagrams/evidence-flow.svg`.
+The prose contracts agents load are `references/delegation-flow.md`, Phase 0 and Phase 5; `references/session-receipt.md`, the receipt contract; and `references/session-evidence.md`, the transcript, cost-receipt, visualise and migrate commands. The same flow drawn for a human reader is `docs/user-guide/diagrams/evidence-flow.svg`.
 
 ### The rule all four flows obey
 
@@ -36,7 +36,7 @@ Every field in every artifact traces back to a file read during the run. Three c
 | --- | --- | --- | --- |
 | `.handoff/jobs/<jobId>/` | `delegate-job.sh`, while the job runs | monitor loop, all three renderers | `delegate-job.sh` header |
 | `.handoff/session-start` | `make-receipt.py --start`, Phase 0 | `make-receipt.py` | one ISO stamp |
-| `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-template.md` |
+| `.handoff/goal.md` | driver and monitor loop through `goal-sync.py` | driver, a resumed session, Phase 5's `anomalies` | `references/goal-file-template.md` |
 | `.handoff/rejected/<task-id>.patch` | driver, when the arbiter rejects a main-repo row | the user, a run reopening that row | none; `git apply` input |
 | `.handoff/sessions/<date>_<session_id>/receipt-<stamp>.md` | `make-receipt.py`, at wrap up | `validate-receipt.py`, `render-cost-receipt.py`, `handoff-session-ui.py` | `assets/receipt-schema.json` |
 | `.handoff/sessions/<date>_<session_id>/transcript-<jobId>.html` | `render-transcript.py`, `handoff-session-ui.py` | a human | none; it is a page |
@@ -253,7 +253,7 @@ The five pairs are `codex_jobs` / `codex_job_durations`, `cc_jobs` / `cc_job_dur
 
 ### The save is the default, because the readers were already promised it
 
-Writing the receipt used to be a `--save` flag, and neither of the two files the driver loads at runtime named it. Phase 5 of `references/claude-driven.md` said "emit", which puts the receipt on stdout and nowhere else. Two commands read that directory for their default input, `/agent-handoff cost-receipt` and `/agent-handoff visualise`, and `/agent-handoff tryout` closes by writing one there. The README already described the receipt as written at wrap up. Saved receipts do exist in this repo, because a driver that read `make-receipt.py --help` or this document found the flag. That is the problem stated precisely: whether a run left its receipt on disk depended on the driver noticing something the runtime prose never mentioned. Downstream, the only thing that catches the miss is `render-cost-receipt.py`'s "no saved receipt found" error, and it fires long after the run it needed is over.
+Writing the receipt used to be a `--save` flag, and neither of the two files the driver loads at runtime named it. Phase 5 of the flow document (`references/delegation-flow.md` since v3.12.0) said "emit", which puts the receipt on stdout and nowhere else. Two commands read that directory for their default input, `/agent-handoff cost-receipt` and `/agent-handoff visualise`, and `/agent-handoff tryout` closes by writing one there. The README already described the receipt as written at wrap up. Saved receipts do exist in this repo, because a driver that read `make-receipt.py --help` or this document found the flag. That is the problem stated precisely: whether a run left its receipt on disk depended on the driver noticing something the runtime prose never mentioned. Downstream, the only thing that catches the miss is `render-cost-receipt.py`'s "no saved receipt found" error, and it fires long after the run it needed is over.
 
 From v3.8.1 the write is the default and `--no-save` is the opt-out, kept for the two cases that want the block alone: the CI roundtrip that pipes into `validate-receipt.py`, and a past run's receipt regenerated with `--ended-at` that should not deposit a second file. A same-stamp write still overwrites, which is why regeneration is the case that has an opt-out at all.
 
@@ -422,7 +422,7 @@ Asserted by prose rather than by a script: that the driver reaches Phase 5 and r
 - **A price table, or any cost figure for the driver, codex, copilot, cursor, or antigravity.** A repriced token is the fabrication the repo rules out, and a checked-in rate card would go stale silently.
 - **A receipt schema change for consumption.** The cost receipt reads receipts; it does not extend them. No edits to `make-receipt.py`, `validate-receipt.py`, or `delegate-job.sh` were needed to add it.
 - **Aggregation across runs.** One receipt in, one cost receipt out.
-- **A `references/*.md` flow document for either command.** Each is one command with one optional argument; `SKILL.md` carries both directly.
+- **A `references/*.md` flow document of its own for any of the evidence commands.** Each is one command with one optional argument. Since v3.12.0 `SKILL.md` is a router, so the four evidence commands (transcript, cost-receipt, visualise, migrate) share one file, `references/session-evidence.md`; no command has a flow document of its own.
 - **Moving `jobs/`, `goal.md`, `session-start`, `rejected/` or `e2e/` into a session folder.** A job directory is a runtime primitive's state, and it is written before any session folder could name it. The other four are working state for the repo or the run. No reader produces them.
 - **Reading the legacy layout at runtime.** See *The session folder*; the migration is the bridge.
 - **A validated arbitration verdict.** A `verdict.json` per ruling with its own validator, read into a receipt field, would prove mechanically that the recorded ruling is the arbiter's. Deferred until a recorded ruling is caught disagreeing with its job log; until then the jobId is the check.
@@ -456,4 +456,4 @@ Manual checks no automated check covers: open a generated transcript for a job w
 
 ## Changing any of this
 
-`references/darwin-ratchet.md` is the gate. The dimensions here are: what evidence is written, how it is read back, what the transcript renders, what the receipt indexes, and what the cost receipt is allowed to claim. Change one at a time, validate against the fixtures and one real run, and keep the change only when the repo evidence improves. The reporting rules in Flow 4 are the ones most likely to erode under pressure to produce a single impressive number, so a change there needs a test that fails when the rule is broken, not a paragraph promising to hold it.
+`references/skill-change-gate.md` is the gate. The dimensions here are: what evidence is written, how it is read back, what the transcript renders, what the receipt indexes, and what the cost receipt is allowed to claim. Change one at a time, validate against the fixtures and one real run, and keep the change only when the repo evidence improves. The reporting rules in Flow 4 are the ones most likely to erode under pressure to produce a single impressive number, so a change there needs a test that fails when the rule is broken, not a paragraph promising to hold it.

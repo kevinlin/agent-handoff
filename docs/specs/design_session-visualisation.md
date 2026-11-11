@@ -17,8 +17,8 @@ Covered: the `/agent-handoff visualise` command, the loopback server behind it, 
 | Plan, split, delegate, monitor, review | `docs/specs/design_agent-handoff.md` |
 | The evidence store, transcript, receipt, cost receipt | `docs/specs/design_agent-handoff-evidence.md` |
 | The job primitive | `scripts/delegate-job.sh` header comment |
-| Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md`, `references/setup.md` |
-| Generating the timeline SVG | a `baoyu-diagram` instruction in `SKILL.md`; no script does it |
+| Identity configuration and the setup wizard | `docs/specs/design_agent-identities-and-config.md`, `references/setup-wizard.md` |
+| Generating the timeline SVG | a `baoyu-diagram` instruction in `references/session-evidence.md`; no script does it |
 
 ### The rule this flow obeys, and the one it deliberately relaxes
 
@@ -162,7 +162,7 @@ Only one of the two can be made here, and the split is not arbitrary:
 - **The cost receipt is Python**, so it is rendered eagerly during startup, before the URL is printed. A receipt that cannot render is an exit 2 and no page at all, because the tab it would produce is a 400.
 - **The diagram needs a model.** A renderer that spawned one would bill a vendor as a side effect of opening a page, which is the one thing this flow must never do quietly. So the script refuses instead: **exit 3**, the target path, and the generation prompt on stderr.
 
-Exit 3 is a distinct code from exit 2 on purpose. It tells the caller "an asset is missing and only a model can make it", which is a different instruction than exit 2's "your input is wrong": one is answered by generating and re-running, the other by reading the message. `SKILL.md` binds the first to `baoyu-diagram` and tells the driver to do it without asking.
+Exit 3 is a distinct code from exit 2 on purpose. It tells the caller "an asset is missing and only a model can make it", which is a different instruction than exit 2's "your input is wrong": one is answered by generating and re-running, the other by reading the message. `references/session-evidence.md` binds the first to `baoyu-diagram` and tells the driver to do it without asking.
 
 A diagram that exists but declares no lane map is answered after the page opens
 rather than before it. The page is useful on that rung — the image is there and
@@ -295,13 +295,13 @@ Asserted by prose rather than by a script: that the SVG is a narrative and the t
 
 ## Not doing
 
-- **Generating the SVG in Python.** No script draws it. The script requires one, names the target path, and hands over the prompt; `SKILL.md` binds that to `baoyu-diagram` and makes generating it automatic rather than offered. The prompt also carries the presentation requirements the page depends on and a model would otherwise choose against: a light theme (`baoyu-diagram` defaults to dark), a 12px minimum font size, clock labels in the local timezone, and one sub-timeline per identity forked from the driver lane.
+- **Generating the SVG in Python.** No script draws it. The script requires one, names the target path, and hands over the prompt; `references/session-evidence.md` binds that to `baoyu-diagram` and makes generating it automatic rather than offered. The prompt also carries the presentation requirements the page depends on and a model would otherwise choose against: a light theme (`baoyu-diagram` defaults to dark), a 12px minimum font size, clock labels in the local timezone, and one sub-timeline per identity forked from the driver lane.
 - **A deterministic chart as the overview.** Considered and declined: the editorial content — phase bands, what a spec review found, why an anomaly was recorded — is the reason to look at the page, and none of it exists as structured data. The job table covers the geometry-only case.
 - **Checking the SVG's narrative numbers.** Would require the page to establish what the prose means, which is a parser for English.
 - **A static shareable bundle.** The transcript and cost receipt pages are already self-contained files, which is the sharing path.
 - **Aggregation across runs.** One receipt in, one page.
 - **New evidence written during a run.** No receipt schema change, and no edits to `delegate-job.sh`, `make-receipt.py`, `validate-receipt.py`, or either existing renderer's behaviour.
-- **A `references/*.md` flow document.** One command with one optional argument; `SKILL.md` carries it directly, as it does for the other two renderers.
+- **A `references/*.md` flow document of its own.** One command with one optional argument. Since v3.12.0 `SKILL.md` is a router, so it shares `references/session-evidence.md` with the other evidence commands, as the other two renderers do.
 
 ## Verification
 
@@ -354,6 +354,6 @@ Manual checks no automated check covers: with the annotated diagram, switch on *
 
 ## Changing any of this
 
-`references/darwin-ratchet.md` is the gate. The dimensions here are: what the overview is allowed to assert, how a click resolves to a job, what the verification checks, and what the two new tabs read. Change one at a time and keep the change only when repo evidence improves.
+`references/skill-change-gate.md` is the gate. The dimensions here are: what the overview is allowed to assert, how a click resolves to a job, what the verification checks, and what the two new tabs read. Change one at a time and keep the change only when repo evidence improves.
 
 The dimension most likely to erode is the first. The pressure will be to check less of the diagram, or to let its prose reach the summary of a run, because a narrative overview reads better than a measured one. A change there needs a test that fails when the rule is broken, not a paragraph promising to hold it.

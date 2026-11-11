@@ -1,0 +1,52 @@
+# Stable case ID used in reports. Keep it the same as the filename without .yaml.
+id: code-review-no-trigger
+# Human-readable summary shown in case lists and reports.
+title: Reviews a small file without loading the delegation skill
+# Background explaining the behavior this case covers.
+description: |
+  The skill description says: "Not for ordinary code review." A request to
+  review one file before a push is that near miss. The correct behaviour is to
+  read the file and review it, with no Handoff workflow around it.
+  The fixture is a 15-line src/retry.py with one planted bug: a bare except
+  that swallows every error, KeyboardInterrupt included, and an exhausted
+  retry that returns None as if nothing failed. The judge reads the tool trace
+  and the answer: no Skill call to agent-handoff, no skill file read, no
+  .handoff/ directory created, and the final message names the swallowed
+  error.
+
+input:
+  # User prompt sent to the Agent for a single-turn case.
+  prompt: |
+    Review src/retry.py before I push it. Anything wrong?
+
+context:
+  files:
+    # Tells the shared judge which case's checks to run.
+    ".eval-case": |
+      code-review-no-trigger
+    "src/retry.py": |
+      import time
+
+
+      def backoff(attempt, base=0.5, cap=8.0):
+          return min(cap, base * 2 ** attempt)
+
+
+      def retry(fn, attempts=3):
+          """Return fn()'s result, trying up to `attempts` times."""
+          for attempt in range(attempts):
+              try:
+                  return fn()
+              except:
+                  time.sleep(backoff(attempt))
+          return None
+
+judge:
+  # Grading strategy used to decide whether this case passes.
+  # Options: rule_based | script. This suite uses no LLM judge: see the note
+  # at engine: in eval.yaml.
+  type: script
+  # skill-up copies this file alone and runs it in the workspace, so it is
+  # self-contained and reads its case from .eval-case.
+  script_path: evals/fixtures/scripts/judge.py
+  timeout_seconds: 30

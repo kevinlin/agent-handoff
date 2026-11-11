@@ -937,7 +937,7 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
                 if agent_path.exists() and (expected is None or sha256(old) != expected):
                     blocked = (
                         "refusing to overwrite a user-owned or modified agent file; "
-                        "choose import, a different namespaced file, or skip in references/setup.md"
+                        "choose import, a different namespaced file, or skip in references/setup-wizard.md"
                     )
                 rendered = render_agent(identity, desired[identity])
                 changes.append(
