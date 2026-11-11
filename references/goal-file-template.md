@@ -32,7 +32,7 @@ status: not run
 |----|----------|------|------------|---------|--------|--------|-------|
 | T1 | deep_reasoner | ... | ... | - | - | in_progress | - |
 | T2 | fast_worker | ... | [check command that must pass] | - | high | delegated | job-... |
-| T3 | e2e_verifier | ... | verdict.json validates as PASS | T1,T2 | high | pending | - |
+| T3 | e2e_tester | ... | verdict.json validates as PASS | T1,T2 | high | pending | - |
 
 status: pending | in_progress | delegated | review | rework-<n> | arbitration | rejected | taken-back | done
 
@@ -51,7 +51,7 @@ status: pending | in_progress | delegated | review | rework-<n> | arbitration | 
 - One row per task. `identity` is the capability the work needs (Phase 1 of the flow), or `-` for a row the driver keeps inline. Which CLI runs a row is the identity's config and is never written in this table.
 - `arbiter` takes no routine rows. `references/arbitration.md` invokes it.
 - `acceptance` is verifiable: a command to run or a behaviour to observe. Phase 4 reviews against it.
-- `depends` is a comma-separated list of task ids that must reach `done` before the row is submitted, or `-`. An `e2e_verifier` row lists both the specifier row and the implementation row.
+- `depends` is a comma-separated list of task ids that must reach `done` before the row is submitted, or `-`. The `e2e_tester` row that runs the gate lists both the row that wrote it and the implementation row.
 - `jobId` comes from `delegate-job.sh submit`. Every delegated row gets one, and a `-` row stays at `-`.
 - Keep statuses current. The monitor loop reads this file first, and a stale row causes a duplicate delegation.
 - `## Spec Review` holds the status line and one line per round. The file is rewritten per run, so the marker resets by itself.

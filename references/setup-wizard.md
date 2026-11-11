@@ -7,7 +7,8 @@
 Five identities. Each has its own `backend` (`claude`, `codex`, `copilot`, `cursor` or `antigravity`), `model`, `effort` and `permission_mode` (`default` or `allow-all`; absent means `default`), and they mix freely across vendors.
 
 - `deep_reasoner`, `fast_worker` and `arbiter` are always configured. A config with only these three is complete.
-- `e2e_specifier` and `e2e_verifier` are written only when setup runs `--with-e2e`.
+- `e2e_tester` is written only when setup runs `--with-e2e`, and `operator` only with `--with-operator`. Setup keeps an optional identity the config already has, unless the matching `--no-with-...` flag is given.
+- A config from before 4.0.0 still has `[e2e_specifier]` or `[e2e_verifier]`. Setup replaces them with `e2e_tester`, filled from the old specifier, and the preview shows the change.
 
 Two review caps go with them, in the config's `[review]` section: `spec_max_rounds` (default 1) and `implementation_max_rounds` (default 3), set with `--spec-max-rounds` and `--implementation-max-rounds`. Setup seeds both from the resolved config, so running it again never resets them, and changing them leaves `verified` alone.
 
@@ -18,9 +19,9 @@ Model and effort rules differ per backend and live in `references/backends/<back
 Stamp the run first, so the closing receipt has a start to measure from: `python3 "$HANDOFF_DIR/scripts/make-receipt.py" --start --repo "$REPO"`. Then pick one path:
 
 - **With a browser:** `python3 "$HANDOFF_DIR/scripts/handoff-setup-ui.py" --repo "$REPO"`, and report the localhost URL it prints. The page binds to `127.0.0.1` behind a per-run token. It shows every identity's backend, model, effort and permission on one page, with the choices read from the installed CLIs and, for Copilot, from the account. The user previews the exact file paths and diffs, then confirms and applies. A smoke test follows by itself.
-- **No browser:** `python3 "$HANDOFF_DIR/scripts/handoff-setup.py" --interactive --repo "$REPO"` in the terminal, then step back. A preset uses `default` permissions. Its custom mode asks a permission question per identity, and an empty answer means `default`. A Cursor or Antigravity model is typed on this path, so only the smoke test checks that id against the catalogue. Chat questions are the last resort.
+- **No browser:** `python3 "$HANDOFF_DIR/scripts/handoff-setup.py" --interactive --repo "$REPO"` in the terminal, then step back. A preset uses `default` permissions. Its custom mode asks a permission question per identity, and an empty answer means `default`. A Cursor or Antigravity model is typed on this path, so only the smoke test checks that id against the catalogue. Chat questions are the last resort. Use this path too for a schema v1 config: the page cannot open on one, and the terminal path replaces the file and keeps a backup.
 
-The page fixes the beginner choices itself: project scope, a `.git/info/exclude` entry, no persistent routing block, generated Claude agents, and an automatic smoke test. Do not ask a first-time user about them. An advanced caller passes flags to `handoff-setup.py` directly: global scope, `--role-permission-mode IDENTITY=VALUE`, `--with-e2e`.
+The page fixes the beginner choices itself: project scope, a `.git/info/exclude` entry, no persistent routing block, generated Claude agents, and an automatic smoke test. Do not ask a first-time user about them. An advanced caller passes flags to `handoff-setup.py` directly: global scope, `--role-permission-mode IDENTITY=VALUE`, `--with-e2e`, `--with-operator`.
 
 ## What to relay
 

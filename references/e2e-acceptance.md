@@ -1,23 +1,25 @@
 # E2E acceptance
 
-Two optional identities add acceptance coverage to a run. `e2e_specifier` writes the gate, `e2e_verifier` runs it, and the driver judges the gate itself. The Phase 4 review catches a diff that does not do what the brief said. It does not catch a feature that fails when a person uses it. These two roles cover that gap, and only that: there is no cleanup stage and no mutation-testing stage here.
+One optional identity, `e2e_tester`, adds acceptance coverage to a run. It writes the gate in one job and runs it in a second, and the driver judges the gate itself. This file calls the first job the specifier and the second the verifier. The Phase 4 review catches a diff that does not do what the brief said. It does not catch a feature that fails when a person uses it. These two jobs cover that gap, and only that: there is no cleanup stage and no mutation-testing stage here.
 
 ## When to use
 
-Phase 1 of the flow decides whether a run gets e2e rows: it does when the change alters user-observable behaviour at a real interface. Both identities are off by default, and `/agent-handoff config --with-e2e` configures them. An unconfigured identity passed to `delegate-job.sh --role` is refused like any other.
+Phase 1 of the flow decides whether a run gets e2e rows: it does when the change alters user-observable behaviour at a real interface. `e2e_tester` is off by default, and `/agent-handoff config --with-e2e` configures it. An unconfigured identity passed to `delegate-job.sh --role` is refused like any other.
+
+A goal file written before 4.0.0 names `e2e_specifier` and `e2e_verifier`. Read both as `e2e_tester`. A row with no job yet gets its identity cell rewritten before you submit it. A row that already has a job keeps it, and its fix rounds `resume` that job. Leave rows in `done`, `rejected` or `arbitration` as they are.
 
 ## Order
 
 ```text
 frozen goal excerpt + spec, base = <sha0>
-  |-- T_spec  identity e2e_specifier   worktree off <sha0>   parallel
+  |-- T_spec  identity e2e_tester      worktree off <sha0>   parallel
   `-- T_impl  identity fast_worker     branch/worktree as usual
 
 driver reviews T_spec acceptance strength against goal criteria
 driver integrates T_spec + T_impl onto the feature branch -> <sha1>
 driver records sha256 of the reviewed .feature files
 
-T_verify  identity e2e_verifier  depends T_spec,T_impl  base <sha1>
+T_verify  identity e2e_tester  depends T_spec,T_impl  base <sha1>
 
 PASS    -> driver reviews verifier diff and evidence -> merge decision
 FAIL    -> original implementer fixes product (a review round on its chain) -> new combined sha -> rerun
@@ -27,6 +29,7 @@ BLOCKED -> driver resolves the prerequisite -> fresh verifier submit on the same
 - Nothing merges to `main` mid-flight. The tests and the implementation meet on the feature branch, because tests merged ahead of the implementation would leave `main` red. `main` is reached only after a PASS and the driver's final review, and a merge is still a hard stop.
 - The verifier row lists both the specifier row and the implementation row in `depends`. It needs the tests in its tree, not only the feature.
 - The verifier tests an exact commit. `<sha1>` is pinned before submission and comes back in the verdict.
+- The verifier is a fresh `submit`, never a `resume` of the specifier job. The run that executes the gate must not carry the session that wrote it.
 
 ## Worktrees
 
@@ -35,7 +38,7 @@ E2E rows run in a worktree, on any backend:
 ```bash
 bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
-  --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
+  --role e2e_tester --worktree "e2e/<task-id>" --base "$SHA0"
 ```
 
 1. `--repo` is always the main repo. A worktree is a working directory derived from it, never a `--repo` value: passing one falls through to the global config and runs the wrong model.

@@ -26,13 +26,14 @@ A fresh run:
 
 - Refine the request into a concrete plan and write `.handoff/goal.md` from `references/goal-file-template.md`: the goal as one why-forward sentence with its `done_when`, the checkpoint rule, and the task table. The monitor loop writes statuses into the same file, so read and write it only through `goal-sync.py` (`read`, then `write --expect-sha256 <hash>`). It aborts instead of overwriting a concurrent update.
 - Split by making one judgment per row: which capability does this work need?
-  - `fast_worker`: mechanical, well-scoped, specification-complete work that the acceptance criteria alone can verify. Scaffolding, implementation, long-context edits, refactors, tests, build fixes, wide read-only scans, batch migrations, doc generation. Most delegable work.
+  - `fast_worker`: mechanical, well-scoped, specification-complete work that the acceptance criteria alone can verify. Scaffolding, implementation, long-context edits, refactors, tests, build fixes, wide read-only scans, batch migrations, doc generation, and the scripts behind a build, a render or a media pipeline. Most delegable work.
   - `deep_reasoner`: ambiguous work where a wrong premise in step one is expensive to discover late. A hard diagnosis, a root cause, a config change whose wrong variant fails quietly.
+  - `operator` (optional): work whose result comes from running tools and is not a text diff. A long build, a headless render, a media or model API call, an app launched for a visual check.
   - `-` for what the driver keeps inline: architecture, the split decision itself, cross-task integration, security- and correctness-critical paths, difficult product tradeoffs, final acceptance.
 
   Never route a quality-critical step to a cheaper identity to save money, and never spend the driver's seat on mechanical work. A request to save quota does not move a `-` row: say why it stays, and delegate the rest. Save on execution by delegating, not by cutting reasoning: a planner that thinks less takes more turns. Bound the planner's execution surface instead: keep its configured effort, and hand the planner a compact evidence packet so it does not rediscover the repo.
 - Attack your own split before acting on it. Answer three questions in writing: does each delegated row really not need the expensive tier; does the integration cost of the split boundary eat the saving; and does each row's identity match the work's stakes, with a reason it is not a more expensive one. A row that survives all three is delegated. Any other row gets its identity corrected, is merged into a neighbour, or stays inline. Fix the split first, then delegate.
-- Acceptance coverage. When the change alters user-observable behaviour at a real interface (a UI, an API surface, a mobile screen), add `e2e_specifier` and `e2e_verifier` rows and read `references/e2e-acceptance.md`. Skip them for internal refactors, docs, config and pure library work. When the criterion fires and the two identities are not configured, say so once ("this change is user-observable; `/agent-handoff config --with-e2e` would add acceptance coverage") and continue without them.
+- Acceptance coverage. When the change alters user-observable behaviour at a real interface (a UI, an API surface, a mobile screen), add two `e2e_tester` rows, one that writes the gate and one that runs it, and read `references/e2e-acceptance.md`. Skip them for internal refactors, docs, config and pure library work. When the criterion fires and `e2e_tester` is not configured, say so once ("this change is user-observable; `/agent-handoff config --with-e2e` would add acceptance coverage") and continue without them.
 - Spec review. Every plan gets one independent read from `deep_reasoner` before it reaches the user. There is no toggle. Build the Spec Review Packet from `references/packet-templates.md` and submit it:
 
   ```bash
@@ -123,6 +124,6 @@ A row with an identity always goes through `delegate-job.sh`. Two in-session cha
 
 When you do spawn one, or the user asks for a step to run inline, pick the agent definition in this order:
 
-1. A `handoff-*` agent, if setup generated one (`handoff-deep-reasoner`, `handoff-fast-worker`, `handoff-arbiter`). Its model and effort are the user's own setup choice.
+1. A `handoff-*` agent, if setup generated one (`handoff-deep-reasoner`, `handoff-fast-worker`, `handoff-arbiter`, `handoff-e2e-tester`, `handoff-operator`). Its model and effort are the user's own setup choice.
 2. The user's own similarly named agent (`deep-reasoner.md`, `fast-worker.md`, or one whose description clearly matches the identity). Use it as it is. Never rename or edit it.
 3. A plain Task-tool subagent with the identity described in the prompt. A repo with no setup yet lands here every time, and that is normal.
