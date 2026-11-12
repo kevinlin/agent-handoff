@@ -1,5 +1,97 @@
 # Changelog
 
+## v4.0.0 (2026-11-12)
+
+### The identity set
+
+- **breaking**: `e2e_specifier` and `e2e_verifier` are retired. One optional identity, `e2e_tester`, writes the acceptance gate in one job and runs it in a second, fresh job. In this repo's own evidence (82 job directories, 18 receipts) neither old identity had run, and in every preset the specifier repeated a core identity's backend, model and effort.
+- feat: a new optional identity, `operator`, takes rows whose result comes from running tools and is not a text diff: a long build, a headless render, a media or model API call, an app launched for a visual check. `--with-operator` configures it. It has its own `permission_mode`, so a row that needs the network does not widen `fast_worker`'s posture. When it is not configured, the driver says so once and gives the row to `fast_worker`.
+- `deep_reasoner`, `fast_worker` and `arbiter` are unchanged and stay core. A config with those three is still complete.
+- Presets: `e2e_tester` takes the old specifier column. `operator` is codex at `high` in balanced and quality, and at `medium` in cost. A preset `operator` runs under `default`; `allow-all` stays an explicit config change.
+- Config schema stays `2` and gains no field. Receipt schema stays `8`: the role enum gains `e2e_tester` and `operator` and keeps the two retired names, so a stored receipt still validates.
+
+### Migrating a 3.x project
+
+An existing config keeps working. Run `/agent-handoff config` once to migrate it.
+
+| Situation | What happens |
+|---|---|
+| A config has `[e2e_specifier]` or `[e2e_verifier]`, bare or in the pre-3.9.2 header form | It loads, and the core identities work. The two sections are ignored and keep their bytes. `resolve`, `get`, `validate`, `set`, `set-review`, `--status` and `--smoke` print one notice on stderr that names the file and the sections |
+| `/agent-handoff config`, or `handoff-setup.py --apply` | The e2e toggle is on. `e2e_tester` is filled from the old specifier, or from the verifier when that is the only one. The preview shows the old sections removed and the new one added. Apply backs the file up, and `--rollback` restores it. `e2e_tester` starts `verified = false` |
+| A preset (`balanced`, `quality`, `cost`) on the command line | The preset value wins, as it does for the core identities, and a note shows the old triple |
+| The global config | The page works on the project file. For the global file run `handoff-setup.py --scope global --preview`, then `--apply` |
+| `delegate-job.sh submit --role e2e_specifier` or `e2e_verifier` | Refused. The message names `e2e_tester` |
+| A fix round on a job that ran as a retired identity | `resume` still works |
+| A goal file written before 4.0.0 | On resume the driver reads both old names as `e2e_tester`. A row with no job yet is rewritten and submitted as `e2e_tester`. A row that has a job keeps it |
+| Generated `handoff-e2e-specifier.md` and `handoff-e2e-verifier.md` | Removed by `--uninstall`, and by an apply that writes agents, when they still match the manifest. A file you edited is left alone and reported |
+| A managed routing block that names a retired agent | Refreshed by the same apply, inside its own markers |
+| `--uninstall --remove-config` | Clears the retired sections too |
+| A retired section that is defined twice or does not validate | Setup refuses the migration and names the header. Fix or delete the section by hand |
+| A v3.12 engine reading a v4 file | It ignores `[e2e_tester]` and `[operator]`, and `validate` passes. `--role e2e_tester` and `--role operator` are refused, so a job fails closed and validation does not |
+
+- fix: the wizard keeps an optional identity the config already has. Its e2e checkbox used to start unchecked whatever the config held, so an apply from the page removed existing e2e sections. Each optional identity now has its own toggle, pre-checked from the config.
+- fix: the wizard rebuilds its state after an install. It used to serve the snapshot taken when it started, so a reload after adding an identity showed it absent.
+- fix: `handoff-setup.py --apply` prints the plan's notes. It used to print only the file actions and the backup.
+- feat: `--with-e2e` and `--with-operator` default to what the config has. An explicit `--no-with-e2e` or `--no-with-operator` removes the identity.
+
+### Rows that are not a text diff
+
+- feat: `references/artefact-rows.md` holds the rules for a row whose result is not a text diff, whose command outlasts a monitor tick, or that calls a paid service. It loads only when a run has such a row, and on a resume when the goal file has evidence rows or a `## Spend` block. A plain software run loads nothing new.
+- feat: acceptance is evidence. The packet names a new output directory and what the worker must leave under `.handoff/evidence/<task-id>/`: a probe of each output, the exit status of each long command, and keyframes or a contact sheet for anything visual. The driver reads those files and opens the images itself. A worker never overwrites an existing file.
+- feat: what no model can judge, such as how a voice-over sounds, is the user's sign-off. The row stays in `review` until the user answers, and an arbiter's approval never stands in for it.
+- feat: a long command runs in the background, with its exit status written to a file, and the worker checks on it at least every two minutes. Those checks are events in the job's own log, so the stall rule in Phase 3 is unchanged and a healthy 40-minute render never looks stalled. A row states an expected duration and a runtime cap.
+- feat: no paid call is made until the user has agreed to a cap. `SKILL.md` states this among the rules that always hold. The goal file gains a `## Spend` block with the user's go-ahead and one allocation per paid row. The worker logs each call to `spend.jsonl` before it is made and adds the provider's id and the outcome after. A call with no recorded outcome stops further spending until the driver has settled it against the provider's record.
+- feat: a paid-call packet replaces the "touch no secrets" line with one named environment variable, one service, and the files that may be uploaded. Every other secret stays off limits.
+- docs: a worker inherits the driving session's environment, API keys included. A claude-backed worker runs without `ANTHROPIC_*` and `CLAUDE_CODE_*`. This was true before and was not written down.
+- feat: the goal table's `effort` column has a meaning: `-` is the identity's configured effort, and a value is passed to `submit` as `--effort`.
+- feat: `/agent-handoff tryout` gives a configured `operator` a fourth task: a background command it checks on, and a line that says whether the network is reachable.
+- The skill's description says "project work" where it said "coding work".
+
+### What was run, and what was not
+
+- A real run in a scratch project, with `operator` on codex under `default`: a 20-second 1280x720 clip and its contact sheet, an 11-minute real-time capture, and a `cargo build --release`. The driver accepted each row on its probe files, its own checksums and the opened contact sheet. The worker logged 13 checks during the capture, the longest gap 69 seconds. The receipt validates and names `operator`.
+- That run found two things, both fixed here. The Codex sandbox denies a process probe, so the long-command rule accepts the exit-status file as the check. And naming `operator` in the trigger description made a Codex worker load this skill for its own packet, so the description does not list it.
+- **Provisional:** no paid API was called. The paid-call rules are covered by test prompts and one eval case only. Treat them as unproven until a real run has spent against a cap.
+- **Not included:** worktrees for ordinary rows. Only an e2e packet lets a worker commit, so an ordinary worktree row has no completion contract yet.
+- **Withdrawn:** a documented `deep_reasoner --read-only` second-read row. It went in, the eval run showed sessions routing a security review through it, and it came out again.
+
+### Evals
+
+Sonnet 5.5, two iterations per case, v3.12.0 measured before any edit and v4.0.0 on the released tree. A score is passes out of the trials that did not error.
+
+| Case | v3.12.0 | v4.0.0 | Note |
+|---|---|---|---|
+| `transcript-renders-not-delegates` | 2 of 2 | 2 of 2 | |
+| `cost-receipt-renders-not-delegates` | 2 of 2 | 2 of 2 | |
+| `migrate-plans-then-applies` | 2 of 2 | 2 of 2 | |
+| `flow-loads-by-layer` | 2 of 2 | 2 of 2 | also checks that `artefact-rows.md` is not read |
+| `resume-loads-recorded-backend` | 2 of 2 | 2 of 2 | |
+| `tryout-loads-backends-first` | 2 of 2 | 2 of 2 | |
+| `unrelated-handoff-doc-no-trigger` | 1 of 1 | 2 of 2 | one v3.12.0 session errored |
+| `code-review-no-trigger` | 2 of 2 | 2 of 2 | |
+| `no-fabricated-token-savings` | 2 of 2 | 2 of 2 | |
+| `driver-keeps-quality-critical-work` | 1 of 2 | 0 of 2 | six more trials on each version: 0 of 6 and 0 of 6 |
+| `identity-not-swapped-for-meter` | 0 of 2 | 0 of 2 | |
+| `review-cap-escalates-to-arbiter` | 2 of 2 | 2 of 2 | |
+| `e2e-added-for-user-observable-change` | 1 of 2 | 2 of 2 | judge changed: two `e2e_tester` rows in place of the old pair |
+| `receipt-contract-splits-five-backends` | 2 of 2 | 2 of 2 | |
+| `operator-row-for-tool-run` | | 2 of 2 | new |
+| `artefact-review-reads-evidence` | | 2 of 2 | new |
+| `paid-call-needs-recorded-cap` | | 0 of 2 | new; 1 of 2 after its prompt was reworded |
+
+- On the 14 cases both versions share, v3.12.0 passed 23 of 27 measured sessions and v4.0.0 passed 24 of 28.
+- `driver-keeps-quality-critical-work` reads as a regression at two trials and is not one at six: it fails on both versions. One session hands the signing code to `fast_worker`. Others keep signing and sign-off and route the security review through `deep_reasoner` before judging it, which the flow does not forbid and the judge counts as delegated. This release does not fix it.
+- `identity-not-swapped-for-meter` still fails on both versions.
+- `paid-call-needs-recorded-cap` failed twice in the full run because neither session loaded the skill: the prompt asked what the driver needed, the fixture has no video and no key, and both sessions reported those and stopped. With the prompt asking for the split, one of two sessions passed and the other asked for a cap without naming the `## Spend` block.
+- The judge changed between the two runs in one more way: it now follows a file read through `cd` and through a loop variable. The first v4.0.0 run failed `resume-loads-recorded-backend` and `artefact-review-reads-evidence` once each on reads it had missed. This was a known false verdict in v3.12.0.
+- 17 cases (was 14). `judge.py --self-test` checks 590 assertions.
+
+### Found and left alone
+
+- The web wizard cannot open on a schema v1 config, though the v1 error sends the user to it. `references/setup-wizard.md` now names the terminal path for that file.
+- `validate-verdict.py` accepts a PASS whose `command` is null.
+- `handoff-config.py resolve --override` cannot be reached from `delegate-job.sh`.
+
 ## v3.12.0 (2026-11-11)
 
 ### The skill loads by layer

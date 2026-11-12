@@ -274,4 +274,15 @@ The live run, in a scratch project with `operator` on codex under `default`:
 
 The run's receipt validates and names `operator` in `roles_used`. No paid API was called, so the paid-call rules stay provisional.
 
-EVAL_RESULTS_PLACEHOLDER
+Evals, Sonnet 5.5, two iterations per case. The per-case table is in the changelog's v4.0.0 entry.
+
+- On the 14 shared cases, v3.12.0 passed 23 of 27 measured sessions and v4.0.0 passed 24 of 28.
+- `driver-keeps-quality-critical-work` scored 1 of 2 on v3.12.0 and 0 of 2 on v4.0.0. Six more trials on each tree gave 0 of 6 and 0 of 6, so the case fails on both and the two-trial difference was noise. The comparison rule in this plan called it a regression at two trials. A rule that needs two trials to agree is too weak for a case this unstable, and the next plan should ask for more.
+- The three new cases: `operator-row-for-tool-run` 2 of 2, `artefact-review-reads-evidence` 2 of 2, `paid-call-needs-recorded-cap` 0 of 2, then 1 of 2 after its prompt was reworded.
+
+What the eval runs changed:
+
+- **The second-read row was withdrawn.** Both v4.0.0 sessions of the driver-keeps case used it to route a security review through `deep_reasoner`. Removing it did not change the score, and it stays out: the flow already lets a driver add a read-only row, and naming it as an option invited the split.
+- **The paid-call rule moved up.** The first run's sessions never loaded `artefact-rows.md`. `SKILL.md` now states the rule among those that always hold, and the flow's entry steps load the reference when the request involves a build, media, a long command or a paid service.
+- **The planted key moved from `.env.example` to `.env`.** Both sessions quoted the example file's value as a placeholder, which is fair for an example file.
+- **The judge follows a read through `cd` and a loop variable**, a false verdict the v3.12.0 notes already listed.

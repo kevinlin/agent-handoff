@@ -28,4 +28,4 @@
 | [plan_antigravity-cli-backend.md](plan_antigravity-cli-backend.md) | Antigravity CLI as fifth backend | design_cli-backends | v3.10.0 | implemented |
 | [plan_session-evidence-folders.md](plan_session-evidence-folders.md) | Session id from the environment; one `sessions/` evidence folder | design_agent-handoff-evidence | v3.11.0 | implemented |
 | [plan_skill-surface-layering.md](plan_skill-surface-layering.md) | Layered skill surface, purpose-named references, eval update | design_agent-handoff | v3.12.0 | implemented |
-| [plan_identity-set-and-artefact-rows.md](plan_identity-set-and-artefact-rows.md) | One e2e identity, an `operator`, rules for rows that are not a text diff | design_agent-identities-and-config | v4.0.0 | planned |
+| [plan_identity-set-and-artefact-rows.md](plan_identity-set-and-artefact-rows.md) | One e2e identity, an `operator`, rules for rows that are not a text diff | design_agent-identities-and-config | v4.0.0 | implemented |
