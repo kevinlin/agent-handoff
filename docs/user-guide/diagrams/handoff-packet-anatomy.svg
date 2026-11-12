@@ -73,7 +73,7 @@
 
   <!-- e2e -->
   <rect x="816" y="396" width="238" height="84" rx="10" fill="#ffffff" stroke="#0891b2" stroke-width="1.5"/>
-  <text x="836" y="426" class="name m" style="fill:#0e7490">the e2e pair</text>
+  <text x="836" y="426" class="name m" style="fill:#0e7490">e2e_tester</text>
   <text x="836" y="450" class="small">the spec inline, a named test</text>
   <text x="836" y="468" class="small">target, and a branch of its own</text>
 

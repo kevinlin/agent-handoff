@@ -6,7 +6,7 @@
 |---|---|---|
 | [design_agent-handoff.md](design_agent-handoff.md) | Four-phase delegation flow | 5 plans: cc-to-cc, copilot, deep-reasoner, e2e-gauntlet, review-gates |
 | [design_agent-handoff-evidence.md](design_agent-handoff-evidence.md) | Session evidence, transcripts, receipts | 4 plans: duration, cost-receipt, transcript-viewer, session-evidence-folders |
-| [design_agent-identities-and-config.md](design_agent-identities-and-config.md) | Identities, configuration, setup | 0 plans |
+| [design_agent-identities-and-config.md](design_agent-identities-and-config.md) | Identities, configuration, setup | 1 plan: identity-set-and-artefact-rows |
 | [design_cli-backends.md](design_cli-backends.md) | The five worker CLIs: discovery, command lines, posture, resume, catalogues, smoke | 3 plans: permission-mode, cursor, antigravity |
 | [design_session-visualisation.md](design_session-visualisation.md) | Session visualisation page | 0 plans |
 

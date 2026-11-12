@@ -40,12 +40,12 @@ Three core, two optional. Each is a `backend + model + effort` triple and nothin
 | `deep_reasoner` | core | ambiguous work where a wrong premise in step one is expensive to discover late; also reviews every plan before it reaches the user |
 | `fast_worker` | core | mechanical, specification-complete work the acceptance criteria alone can verify |
 | `arbiter` | core | the blind second solver for contested calls, and the judge a review gate escalates to when its round cap runs out; not assigned routine rows |
-| `e2e_specifier` | optional | writes the acceptance gate: Gherkin with stable scenario IDs plus repo-native executable tests |
-| `e2e_verifier` | optional | runs the reviewed gate against a pinned commit and produces a validated verdict |
+| `e2e_tester` | optional | writes the acceptance gate in one job (Gherkin with stable scenario IDs plus repo-native executable tests), and in a second, fresh job runs the reviewed gate against a pinned commit and produces a validated verdict |
+| `operator` | optional | rows whose result comes from running tools and is not a text diff: a long build, a headless render, a media or model API call, an app launched for a visual check |
 
-A config carrying only the three core identities is complete. The optional pair is written only when setup runs `--with-e2e`, and `--status` prints all five with `<unset>` for the unconfigured ones; that listing is how a user discovers the add-on exists.
+A config carrying only the three core identities is complete. `e2e_tester` is written only when setup runs `--with-e2e`, and `operator` only when it runs `--with-operator`. `--status` prints all five with `<unset>` for the unconfigured ones; that listing is how a user discovers the add-ons exist.
 
-Two costs of making these full identities rather than task labels are real and accepted: `role` carries two meanings (capability routing in config, pipeline responsibility in the flow), and a user who wants one model for both e2e stages configures it twice.
+One cost of making these full identities rather than task labels is real and accepted: `role` carries two meanings (capability routing in config, pipeline responsibility in the flow). `e2e_tester` carries two pipeline stages on one triple, and the two stages are separate jobs: the verify job is a fresh `submit`, never a `resume` of the spec job.
 
 Rows the driver keeps take identity `-`: architecture, the split decision itself, cross-task integration, security- and correctness-critical paths, final acceptance.
 
@@ -58,6 +58,8 @@ The phase produces one artifact: `.handoff/goal.md`, holding a why-forward goal 
 ### One judgment per row
 
 Splitting a task means answering one question per row, and nothing else: *which capability does this work need?* There is deliberately no separate "owner", "backend", or "meter" decision at the row level, because each of those would be a second place to get routing wrong and a lever for a driver to talk itself onto a cheaper model mid-run. Picking the identity picks the execution channel automatically.
+
+The identities that take a row are `fast_worker`, `deep_reasoner`, `e2e_tester` for the acceptance gate, and `operator` for a row whose work is running tools and whose result is not a text diff. When `operator` is unconfigured, that row goes to `fast_worker` and the driver says so once. Capability decides first, so the gate stays with `e2e_tester` and an ambiguous diagnosis with `deep_reasoner`, however long they run. Two options need no new identity. The `effort` cell is `-` for the identity's configured effort, or a value passed as `--effort` that the row's backend accepts. A `deep_reasoner` row submitted `--read-only` can read a risky diff or a row's artefact evidence and report findings, and acceptance stays with the driver.
 
 The two failure directions are named so they can be checked: never route a quality-critical step to a cheaper identity to save money, and never spend the driver's seat on mechanical work.
 
@@ -79,15 +81,26 @@ It used to be its own stage. Folding it into Phase 1 (v3.0.0, when the bundled `
 
 ### Acceptance coverage
 
-One criterion decides whether the optional e2e rows join the table: **add them when the change alters user-observable behaviour at a real interface**: a UI, an API surface, a mobile screen. Skip them for internal refactors, docs, config, and pure library work.
+One criterion decides whether the optional e2e rows join the table: **add them when the change alters user-observable behaviour at a real interface**: a UI, an API surface, a mobile screen. The rows are two `e2e_tester` rows, one that writes the gate and one that runs it. Skip them for internal refactors, docs, config, and pure library work.
 
-The criterion sits with the driver, not with setup state. When it fires but the identities are unconfigured, the driver says so once —
+The criterion sits with the driver, not with setup state. When it fires but `e2e_tester` is unconfigured, the driver says so once —
 
 > this change is user-observable; `/agent-handoff config --with-e2e` would add acceptance coverage
 
 — and then continues without them. Silent skipping would let a configuration choice quietly overrule the orchestrator's judgment about what the change needs. It does not block the run either.
 
-An `e2e_verifier` row carries both the specifier row and the implementation row in its `depends` column. It needs the tests in its tree, not just the feature.
+The `e2e_tester` row that runs the gate carries both the row that wrote it and the implementation row in its `depends` column. It needs the tests in its tree, not just the feature.
+
+### Artefact rows
+
+A row is an artefact row when its result is not a text diff (a build, a render, a clip), when one of its commands outlasts a monitor tick, or when it calls a paid service. The rules attach to the row, so they hold whichever identity runs it. The procedure lives in `references/artefact-rows.md`. This section records what the design is and why.
+
+The reference loads only when a run has such a row: in Phase 1 when the plan has one, on a resume when a row's acceptance names `.handoff/evidence/` or the goal file's `## Spend` block is not `none`, and again in Phase 4 for the review of one. A run with no artefact row loads nothing new, so the default software path stays as it was.
+
+- **Evidence review in place of a diff.** There is no diff to read, and a worker's description of a frame is the same story the diff rule exists to refuse. So the packet names the probe the worker must leave (ffprobe JSON, a checksum, the exit status of each long command, a contact sheet or keyframes for anything visual), and the driver reads those and opens the images itself. Text the row also changed still gets the full diff review. Output goes to a directory that did not exist before, and a worker never overwrites a file, so a rejected row is recoverable without git: its directory moves to `.handoff/rejected/<task-id>/`.
+- **Long commands.** Phase 3 cancels a job after two quiet ticks, and a worker inside one 40-minute render emits nothing until it returns. The stall rule stays as it is. The worker starts such a command in the background and checks it at least every two minutes, and each check is an event in the job's own log, so a healthy long command never looks stalled. The row states an expected duration and a runtime cap, and at the cap the worker stops the command and the driver decides.
+- **Paid calls.** Before Phase 2 the driver lists each paid service and a total cap, and the user's go-ahead goes in the goal file's `## Spend` block. The cap is a per-run authorisation, so it lives there, and config gains no field for it. The driver owns it and allocates it to each paid row before the row is submitted. The worker logs each call to `spend.jsonl` before it is made, and adds the provider's id and the outcome after. A call with no recorded outcome is unknown: the worker stops spending, and the driver settles it against the provider's own record before any further paid call. The packet for such a row replaces the "touch no secrets" line with one variable, one service and the files that may be uploaded. An effect outside the machine cannot be undone, so it needs the user's authorisation before the row runs.
+- **User sign-off.** What no model can judge (audio, motion feel, taste) is the user's call. The row stays in `review` until the user answers, and the answer goes in Notes. An arbiter approval never stands in for it, as it never stands in for an e2e PASS.
 
 ### Spec review — every plan, capped, and last
 
@@ -185,7 +198,7 @@ E2E rows, and any row that must not share a tree, run in a worktree cut from an 
 ```bash
 bash "$HANDOFF_DIR/scripts/delegate-job.sh" submit \
   --repo "$REPO" --prompt-file "$prompt" --label <task-id> \
-  --role e2e_specifier --worktree "e2e/<task-id>" --base "$SHA0"
+  --role e2e_tester --worktree "e2e/<task-id>" --base "$SHA0"
 ```
 
 Four protocol rules, driver-owned, identical on all five backends:
@@ -211,7 +224,7 @@ Binding consequences:
 - **No job writes `.handoff/goal.md`.** Workers return artifact paths in their result; the driver writes them through `goal-sync.py`.
 - An uncommitted user-supplied spec must be inlined into the packet or committed before the tree is cut. The driver picks; it cannot be left implicit.
 
-The e2e packets are the only ones that **replace** the shared template's "Do not commit, push, deploy, publish, or touch secrets" line, with a commit-on-this-worktree-branch rule. Appending a contradicting permission would leave the worker choosing between two rules, so the line is swapped, not extended.
+The e2e packets are the only ones that **replace** the shared template's "Do not commit, push, deploy, publish, or touch secrets" line, with a commit-on-this-worktree-branch rule. Appending a contradicting permission would leave the worker choosing between two rules, so the line is swapped, not extended. A paid-call packet changes the secrets clause of the same line and nothing else (*Artefact rows*).
 
 ### The permission posture, stated plainly
 
@@ -263,7 +276,7 @@ Context carries nothing between ticks, by design. That is what lets a tick fired
 
 ### `depends` is the release valve
 
-The loop reads each row's `depends` column and does not submit a row whose dependencies have not reached `done`, however idle the tick looks. This is the only reason the column exists: the monitor decides what to submit next and has nowhere else to learn that an `e2e_verifier` row waits on two rows rather than one.
+The loop reads each row's `depends` column and does not submit a row whose dependencies have not reached `done`, however idle the tick looks. This is the only reason the column exists: the monitor decides what to submit next and has nowhere else to learn that the `e2e_tester` row that runs the gate waits on two rows rather than one.
 
 ### The anomaly rule
 
@@ -291,13 +304,13 @@ The denial count is read before anything else, for the reason above.
 
 ### Judged against the brief, not against the diff
 
-Re-read the acceptance column and each task brief from `.handoff/goal.md`, *then* read the complete diff — `git diff` scoped to the files the job touched, plus the fastest relevant check. The whole diff, never a sample. Do not accept work you have not read.
+Re-read the acceptance column and each task brief from `.handoff/goal.md`, *then* read the complete diff — `git diff` scoped to the files the job touched, plus the fastest relevant check. The whole diff, never a sample. Do not accept work you have not read. A row whose result is not a text diff is reviewed on its evidence in place of the diff (*Artefact rows*, in Phase 1).
 
 The question is "does this diff satisfy that brief", never "is this diff self-consistent". The distinction is load-bearing and measured: in Superpowers 6, diff-only reviewers caught **0 of 5** missing task briefs. A reviewer holding only a diff confidently redefines the spec as "consistent with whatever changed" and misses tasks that were never started at all.
 
 ### The e2e sequence, before any fix round
 
-When the run carries e2e rows, six steps run in this order:
+`e2e_tester` runs the two stages as two jobs. This section calls the first the specifier and the second the verifier, as `references/e2e-acceptance.md` does. When the run carries e2e rows, six steps run in this order:
 
 1. **Review the specifier's scenarios against the acceptance column** in `.handoff/goal.md`. This step is the load-bearing one: a generated gate weaker than the goal's criteria will green-light a broken feature, and the verifier's verdict inherits that weakness.
 2. **Record the hash at that moment** — sha256 over the reviewed `.feature` files, path-ordered.
@@ -308,7 +321,7 @@ When the run carries e2e rows, six steps run in this order:
 
 Nothing merges to `main` mid-flight. Acceptance artifacts and implementation meet on the feature branch, because merging tests to `main` ahead of the implementation would leave `main` red. `main` is reached only after a PASS plus the driver's final review, which keeps merge inside the existing hard-stop rule.
 
-This ordering is also what keeps the pair off the maker-is-also-judge failure: the specifier writes the gate, the verifier runs it, the driver judges the gate itself, and product fixes go back to the original implementer.
+This ordering is also what keeps the two stages off the maker-is-also-judge failure: the specifier job writes the gate, a fresh verifier job runs it, the driver judges the gate itself, and product fixes go back to the original implementer. The verifier is a fresh `submit` and never a `resume` of the specifier job, so the run that executes the gate does not carry the session that wrote it.
 
 ### Why the verdict is a validated artifact
 
@@ -350,7 +363,7 @@ bash "$HANDOFF_DIR/scripts/delegate-job.sh" resume <jobId> \
 
 The fix packet carries only the prioritized findings and the acceptance criteria that failed, plus "continue end-to-end from here". Not the whole packet again: the resumed session still holds the original.
 
-**The cap is `review.implementation_max_rounds` review passes, default 3.** A review pass is one driver read of the diff against the brief: the original job is pass one and each `resume` adds one, so the default allows two fix rounds, the bound the flow carried before v3.8.0. The cap applies to every delegated implementation row whatever its identity; `fast_worker` is the common case, not the only one. An e2e verifier FAIL is a round on the implementation row's chain, because that is where the fix goes. With e2e rows in the run, an implementation row's `done` is provisional until the verifier's PASS: a FAIL moves it back to `rework-<n>`, sends the verifier row back to `pending`, and holds every other row that depends on it. A dependent already running may finish, and its result is not accepted until the row is `done` again. A rerun after BLOCKED is not a round, because nothing was reviewed: it is a fresh verifier `submit` pinned to the same commit, never a `resume`, so the cap never counts it.
+**The cap is `review.implementation_max_rounds` review passes, default 3.** A review pass is one driver read of the diff against the brief: the original job is pass one and each `resume` adds one, so the default allows two fix rounds, the bound the flow carried before v3.8.0. The cap applies to every delegated implementation row whatever its identity; `fast_worker` is the common case, not the only one. A FAIL from the verify job is a round on the implementation row's chain, because that is where the fix goes. With e2e rows in the run, an implementation row's `done` is provisional until the verifier's PASS: a FAIL moves it back to `rework-<n>`, sends the verifier row back to `pending`, and holds every other row that depends on it. A dependent already running may finish, and its result is not accepted until the row is `done` again. A rerun after BLOCKED is not a round, because nothing was reviewed: it is a fresh verifier `submit` pinned to the same commit, never a `resume`, so the cap never counts it.
 
 When the last pass still has findings open, the argument no longer ends in a takeback. It goes to the arbiter as an escalation ruling (see *The two review gates, and where they escalate*). An approval accepts the diff, overruling the driver's open findings, and the row goes to `done`. An approval never stands in for a PASS. When a validated e2e FAIL is among the open findings, approval means the arbiter judged the scenario wrong and the product right: the scenario goes back to the driver's review in step 1 of the e2e sequence, a new hash is recorded, and the verifier reruns. `main` still needs its PASS.
 
@@ -453,6 +466,8 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 | Adversarial gate | prompt | a split nobody attacked gets delegated |
 | Spec review on every plan | prompt | a plan only its author read |
 | Review against the brief | prompt | the diff-only review, 0 of 5 |
+| Evidence review of an artefact row | prompt | a render or a build accepted on the worker's description |
+| Paid-call cap, the `## Spend` block and `spend.jsonl` | prompt (no script reads either) | money spent past the cap, or a paid row resubmitted before its unknown call is settled |
 | Escalation at the cap, not a takeback | prompt | a disputed task the driver finished itself with nobody ruling on it |
 | Every ruling recorded | prompt | an `## Arbitration` block missing a ruling the arbiter's job log holds |
 | Hard stops | prompt | an unauthorized merge |
@@ -484,9 +499,9 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 - **The Copilot model catalogue is an undocumented endpoint.** The wizard reads the account's entitled models over HTTP with the token `gh auth token` returns. GitHub publishes no stable contract for that endpoint, and Enterprise Cloud data-residency tenants serve their catalogue from a per-tenant host where the request returns nothing usable. The wizard then offers no Copilot model and names the fix rather than guessing one, and a Copilot identity already in the config keeps its model. `docs/specs/design_cli-backends.md` holds the design.
 - **Nothing checks a Copilot pair before the config is written.** Until v3.8.1, apply ran each configured pair past the real CLI and refused to write a config the CLI rejected. The catalogue answers that question for anything chosen in the wizard, and claude and codex never had such a check, so the three backends are now equal here. The wizard's own API refuses a model its served catalogue does not list, so the remaining hole is narrow: a config written by hand, or by the terminal `--role-model` path, reaches its first job unchecked, and the smoke test and `/agent-handoff tryout` are the proof that the pair runs.
 - **The hash lock is partial.** Specifier discipline about separating scaffolding from specs is what keeps the bounded review small; if that discipline slips, the review grows and gets skipped.
-- **Forward compatibility fails closed.** `validate_config` raises on an unknown identity, so a five-identity config errors on a pre-3.2 engine. Acceptable: the skill and its config version travel together, and failing closed is the correct direction.
+- **Forward compatibility fails closed.** `validate_config` raises on an unknown identity, so a five-identity config errors on a pre-3.2 engine. Acceptable: the skill and its config version travel together, and failing closed is the correct direction. 4.0.0 is the exception: a 3.12 engine ignores `[e2e_tester]` and `[operator]` as unknown sections, so its `validate` passes and only a job for either identity is refused (`docs/specs/design_agent-identities-and-config.md`, *Version skew*).
 - **A pre-3.8 engine ignores `[review]`.** The parser reads only schema metadata, `[routing]`, and the identity sections, and carries anything else through untouched, so an older engine runs its own gates: an optional spec review and a two-round cap. That is the one version skew here that fails open. It is accepted because the flow prose, `resume`, and the config reader ship together in one skill directory.
-- **Cost of the acceptance pair.** Two extra jobs per user-observable change. The Phase 1 criterion is the control; if it fires too often the criterion tightens, not the identities.
+- **Cost of the acceptance gate.** Two extra jobs per user-observable change, both on `e2e_tester`. The Phase 1 criterion is the control; if it fires too often the criterion tightens, not the identities.
 - **Cost of the review gates.** One spec-review job on every run, unconditional since v3.8.0 where the default config used to spend nothing; one more per extra spec round; one arbiter job per escalation. The caps are the control. Raising a cap to avoid escalation only buys more rounds of the same argument.
 - **This covers two stages of a longer acceptance pipeline, not a whole one.** There is no cleanup stage and no mutation-testing stage here, and Handoff's diff review and fastest-relevant-check are not substitutes for either.
 

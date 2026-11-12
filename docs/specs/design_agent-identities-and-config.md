@@ -19,7 +19,8 @@ Covered: the five identities and what each takes, the resolution chain from a ta
 | The job primitive itself (`submit`/`status`/`result`/`resume`/`cancel`/`cleanup`) | `scripts/delegate-job.sh` header comment |
 | Session evidence, transcripts, receipts | `docs/specs/design_agent-handoff-evidence.md` |
 | What the two round caps *do* once resolved | `docs/specs/design_agent-handoff.md`, *The two review gates, and where they escalate* |
-| The acceptance gate the optional identities serve | `references/e2e-acceptance.md`, `assets/verdict-schema.json` |
+| The acceptance gate `e2e_tester` serves | `references/e2e-acceptance.md`, `assets/verdict-schema.json` |
+| The rules for a row whose result is not a text diff: evidence review, long commands, paid calls, user sign-off | `references/artefact-rows.md` |
 
 ### The invariant everything here rests on
 
@@ -36,14 +37,16 @@ Three core, two optional. Each is a `backend + model + effort` triple plus a per
 | `deep_reasoner` | core | ambiguous work where a wrong premise in step one is expensive to discover late: architecture, hard diagnosis, config changes that fail quietly; also reads every plan before it reaches the user |
 | `fast_worker` | core | mechanical, specification-complete work the acceptance criteria alone can verify: refactors, test writing, batch migrations, doc generation, wide read-only scans. Most delegated rows |
 | `arbiter` | core | the blind second solver for a contested call, and the judge a review gate escalates to at its round cap. Never assigned routine rows |
-| `e2e_specifier` | optional | turns a frozen spec into Gherkin scenarios with stable IDs plus tests in the repo's own stack |
-| `e2e_verifier` | optional | runs those reviewed tests against a pinned commit and returns a validated verdict |
+| `e2e_tester` | optional | writes the acceptance gate from a frozen spec in one job: Gherkin scenarios with stable IDs plus tests in the repo's own stack. In a second, fresh job it runs those reviewed tests against a pinned commit and returns a validated verdict |
+| `operator` | optional | rows whose result comes from running tools and is not a text diff: a long build, a headless render, a media or model API call, an app launched for a visual check |
 
 **The driver is not an identity.** Rows the driver keeps take identity `-` in the goal file: the split decision itself, cross-task integration, security- and correctness-critical paths, final acceptance. Those run inline and never resolve through this config.
 
-A config carrying only the three core identities is complete. The optional pair is written only when setup runs `--with-e2e`; `handoff-setup.py --status` prints all five with `<unset>` for the unconfigured ones, and that listing is how a user discovers the add-on exists. The "not configured" gate is scoped to the core three, so an absent optional identity is a deliberate state rather than a broken setup.
+A config carrying only the three core identities is complete. `e2e_tester` is written only when setup runs `--with-e2e`, and `operator` only when it runs `--with-operator`. Setup keeps an optional identity the config already has. `handoff-setup.py --status` prints all five with `<unset>` for the unconfigured ones, and that listing is how a user discovers the add-ons exist. The "not configured" gate is scoped to the core three, so an absent optional identity is a deliberate state rather than a broken setup. When `operator` is absent, the driver says so once (`/agent-handoff config --with-operator`) and gives the row to `fast_worker`.
 
-Two costs of making these full identities rather than task labels are real and accepted: `role` carries two meanings (capability routing in config, pipeline responsibility in the flow), and a user who wants one model for both e2e stages configures it twice.
+Capability decides first. `operator` does not take the acceptance gate or an ambiguous diagnosis, however long they run: those stay with `e2e_tester` and `deep_reasoner`. A row that needs the network on a backend whose `default` posture denies it needs `permission_mode = allow-all` on the identity that runs it, and that is a config change the driver names. Configuring `operator` keeps that posture off `fast_worker`.
+
+One cost of making these full identities rather than task labels is real and accepted: `role` carries two meanings (capability routing in config, pipeline responsibility in the flow). The second cost of the earlier set, configuring one model twice for the two e2e stages, went with the merge. `e2e_tester` carries two pipeline stages on one triple, and the two stages are separate jobs. The verify job is a fresh `submit`, never a `resume` of the spec job, so the run that executes the gate does not carry the session that wrote it. A stage that needs another model or effort takes an explicit `--model` or `--effort` on its own `submit`.
 
 ## From a task row to a job on a meter
 
@@ -60,7 +63,7 @@ Resolution is per field, so an override for one identity field does not erase un
 
 `config_source` names the top participating layer, not per-field provenance. The same is true of `permission_posture_source`.
 
-### Four refusals, each before a job directory exists
+### Five refusals, each before a job directory exists
 
 | Refusal | Why it fails closed | Enforced in |
 | --- | --- | --- |
@@ -68,6 +71,7 @@ Resolution is per field, so an override for one identity field does not erase un
 | `--backend` contradicting a named role | Moving work onto another vendor is a config change, and the message names the `handoff-config.py set` that would make it legitimate | `delegate-job.sh` submit |
 | An effort the chosen CLI does not accept | The enums are per vendor, never one shared list | `validate_effort` in `delegate-job.sh`, `validate_backend_efforts` in `handoff-setup.py` |
 | `model = "auto"` on copilot or cursor, and an empty or `auto` model on antigravity | An identity is a deliberate triple; `auto` hands the model choice back to the vendor per request, so the receipt would record what the vendor picked rather than what the repo configured | `delegate-job.sh` submit, and `validate_backend_models` at setup; the antigravity message names `handoff-config.py set` |
+| `--role` naming a retired e2e identity | The name is not an identity any more, so no config can honour it. The message names `e2e_tester` and `/agent-handoff config`. A `resume` of a job already recorded under the old role still works, so an in-flight fix round finishes | `delegate-job.sh` submit |
 
 The effort enums, and why cursor and antigravity take only `model`, are in `docs/specs/design_cli-backends.md`, *Effort and model*.
 
@@ -88,27 +92,27 @@ The review caps have no session override, because `delegate-job.sh resume` enfor
 
 | File | What it owns | What it must not do |
 | --- | --- | --- |
-| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: comments and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era and a `[routing]` section written before 3.9.5) round-trip byte-for-byte |
-| `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block | write non-atomically, or write without a backup |
+| `scripts/handoff-config.py` | the pure read/write/resolve/validate engine; owns the bare identity sections (`[deep_reasoner]` and the other four) and `[review]`, and reads the pre-3.9.2 `[hosts.claude_code.identities.*]` headers | reformat or drop anything else: comments and unknown sections (including stale `hosts.codex.*` blocks from the dual-host era, a `[routing]` section written before 3.9.5, and the retired e2e sections) round-trip byte-for-byte. Only setup drops a retired section |
+| `scripts/handoff-setup.py` | the plan/preview/apply/smoke/rollback/uninstall engine; presets, detection, agent generation, the managed routing block, and the migration of retired sections | write non-atomically, or write without a backup |
 | `scripts/handoff-setup-ui.py` | the localhost-only single-page wizard, whose page is `assets/setup-ui.html`; probes the CLIs for model and effort lists, and reads each worker CLI's version and newest release | implement a second write path; every preview and write delegates to `handoff-setup.py` |
 | `scripts/delegate-job.sh` | turning `--role` into a running job on the configured CLI | accept a per-job override that contradicts the config |
 | `references/setup-wizard.md` | the wizard contract an agent loads | ask the setup matrix through repeated chat questions when a browser is available |
-| `references/identity-tryout.md` | the post-install proof pass | substitute a model or backend to make a row pass |
+| `references/identity-tryout.md` | the post-install proof pass: one task per core identity, and one for `operator` when it is configured. It does not exercise `e2e_tester` | substitute a model or backend to make a row pass |
 
-Configs written before 3.9.2 use a longer header for identity sections. They still load, and *Legacy section headers (3.9.2)* says what happens to them.
+Configs written before 3.9.2 use a longer header for identity sections. They still load, and *Legacy section headers (3.9.2)* says what happens to them. Configs written before 4.0.0 may carry the two retired e2e sections, and *Retired identities (4.0.0)* says what happens to those.
 
 ## Setup
 
 `/agent-handoff config` opens a page bound to `127.0.0.1` with a per-run token. Six steps, and everything before apply is reversible.
 
 1. **Detect.** Which CLIs are installed, their versions, the existing config, and each backend's model and effort lists. Every list is read from the CLI or the account itself, and nothing is a hardcoded guess. A CLI that is missing or outdated gets an install or update prompt. Each backend's source, and how a CLI is told apart from a binary that shares its name, are in `docs/specs/design_cli-backends.md`.
-2. **Pick a preset.** `balanced` (default), `quality`, or `cost`. Changing any control switches the matrix to `custom` internally; `custom` mode requires an explicit backend, model, and effort for every selected identity. A codex preset model is detected from `${CODEX_HOME:-$HOME/.codex}/config.toml` rather than guessed. If detection fails, setup says so and names the flag instead of inventing a model name.
-3. **Tune.** Per identity: backend → model → effort → permission. Switching backend or model immediately constrains effort to that selection's advertised values. The same page carries the two review caps, because they belong to the configuration and not to a prompt.
+2. **Pick a preset.** `balanced` (default), `quality`, or `cost`. Changing any control switches the matrix to `custom` internally; `custom` mode requires an explicit backend, model, and effort for every selected identity, except that an optional identity takes each field no flag names from its own section in the config. A codex preset model is detected from `${CODEX_HOME:-$HOME/.codex}/config.toml` rather than guessed. If detection fails, setup says so and names the flag instead of inventing a model name.
+3. **Tune.** Per identity: backend → model → effort → permission. Switching backend or model immediately constrains effort to that selection's advertised values. A checkbox for each optional identity switches it on, and the page opens with the box checked for an identity the config already has. The same page carries the two review caps, because they belong to the configuration and not to a prompt.
 4. **Preview.** `handoff-setup.py --preview` prints exact target paths and unified diffs. Any control change invalidates the preview, and the UI cannot apply a payload that no longer matches its latest one.
 5. **Apply.** One atomic write with a backup under `.handoff/backups/`, which `--rollback` restores. Beginner-safe defaults are fixed rather than asked: current project scope, `.git/info/exclude`, no persistent routing block, generated Claude agents, automatic smoke. Advanced callers use `handoff-setup.py` directly for global scope or explicit overrides.
 6. **Smoke.** Each identity gets its backend's check: the delegate dry-run chain on codex, a fresh tool-free session on claude, and on copilot, cursor, and antigravity the dry-run chain plus one small real run on the configured model (*Smoke* in `docs/specs/design_cli-backends.md`). Only a passing check writes `verified = true` with a shared `verified_at`. A failed check leaves `verified = false` and says so; apply stays applied.
 
-Then `/agent-handoff tryout` runs one small real task per identity and reports which are live on the models chosen. Smoke is the installation probe; tryout is the proof that an identity can complete its intended work.
+Then `/agent-handoff tryout` runs one small real task per core identity, and one for `operator` when it is configured, and reports which are live on the models chosen. It does not exercise `e2e_tester`, and the report says so when that identity is configured. Smoke is the installation probe; tryout is the proof that an identity can complete its intended work.
 
 ### Preset matrices
 
@@ -119,15 +123,19 @@ Then `/agent-handoff tryout` runs one small real task per identity and reports w
 | `deep_reasoner` | claude / opus / high | claude / opus / high | codex / detected / xhigh |
 | `fast_worker` | codex / detected / high | claude / opus / high | codex / detected / medium |
 | `arbiter` | codex / detected / xhigh | codex / detected / xhigh | claude / sonnet / high |
-| `e2e_specifier` | codex / detected / xhigh | claude / opus / high | codex / detected / high |
-| `e2e_verifier` | codex / detected / high | codex / detected / high | codex / detected / medium |
+| `e2e_tester` | codex / detected / xhigh | claude / opus / high | codex / detected / high |
+| `operator` | codex / detected / high | codex / detected / high | codex / detected / medium |
+
+A preset tuple has no permission slot, so a preset identity runs under `default`. `allow-all` stays an explicit change, as `SKILL.md` promises.
 
 ### Rules the setup surfaces hold to
 
 - **No silent fallback.** Effort may be adjusted to an advertised value only while the user is changing backend or model in the UI. Apply and smoke surface an unsupported combination and never swap a model quietly.
 - **`verified` means a CLI answered**, not that a file was written. Re-applying the same backend, model, and effort preserves an existing verification; changing any of the three clears it. Changing only the permission posture does not, because smoke checks a model-and-effort pair, not a posture.
+- **Optional identities have three toggle states.** `--with-e2e` adds `e2e_tester` and `--with-operator` adds `operator`. A flag that is left out keeps an identity the config already has, and only `--no-with-e2e` or `--no-with-operator` removes one. With two states, a second flagless apply would drop what the first one wrote. The toggle acts on the selected scope only: an identity defined in the other scope still resolves, and `--status` shows it.
+- **The page keeps what the config has.** An apply from the page sends every toggle, so a toggle left unchecked would remove its identity. The page therefore opens with each toggle checked for an identity the config has, and it rebuilds its state after an apply and after smoke. A reload then shows what was installed, and the next apply does not remove it.
 - **User-owned files are read-only to this flow.** Generated Claude agents stay namespaced (`handoff-deep-reasoner`, …) and never overwrite a user's own `deep-reasoner.md`. The managed routing block writes only inside its own markers, and only when explicitly enabled.
-- **Uninstall removes only what Handoff generated.** `--uninstall` drops `handoff-*` agent files whose hash still matches `.handoff/.generated-manifest` — a file the user hand-edited since generation is left in place and reported as skipped — plus a structurally valid managed routing block. Config is untouched unless `--remove-config`, which clears only the identity sections, in either header form.
+- **Uninstall removes only what Handoff generated.** `--uninstall` drops `handoff-*` agent files whose hash still matches `.handoff/.generated-manifest` — a file the user hand-edited since generation is left in place and reported as skipped — plus a structurally valid managed routing block. Config is untouched unless `--remove-config`, which clears only the identity sections and any retired e2e sections, in either header form.
 
 ## The configuration document
 
@@ -156,14 +164,15 @@ model = "gpt-5.6-sol"
 effort = "xhigh"
 verified = false
 
-# Optional. Setup writes the two sections below only under --with-e2e.
-[e2e_specifier]
+# Optional. Setup writes [e2e_tester] under --with-e2e and [operator] under
+# --with-operator, and keeps either one when the config already has it.
+[e2e_tester]
 backend = "codex"
 model = "gpt-5.6-sol"
 effort = "xhigh"
 verified = false
 
-[e2e_verifier]
+[operator]
 backend = "codex"
 model = "gpt-5.6-sol"
 effort = "high"
@@ -180,7 +189,7 @@ implementation_max_rounds = 3
 |---|---|---:|---|
 | `schema_version` | integer | yes | Must be `2`. |
 | `revision` | non-negative integer | yes, reserved | Reserved for later optimistic concurrency checks; the current engine does not compare or increment it. |
-| `<identity>` | table | per configured identity | A top-level table. `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, or `e2e_verifier`. The last two are optional. Files written before 3.9.2 head this table `hosts.claude_code.identities.<identity>`; see *Legacy section headers (3.9.2)*. |
+| `<identity>` | table | per configured identity | A top-level table. `<identity>` is `deep_reasoner`, `fast_worker`, `arbiter`, `e2e_tester`, or `operator`. The last two are optional. Files written before 3.9.2 head this table `hosts.claude_code.identities.<identity>`; see *Legacy section headers (3.9.2)*. A table named for either of the two e2e identities retired in 4.0.0 is not an identity table; see *Retired identities (4.0.0)*. |
 | `<identity>.backend` | string enum | per configured identity | Required execution CLI for this identity's delegated jobs: `claude`, `codex`, `copilot`, `cursor`, or `antigravity`. All five are first-class; the value decides which CLI `delegate-job.sh` invokes. |
 | `<identity>.model` | string | per configured identity | Non-empty model name or alias passed to the selected backend. `auto` is refused on `copilot`, `cursor`, and `antigravity`, and `antigravity` needs a whole catalogue id (`docs/specs/design_cli-backends.md`, *Effort and model*). The wizard offers account models rather than a text field. |
 | `<identity>.effort` | string | per configured identity | Non-empty reasoning effort the selected backend accepts. Efforts are per CLI, never one shared enum; cursor and antigravity take only `model`, set by the model id (`docs/specs/design_cli-backends.md`, *Effort and model*). A pair written outside the wizard surfaces as the CLI's own error rather than being silently downgraded. |
@@ -196,7 +205,7 @@ Every configured identity requires `backend`, `model`, and `effort`. Backend is 
 
 ### Version skew
 
-Most rows below fail closed. An older engine refuses a file it cannot honour, so it never runs an identity on the wrong CLI or drops one without a word. The bare-header row is the exception.
+Most rows below fail closed. An older engine refuses a file it cannot honour, so it never runs an identity on the wrong CLI or drops one without a word. The bare-header row is the exception. The `[e2e_tester]` and `[operator]` rows fail closed for a job and not for `validate`.
 
 | A config carrying | On a pre-release engine | Because |
 | --- | --- | --- |
@@ -206,12 +215,14 @@ Most rows below fail closed. An older engine refuses a file it cannot honour, so
 | `backend = "antigravity"` | pre-3.10 refuses | `validate_config` gates `backend` on the known tuple. The same engine's `make-receipt.py` counts an antigravity job as codex, so scripts and flow prose ship together |
 | `[review]` | pre-3.8 ignores it | an unknown section round-trips rather than failing |
 | bare `[<identity>]` headers | pre-3.9.2 ignores them | the old engine reads only prefixed headers. To it, a bare section is an unknown section: it round-trips, and its identity is invisible. If no other layer configures the role, `delegate-job.sh` refuses it. If the global config has a legacy-form identity, the old engine runs the global values, and `config_source` still says `project`. That case does not fail closed. |
+| `[e2e_tester]` | 3.12 ignores it, and refuses `--role e2e_tester` | the old engine reads a section named outside its identity tuple as an unknown section: it round-trips, `validate` passes and `resolve` says nothing. `delegate-job.sh` refuses the role as invalid, so a job fails closed. `validate` does not |
+| `[operator]` | 3.12 ignores it, and refuses `--role operator` | the same, with the same result: a job for the identity is refused, and `validate` passes on a file it cannot honour |
 
-`schema_version` stays `2` through all of this. New identity names and a new section left the document shape alone. 3.9.2 renames the identity headers, which is why its row does not fail closed. A pre-3.9.2 engine can also write an identity into a file that already has bare headers. That identity then exists in both forms, and a 3.9.2 engine refuses the file until someone deletes one of the two sections.
+`schema_version` stays `2` through all of this. New identity names and a new section left the document shape alone. 3.9.2 renames the identity headers, which is why its row does not fail closed. 4.0.0 adds two names and keeps `schema_version = 2`, so a 3.12 engine has nothing to refuse the file on, and its `validate` cannot warn that an identity is invisible to it. A pre-3.9.2 engine can also write an identity into a file that already has bare headers. That identity then exists in both forms, and a 3.9.2 engine refuses the file until someone deletes one of the two sections.
 
 ### Ownership and deterministic writes
 
-The writer rewrites identity sections in either header form, plus `[review]`. Everything else round-trips byte-for-byte. Owned identity sections are emitted bare, in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_specifier`, `e2e_verifier`) and field order: `backend`, `model`, `effort`, `permission_mode`, `verified`, then `verified_at`. `[review]` is emitted as `spec_max_rounds`, then `implementation_max_rounds`, replaced where it stands or appended at the end of the file when absent. Strings are double-quoted. Repeating the same write produces identical bytes.
+The writer rewrites identity sections in either header form, plus `[review]`. Everything else round-trips byte-for-byte, retired sections included. Owned identity sections are emitted bare, in identity order (`deep_reasoner`, `fast_worker`, `arbiter`, `e2e_tester`, `operator`) and field order: `backend`, `model`, `effort`, `permission_mode`, `verified`, then `verified_at`. `[review]` is emitted as `spec_max_rounds`, then `implementation_max_rounds`, replaced where it stands or appended at the end of the file when absent. Strings are double-quoted. Repeating the same write produces identical bytes. The optional names come last in that order, so a file with only the core three still round-trips byte-identically.
 
 Comments and formatting inside an owned section are intentionally not retained. A comment line just before the next header belongs to the owned chunk above it, so it is not kept either. All unowned chunks keep their original order and bytes, including comments and line endings.
 
@@ -235,6 +246,25 @@ Before 3.9.2, identity sections carried a leftover dual-host prefix: `[hosts.cla
 - **Older engines.** An engine older than 3.9.2 cannot see the bare sections. See *Version skew*.
 - **Schema v1.** `[hosts.<host>.roles.*]` is still refused exactly as in *Schema v1 migration*.
 
+### Retired identities (4.0.0)
+
+4.0.0 merged the two e2e identities into `e2e_tester`. `e2e_specifier` and `e2e_verifier` are retired names, and a section carrying either name is not an identity. Fields, field order, `[review]` and `schema_version = 2` are unchanged. Setup apply is the migration, and there is no separate migrate command for config.
+
+- **On read.** A config with `[e2e_specifier]` or `[e2e_verifier]`, in the bare form or the pre-3.9.2 prefixed form, loads, and the core identities resolve as before. The retired sections are unowned, so their bytes are kept and no read rewrites them. Every `handoff-config.py` command, and `handoff-setup.py --status` and `--smoke`, prints one stderr notice that names the file, the sections and the fix. It goes to stderr because `delegate-job.sh` parses the stdout of `resolve`. A retired section in the global file gets the same notice, and the notice names the `--scope global` command, because the setup page covers project scope only. A retired section defined twice, or whose values would not validate, is ignored like the rest and keeps its bytes.
+- **On write.** `handoff-config.py set` and `set-review`, and smoke's `verified` write, keep the retired sections' bytes. Only setup apply and `--uninstall --remove-config` drop them, in both header forms.
+- **Setup.** Apply is the migration, and the preview shows it.
+  - The e2e toggle is on while a retired section is present. `e2e_tester` is filled from `[e2e_tester]` if the file has one, else from `[e2e_specifier]`, else from `[e2e_verifier]`. The two old triples are never merged: one source supplies the whole value. The preview shows the old sections removed and the new one added, and `verified` starts `false`.
+  - In CLI preset mode the preset value wins, as it does for the core identities, and a plan note shows the old triple. In custom mode the fill supplies only the fields no `--role-*` flag names.
+  - Setup drops the retired sections whatever the toggle says. Under `--no-with-e2e` no `e2e_tester` is written, and a plan note says the old values were not carried over.
+  - A file with retired sections and an existing `[e2e_tester]` (a 3.12 engine wrote into a 4.0.0 file) keeps `[e2e_tester]` with its `verified` state. Apply drops the retired sections and emits one section.
+  - A retired section that is defined twice, or whose values do not validate, is refused by setup, and the message names the header. Nothing is written. One retired section on its own, or a mix of bare and prefixed headers, is kept on read and migrated by apply.
+  - Apply backs up under `.handoff/backups/`, and `--rollback` restores the config, the agent files and the manifest. Preview and apply report what happened in their plan notes on stdout, in place of the stderr notice.
+- **Delegation.** `delegate-job.sh submit --role e2e_specifier` and `--role e2e_verifier` are refused, and the message names `e2e_tester`. `handoff-config.py set --role` with either name is refused as an invalid choice. A `resume` of a job whose parent `meta` says `role=e2e_specifier` works, so an in-flight fix round finishes.
+- **Receipts.** Receipt schema stays `8`. The role enum widened to the new names and kept the retired ones, so a stored receipt that names an old role in `roles_used` still validates.
+- **Generated agents.** Setup used to generate `handoff-e2e-specifier.md` and `handoff-e2e-verifier.md`. An apply that writes agents (the default) removes them, and so does `--uninstall`, when they still match `.handoff/.generated-manifest`. A file edited since generation is left in place and reported. Under `--no-write-agents` the files stay, and a plan note says so. A managed routing block that names a retired agent is refreshed inside its own markers by the same apply, and the preview shows that diff. A block the user edited is refused, as it is today.
+- **Goal files.** A goal file from before 4.0.0 may name a retired identity in a row. On resume the driver reads either name as `e2e_tester`. A row with no job yet gets its identity cell rewritten and is submitted as `e2e_tester`. A row that has a job keeps it, and its fix rounds resume on that job. Rows that are `done`, `rejected` or in `arbitration` stay as written, as history.
+- **Older engines.** A 3.12 engine reading `[e2e_tester]` or `[operator]` is in *Version skew*.
+
 ### Concurrency and atomicity
 
 A write creates `.config.lock` in the directory containing `config.toml` using atomic `os.mkdir`. A lock directory older than 15 seconds is treated as abandoned and reclaimed. While holding the lock, the writer reads the latest file, changes its owned sections, writes a same-directory temporary file, and commits with `os.replace`.
@@ -252,7 +282,7 @@ The following constructs fail closed with a line number, character position, and
 - inline tables (`value = { ... }`);
 - multiline strings;
 - datetime values;
-- array-of-tables headers (`[[...]]`) naming `[review]` or an owned identity section (elsewhere they are treated as an unowned section and preserved);
+- array-of-tables headers (`[[...]]`) naming `[review]`, an owned identity section or a retired identity section (elsewhere they are treated as an unowned section and preserved);
 - dotted-key assignments (`a.b = ...`).
 
 The engine parses only top-level schema metadata, `[review]`, and the owned identity sections. This boundary lets any future unknown section round-trip without reformatting.
@@ -268,12 +298,14 @@ python3 scripts/handoff-config.py --scope project get deep_reasoner.backend
 python3 scripts/handoff-config.py --scope project set --role deep_reasoner --backend codex --model MODEL --effort xhigh
 python3 scripts/handoff-config.py --scope project set --role fast_worker --permission-mode allow-all
 python3 scripts/handoff-setup.py --preview --role-permission-mode fast_worker=default
+python3 scripts/handoff-setup.py --preview --with-e2e --with-operator
+python3 scripts/handoff-setup.py --preview --no-with-operator
 python3 scripts/handoff-config.py --scope project set-review --spec-max-rounds 1 --implementation-max-rounds 3
 python3 scripts/handoff-config.py --repo /path/to/repo resolve
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override fast_worker.permission_mode=default
 python3 scripts/handoff-config.py --repo /path/to/repo resolve --override deep_reasoner.effort=high
 ```
 
-The `set` command retains `--role` as its identity selector and accepts the optional e2e identities alongside the core three. `set-review` writes the `[review]` section; pass either flag or both, and a value below 1 is refused without writing. `--override` targets identity fields only. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
+The `set` command retains `--role` as its identity selector and accepts `e2e_tester` and `operator` alongside the core three. A retired name is refused as an invalid choice. `set-review` writes the `[review]` section; pass either flag or both, and a value below 1 is refused without writing. `--override` targets identity fields only. `--backend` is required when creating an identity and may be omitted on update to preserve the current value. `get` and `resolve` include `backend` in each configured identity.
 
 Use `--scope global` to target the XDG/HOME location. `resolve` always evaluates the complete precedence chain; `get`, `set`, `validate`, and `init` target the selected scope.

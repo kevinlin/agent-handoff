@@ -9,7 +9,7 @@ Colour codes for the SVG diagrams in this folder. One colour means one thing in 
 | `deep_reasoner` | `#4f46e5` indigo | `#4f46e5` | `#eef2ff` |
 | `fast_worker` | `#d97706` amber | `#b45309` | `#fffbeb` |
 | `arbiter` | `#be185d` pink | `#be185d` | `#fdf2f8` |
-| `e2e_specifier`, `e2e_verifier` | `#0891b2` cyan | `#0e7490` | white |
+| `e2e_tester`, `operator` | `#0891b2` cyan | `#0e7490` | white |
 | The driver (Claude Code, not an identity) | `#D97757` Claude orange | `#b4532f` | `#fdf2ee`, soft border `#f5cdbf` |
 
 - The Worker CLI lane in `handoff-lifecycle.svg` uses teal, so it stands apart from the driver lane above it: border `#0d9488`, label `#0f766e`, lane tint `rgba(13,148,136,0.05)`, lane border `#99f6e4`, label column `rgba(13,148,136,0.10)`. The job box and the fix-round box in that lane use the same teal border.

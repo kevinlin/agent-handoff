@@ -192,7 +192,7 @@
 
 <header>
   <h1>Agent Handoff — user guide</h1>
-  <p class="lede">Agent Handoff (Handoff) is a Claude Code skill that divides coding work between a driver and worker agents. Claude Code is the driver: it plans the work, divides it into tasks, and accepts or rejects the result. Each delegated task runs as a background job on one of five worker CLIs: Codex, Claude Code, GitHub Copilot, Cursor, or Antigravity. The config of each identity selects its worker, and each worker pays from its own account. The driver uses less of its quota and its context window. It still reads the full diff against acceptance criteria that it wrote before the work started.</p>
+  <p class="lede">Agent Handoff (Handoff) is a Claude Code skill that divides coding work between a driver and worker agents. Claude Code is the driver: it plans the work, divides it into tasks, and accepts or rejects the result. Each delegated task runs as a background job on one of five worker CLIs: Codex, Claude Code, GitHub Copilot, Cursor, or Antigravity. The config of each identity selects its worker, and each worker pays from its own account. The driver uses less of its quota and its context window. It still reads the full diff against acceptance criteria that it wrote before the work started. For a row that has no diff, such as a render, it reads the evidence of the row instead.</p>
   <p class="meta">user guide · kevinlin/agent-handoff @ v3.12.0 · updated 2026-11-11</p>
 </header>
 
@@ -204,7 +204,7 @@
   <li><strong>Plan and split.</strong> The driver writes the plan to <code>.handoff/goal.md</code> and divides the work into task rows. It tests its own split, and <code>deep_reasoner</code> reviews the plan before you see it.</li>
   <li><strong>Delegate.</strong> The driver sends each row that a worker can do to a worker CLI as a background job.</li>
   <li><strong>Monitor.</strong> The driver reads the state of each job from files on disk. It does not keep the job history in its context.</li>
-  <li><strong>Full review.</strong> The driver reads each returned diff against the plan. If a diff fails, the driver returns it to the worker as a fix round.</li>
+  <li><strong>Full review.</strong> The driver reads each returned diff against the plan. For a row that has no diff, it reads the evidence of the row. If the work fails, the driver returns it to the worker as a fix round.</li>
   <li><strong>Wrap up.</strong> A script writes a receipt from measured data.</li>
 </ol>
 
@@ -218,7 +218,7 @@
 <ul>
   <li><strong>The config selects the CLI for each job.</strong> Each task row names an identity, and the identity’s configured backend selects the CLI and the meter. The driver does not change this choice when it delegates.</li>
   <li><strong>Each job writes its state to disk under <code>.handoff/</code>.</strong> A monitor tick, a session that restarts after a crash, or you on the next day can continue the run from these files.</li>
-  <li><strong>The driver reads the full diff.</strong> It compares the diff with the written acceptance criteria. A summary from the worker never replaces this check.</li>
+  <li><strong>The driver reads the full diff.</strong> It compares the diff with the written acceptance criteria. For a row that has no diff, it reads the evidence of the row in the same way (see <a href="#diff-review">3.2</a>). A summary from the worker never replaces this check.</li>
 </ul>
 
 <h3>Words in this guide</h3>
@@ -243,7 +243,7 @@
 <table>
   <tr><th>Command</th><th>What it does</th></tr>
   <tr><td><code>/agent-handoff config</code></td><td>Opens the local setup page. There you select the CLI, model, effort, and permission mode of each identity, and the two round limits</td></tr>
-  <tr><td><code>/agent-handoff tryout</code></td><td>Runs one small real task on each identity and shows which identities work</td></tr>
+  <tr><td><code>/agent-handoff tryout</code></td><td>Runs one small real task on each core identity, and on <code>operator</code> if it is configured. It shows which identities work</td></tr>
   <tr><td><code>agent handoff</code> (or “hand this to codex”)</td><td>Starts a run: plan, split, delegate, monitor, review, and receipt</td></tr>
   <tr><td><code>/agent-handoff resume</code></td><td>Continues an interrupted run from <code>.handoff/</code>. Rows that the arbiter rejected show first</td></tr>
   <tr><td><code>/agent-handoff transcript</code></td><td>Shows the event log of one job as a readable page</td></tr>
@@ -259,7 +259,7 @@
 <h3 id="roles">1.1 The five identities</h3>
 
 <figure>
-  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_specifier and e2e_verifier as an optional pair, plus a card for the driver itself, which is not an identity and keeps the split, integration, critical paths and final acceptance. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print, copilot -p, cursor-agent -p, or agy -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
+  <img src="diagrams/identities.svg" alt="Five identity cards on the left: deep_reasoner, fast_worker and arbiter as core, e2e_tester and operator as optional, plus a card for the driver itself, which is not an identity and keeps the split, integration, critical paths and final acceptance. They feed a resolution stack — session override, project config, global config, built-in defaults — which produces a backend, model, effort and permission mode, which in turn selects codex exec, claude --print, copilot -p, cursor-agent -p, or agy -p, each with its own meter. Two red notes: no config is a hard error, and a per-job backend that contradicts the role is refused.">
   <figcaption>One identity resolves to one CLI on one meter. A prompt cannot change this.</figcaption>
 </figure>
 
@@ -267,12 +267,12 @@
   <div class="card"><h4>deep_reasoner</h4><p>Unclear work, where a wrong first assumption costs much time later: architecture, difficult diagnosis, and config changes that fail without an error. It also reviews each plan before you see it.</p></div>
   <div class="card"><h4>fast_worker</h4><p>Mechanical work that the acceptance criteria alone can verify: refactors, tests, batch migrations, docs, and wide read-only scans. Most delegated rows use this identity.</p></div>
   <div class="card"><h4>arbiter</h4><p>The independent second solver for a disputed decision. It also makes the decision when a review reaches its round limit without agreement. It never gets routine rows.</p></div>
-  <div class="card"><h4>e2e_specifier <span class="src">opt-in</span></h4><p>Writes Gherkin scenarios with stable IDs from a frozen spec, and tests for them in the repo’s own stack. It needs only the spec, so it runs at the same time as the implementation.</p></div>
-  <div class="card"><h4>e2e_verifier <span class="src">opt-in</span></h4><p>Runs the reviewed tests against a pinned commit. It returns a verdict, and a script validates the verdict before anyone uses it.</p></div>
+  <div class="card"><h4>e2e_tester <span class="src">opt-in</span></h4><p>Writes Gherkin scenarios with stable IDs from a frozen spec, and tests for them in the repo’s own stack. This first job needs only the spec, so it runs at the same time as the implementation. In a second, new job, it runs the reviewed tests against a pinned commit. It returns a verdict, and a script validates the verdict before anyone uses it.</p></div>
+  <div class="card"><h4>operator <span class="src">opt-in</span></h4><p>Rows whose result comes from running tools and is not a text diff: a long build, a headless render, a call to a media or model API, or an app that starts for a visual check.</p></div>
   <div class="card driver"><h4>The driver itself <span class="src">not an identity</span></h4><p>The driver keeps the split decision, the integration across tasks, the paths that are critical to security or correctness, and final acceptance. It does these rows itself, and their identity column shows <code>-</code>.</p></div>
 </div>
 
-<p>The three core identities are always in the config. Setup writes the e2e pair only when you run it with <code>--with-e2e</code>, and a config with only the core three is complete. Each identity can use any of the five backends. The values are only in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global).</p>
+<p>The three core identities are always in the config. Setup writes <code>e2e_tester</code> only when you run it with <code>--with-e2e</code>, and <code>operator</code> only when you run it with <code>--with-operator</code>. Setup keeps an optional identity that the config already has. A config with only the core three is complete. Each identity can use any of the five backends. The values are only in <code>.handoff/config.toml</code> (project) or <code>~/.config/handoff/config.toml</code> (global).</p>
 
 <h3 id="resolution">1.2 How the config selects the CLI</h3>
 
@@ -337,6 +337,8 @@
 
 <p>Know two Cursor facts before you select it. If a model name shows <code>(NO ZDR)</code>, that model has no zero data retention, and a delegated job sends it your repository content. If your Cursor attribution setting is on, worker commits get a <code>Co-authored-by: Cursor</code> trailer, also in e2e worktree commits. Handoff reports this setting and does not change it.</p>
 
+<p>The page has one box for each optional identity. A box starts checked when your config already has that identity. If your config is from before v4.0.0 and has the two old e2e sections, setup replaces them with <code>e2e_tester</code>, filled from the old identity that wrote the tests. The preview shows the change, and a rollback restores the old file.</p>
+
 <p>The page also sets the two round limits, because they are part of the config and not of a prompt:</p>
 
 <pre><code>[fast_worker]
@@ -350,7 +352,7 @@ verified = false
 spec_max_rounds = 1
 implementation_max_rounds = 3</code></pre>
 
-<p>After a successful apply, run <code>/agent-handoff tryout</code>. Each identity does one small task, and the report shows which identities work on the models that you selected. A failed row tells you what failed and what to do. Tryout never puts a different model in its place.</p>
+<p>After a successful apply, run <code>/agent-handoff tryout</code>. Each core identity does one small task, and so does <code>operator</code> if it is configured. The report shows which identities work on the models that you selected. Tryout does not run <code>e2e_tester</code>. A failed row tells you what failed and what to do. Tryout never puts a different model in its place.</p>
 
 <div align="center">
   <a href="../../assets/config-switch-demo.mp4"><img src="../../assets/config-switch-demo.gif" alt="The setup page: switching operating mode, then each identity's CLI, model and reasoning effort, then the exact diff before applying." style="max-width:860px;width:100%;border:1px solid var(--line);border-radius:12px;"></a>
@@ -363,7 +365,7 @@ implementation_max_rounds = 3</code></pre>
 <h3 id="plan">2.1 Plan: the goal file comes first</h3>
 
 <figure>
-  <img src="diagrams/plan-split.svg" alt="The request enters and becomes .handoff/goal.md, holding a goal sentence with its done_when, the checkpoint rule and a task table where each row carries an identity — deep_reasoner, fast_worker, the driver itself, and optionally an e2e row. The plan then goes through an adversarial gate asking three questions: is the cheap tier really enough, is the split worth its seams, does it match the stakes. A failing row loops back to be corrected, merged or kept inline. A surviving split goes to the spec review, then to ready-to-delegate with no jobIds yet.">
+  <img src="diagrams/plan-split.svg" alt="The request enters and becomes .handoff/goal.md, holding a goal sentence with its done_when, the checkpoint rule and a task table where each row carries an identity — deep_reasoner, fast_worker, the driver itself, and optionally an operator row for tool-run work and two e2e_tester rows. The plan then goes through an adversarial gate asking three questions: is the cheap tier really enough, is the split worth its seams, does it match the stakes. A failing row loops back to be corrected, merged or kept inline. A surviving split goes to the spec review, then to ready-to-delegate with no jobIds yet.">
   <figcaption>The driver writes the acceptance criteria here, before any code exists. A criterion that you write after you see the diff only describes the diff.</figcaption>
 </figure>
 
@@ -403,8 +405,10 @@ implementation_max_rounds = 3</code></pre>
 <p>If a row passes all three questions, the driver delegates it. If not, the driver changes the row’s identity, merges the row into a nearby row, or does the row itself.</p>
 
 <div class="callout claude">
-  <p><strong>The split also decides about acceptance tests.</strong> Some changes affect behaviour that users can see at a real interface: a UI, an API, or a mobile screen. For such a change, the split adds an <code>e2e_specifier</code> row and an <code>e2e_verifier</code> row. The <code>depends</code> column makes the verifier wait for the tests and for the implementation. Internal refactors, docs, config, and library work do not get these rows. If a change needs them and the identities are not configured, the driver tells you one time and names <code>/agent-handoff config --with-e2e</code>. Then it continues without them.</p>
+  <p><strong>The split also decides about acceptance tests.</strong> Some changes affect behaviour that users can see at a real interface: a UI, an API, or a mobile screen. For such a change, the split adds two <code>e2e_tester</code> rows: one writes the tests and one runs them. The <code>depends</code> column makes the second row wait for the tests and for the implementation. Internal refactors, docs, config, and library work do not get these rows. If a change needs them and <code>e2e_tester</code> is not configured, the driver tells you one time and names <code>/agent-handoff config --with-e2e</code>. Then it continues without them.</p>
 </div>
+
+<p>A row whose result is not a text diff, such as a build, a render, or a clip, is an artefact row. The split gives it to <code>operator</code>. If <code>operator</code> is not configured, the driver tells you one time, names <code>/agent-handoff config --with-operator</code>, and gives the row to <code>fast_worker</code>. Section 3.2 shows how the driver reviews such a row.</p>
 
 <h3 id="delegate">2.3 Delegate: the packet and the config stay separate</h3>
 
@@ -425,11 +429,11 @@ implementation_max_rounds = 3</code></pre>
 <p>Each handoff in the flow has a named packet. The packets differ mainly in what they let the receiver do.</p>
 
 <figure>
-  <img src="diagrams/handoff-packet-anatomy.svg" alt="Claude Code at the centre sending five named packets: a delegation packet to the worker; a goal packet to you with the plan, the open decisions and what a yes authorizes; a spec review packet to deep_reasoner carrying the plan verbatim with no permission to change anything; an arbitration packet to the arbiter with both sides and the evidence; and e2e packets to the acceptance pair with the spec inline, a named test target and a branch of their own. A strip below lists what every packet carries: why the work matters, one clear task, acceptance you can run, where it may not go, and a reply without filler.">
+  <img src="diagrams/handoff-packet-anatomy.svg" alt="Claude Code at the centre sending five named packets: a delegation packet to the worker; a goal packet to you with the plan, the open decisions and what a yes authorizes; a spec review packet to deep_reasoner carrying the plan verbatim with no permission to change anything; an arbitration packet to the arbiter with both sides and the evidence; and e2e packets to e2e_tester with the spec inline, a named test target and a branch of their own. A strip below lists what every packet carries: why the work matters, one clear task, acceptance you can run, where it may not go, and a reply without filler.">
   <figcaption>The spec review packet is the only packet that gives fewer permissions than the shared template: findings only, and no edits.</figcaption>
 </figure>
 
-<p>Some rows must not share a working tree: the e2e pair, and other rows that you want to keep separate. These rows run in a Git worktree that starts from a fixed commit SHA. Four rules apply to a worktree job:</p>
+<p>Some rows must not share a working tree: the e2e rows, and other rows that you want to keep separate. These rows run in a Git worktree that starts from a fixed commit SHA. Four rules apply to a worktree job:</p>
 
 <ol>
   <li>The repo argument always names the main repo, never the worktree.</li>
@@ -494,10 +498,10 @@ implementation_max_rounds = 3</code></pre>
 
 <table>
   <tr><th></th><th>Spec review</th><th>Implementation review</th></tr>
-  <tr><td>What is reviewed</td><td>The plan in <code>.handoff/goal.md</code></td><td>The diff of a delegated row</td></tr>
+  <tr><td>What is reviewed</td><td>The plan in <code>.handoff/goal.md</code></td><td>The diff of a delegated row, or the evidence of an artefact row</td></tr>
   <tr><td>Maker</td><td>The driver</td><td>The row’s worker</td></tr>
   <tr><td>Reviewer</td><td><code>deep_reasoner</code>, read-only</td><td>The driver</td></tr>
-  <tr><td>Agreement</td><td>The driver declined no blocking finding</td><td>The driver accepts the diff</td></tr>
+  <tr><td>Agreement</td><td>The driver declined no blocking finding</td><td>The driver accepts the diff or the evidence</td></tr>
   <tr><td>Round limit</td><td><code>spec_max_rounds</code>, default 1</td><td><code>implementation_max_rounds</code>, default 3</td></tr>
   <tr><td>On rejection</td><td>The run stops before the driver delegates anything</td><td>The driver keeps the row separate. Independent rows continue</td></tr>
 </table>
@@ -526,14 +530,21 @@ implementation_max_rounds = 3</code></pre>
 
 <p>The question is “does this diff satisfy the brief?”. It is not “is this diff consistent with itself?”. A reviewer who has only the diff starts to use “consistent with the change” as the spec. That reviewer does not see work that the worker never started. In the Superpowers 6 test runs, reviewers with only a diff found none of five absent task briefs.</p>
 
+<div class="callout claude">
+  <p><strong>An artefact row has evidence in place of a diff.</strong> The driver loads <code>references/artefact-rows.md</code> only when a run has such a row. The worker writes its output to a new directory and never overwrites a file. It also leaves evidence there: a probe of each output, the exit status of each long command, and keyframes or a contact sheet for anything visual. The driver reads the probes and opens the images itself. It never accepts a description of an image. A command that runs longer than one monitor tick starts in the background, and the worker checks it at least every two minutes. Those checks are events in the job log, so a healthy command does not look stalled.</p>
+  <p>A paid call needs your agreement first. Before the work starts, the driver lists each paid service and a total cap, and it records your go-ahead in the <code>## Spend</code> block of the goal file. Each paid row gets its own share of the cap, and the worker logs each call in <code>spend.jsonl</code> before and after it. A call with no recorded outcome stops all spending until the driver settles it against the provider’s record. What no model can judge, such as audio, motion, or taste, waits for your answer, and an arbiter’s approval never replaces it.</p>
+</div>
+
 <h3 id="e2e">3.3 Acceptance tests</h3>
 
 <figure>
-  <img src="diagrams/e2e-gate.svg" alt="Five steps: e2e_specifier writes the tests in its own worktree from the spec; the driver reads them against the acceptance criteria, the step that stops a weak gate passing a broken feature; their hash is recorded so a later edit shows up; tests and code meet in one commit on the feature branch, leaving main untouched; e2e_verifier runs them pinned to that commit. Three outcomes: PASS, where the merge decision is still yours; FAIL, a finding for whoever wrote the code and a spent round; BLOCKED, where nothing was proved and the rerun costs no round. A footer says what the verifier may touch: not a scenario or an expected value, the launch scaffolding if it says so, and never the product code.">
+  <img src="diagrams/e2e-gate.svg" alt="Five steps on one identity, e2e_tester, in two separate jobs: a first e2e_tester job writes the tests in its own worktree from the spec; the driver reads them against the acceptance criteria, the step that stops a weak gate passing a broken feature; their hash is recorded so a later edit shows up; tests and code meet in one commit on the feature branch, leaving main untouched; a second, new e2e_tester job runs them pinned to that commit. Three outcomes: PASS, where the merge decision is still yours; FAIL, a finding for whoever wrote the code and a spent round; BLOCKED, where nothing was proved and the rerun costs no round. A footer says what the second job may touch: not a scenario or an expected value, the launch scaffolding if it says so, and never the product code.">
   <figcaption>The driver reviews the tests before the verdict counts, because a verdict is only as strong as the tests that it ran.</figcaption>
 </figure>
 
-<p>The verdict is a validated file, not a sentence in a reply. It controls a merge decision, and in a reply an agent can write “PASS” after a non-zero exit.</p>
+<p><code>e2e_tester</code> does this work in two jobs. This section calls the first job the specifier and the second the verifier. The verifier is a new job, never a resumed session of the specifier, so the job that runs the tests does not carry the session that wrote them.</p>
+
+<p>The verdict is a validated file, not a sentence in a reply.</p> It controls a merge decision, and in a reply an agent can write “PASS” after a non-zero exit.</p>
 
 <table>
   <tr><th>Verdict</th><th>What it must satisfy</th><th>What occurs next</th></tr>
@@ -551,7 +562,7 @@ implementation_max_rounds = 3</code></pre>
 <p>If a gate reaches its limit without agreement, the dispute goes to <code>arbiter</code> as a read-only job. The packet contains the full dispute: the plan or the brief, the acceptance criteria, the evidence, and each round’s findings with the other side’s reply. The arbiter returns a verdict line and a reason for each disputed point. Its ruling is final:</p>
 
 <ul>
-  <li><strong>Approve.</strong> The arbiter accepts the work over the driver’s open findings. For a diff, the row goes to done. An approval never replaces an acceptance-test PASS.</li>
+  <li><strong>Approve.</strong> The arbiter accepts the work over the driver’s open findings. For a diff, the row goes to done. An approval never replaces an acceptance-test PASS, or your answer on what no model can judge.</li>
   <li><strong>Reject.</strong> The rejection is final for the run. The driver marks the row rejected and keeps its diff as a patch or a worktree. Rows that depend on it wait, and independent rows continue.</li>
   <li><strong>No verdict.</strong> An arbiter job that fails or returns a malformed answer is not an approval. It gets one new attempt. If that attempt also fails, the run records “no verdict”, and you decide about the row.</li>
 </ul>
@@ -584,7 +595,7 @@ implementation_max_rounds = 3</code></pre>
 </table>
 
 <div class="callout alert">
-  <p><strong>The diff review depends on the driver.</strong> Scripts refuse a bad config, a base that is not a fixed SHA, an invalid verdict, a round above the limit, and an invalid receipt. No script can decide if a diff satisfies a brief, so that check is a rule in a prompt. All claims of safe delegation depend on it. When a run reports success, ask for the evidence of the review.</p>
+  <p><strong>The diff review depends on the driver.</strong> Scripts refuse a bad config, a base that is not a fixed SHA, an invalid verdict, a round above the limit, and an invalid receipt. No script can decide if a diff satisfies a brief, so that check is a rule in a prompt. The evidence review of an artefact row and its paid-call cap are rules in a prompt too. All claims of safe delegation depend on them. When a run reports success, ask for the evidence of the review.</p>
 </div>
 
 <h3 id="learning">4.2 What the next run learns</h3>
@@ -682,7 +693,7 @@ receipt_schema_version: 8</code></pre>
 <p>A later session gets only this directory: the final statuses in the goal file, the job directories, the saved receipts, and the verdicts. <code>/agent-handoff resume</code> reads these files and does not calculate the state again from the repository. For the same reason, a monitor tick can continue after a crash.</p>
 
 <footer>
-  Read with: <span class="mono">SKILL.md</span>, <span class="mono">references/{delegation-flow, packet-templates, e2e-acceptance, goal-file-template, wrap-up-memory, skill-change-gate}.md</span>, and the design documents in <span class="mono">docs/specs/</span>: identities and config in <span class="mono">design_agent-identities-and-config.md</span>, and the five worker CLIs in <span class="mono">design_cli-backends.md</span>. The diagrams are SVG files in <span class="mono">docs/user-guide/diagrams/</span>.
+  Read with: <span class="mono">SKILL.md</span>, <span class="mono">references/{delegation-flow, packet-templates, e2e-acceptance, artefact-rows, goal-file-template, wrap-up-memory, skill-change-gate}.md</span>, and the design documents in <span class="mono">docs/specs/</span>: identities and config in <span class="mono">design_agent-identities-and-config.md</span>, and the five worker CLIs in <span class="mono">design_cli-backends.md</span>. The diagrams are SVG files in <span class="mono">docs/user-guide/diagrams/</span>.
 </footer>
 
 </div>

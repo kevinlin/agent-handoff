@@ -36,7 +36,7 @@
   <line x1="170" y1="255" x2="204" y2="255" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
 
   <!-- goal.md -->
-  <rect x="210" y="110" width="360" height="330" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.6"/>
+  <rect x="210" y="110" width="360" height="370" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.6"/>
   <rect x="210" y="110" width="360" height="44" rx="10" fill="#f5f3ff"/>
   <text x="230" y="139" class="name m" style="fill:#6d28d9">.handoff/goal.md</text>
   <text x="550" y="139" class="small" text-anchor="end">written first</text>
@@ -65,8 +65,11 @@
   <rect x="420" y="370" width="130" height="10" rx="5" fill="#e2e8f0"/>
 
   <circle cx="238" cy="404" r="6" fill="none" stroke="#0891b2" stroke-width="1.6"/>
-  <text x="254" y="409" class="small m" style="fill:#0e7490">T5 e2e_verifier — only when</text>
-  <text x="254" y="425" class="small" style="fill:#0e7490">behaviour changes at a real interface</text>
+  <text x="254" y="409" class="small m" style="fill:#0e7490">T5 operator — for tool-run rows</text>
+
+  <circle cx="238" cy="438" r="6" fill="none" stroke="#0891b2" stroke-width="1.6"/>
+  <text x="254" y="443" class="small m" style="fill:#0e7490">T6 e2e_tester, 2 rows — only when</text>
+  <text x="254" y="459" class="small" style="fill:#0e7490">behaviour changes at a real interface</text>
 
   <line x1="570" y1="255" x2="606" y2="255" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
 
@@ -90,8 +93,8 @@
   <text x="735" y="366" class="small" text-anchor="middle">answered in writing, not felt</text>
 
   <!-- fail loop -->
-  <path d="M 735 380 V 470 H 390 V 444" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow-rose)"/>
-  <text x="562" y="492" class="rose" text-anchor="middle">a row that fails: correct its identity, merge it into a neighbour, or keep it inline</text>
+  <path d="M 735 380 V 506 H 390 V 484" fill="none" stroke="#e11d48" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrow-rose)"/>
+  <text x="562" y="526" class="rose" text-anchor="middle">a row that fails: correct its identity, merge it into a neighbour, or keep it inline</text>
 
   <!-- pass -->
   <line x1="860" y1="220" x2="896" y2="220" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
