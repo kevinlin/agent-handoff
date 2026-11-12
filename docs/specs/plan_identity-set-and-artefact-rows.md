@@ -40,7 +40,7 @@ Decided with the maintainer on 2026-11-11 and 2026-11-12:
 
 | Identity | Tier | What it takes | Change |
 |---|---|---|---|
-| `deep_reasoner` | core | ambiguous work where a wrong first premise is expensive; reads every plan | a read-only second-read row becomes a documented option |
+| `deep_reasoner` | core | ambiguous work where a wrong first premise is expensive; reads every plan | none |
 | `fast_worker` | core | specification-complete work the acceptance criteria alone can verify | task list reworded so it is not code-only |
 | `arbiter` | core | blind second solver; the ruling at a review gate's cap | none |
 | `e2e_tester` | optional | writes the acceptance gate from a frozen spec, and in a second job runs it against a pinned commit and returns a validated verdict | new; replaces the pair |
@@ -55,14 +55,13 @@ Decided with the maintainer on 2026-11-11 and 2026-11-12:
 
 ### Row options for the driver
 
-Prose only. The scripts already support both.
+Prose only. The script already supports it.
 
 - **`effort` column.** `-` means the identity's configured effort. A value is passed as `--effort` and must be one the backend accepts.
-- **Second-read row.** A `deep_reasoner --read-only` row reads a risky diff or a row's artefact evidence and reports findings. Phase 4 acceptance stays with the driver.
 
 ### `references/artefact-rows.md`
 
-Target: 700 words or fewer. Its rules apply to a row whatever identity runs it. A row is an artefact row when its result is not a text diff, when one of its commands outlasts a monitor tick, or when it calls a paid service.
+Target: 700 words or fewer (it shipped at 776). Its rules apply to a row whatever identity runs it. A row is an artefact row when its result is not a text diff, when one of its commands outlasts a monitor tick, or when it calls a paid service.
 
 - **When it loads.** In Phase 1 when the plan has such a row. On a resume, when a row's acceptance names `.handoff/evidence/` or the `## Spend` block is not `none`. Phase 4 names it again for the review of such a row.
 - **Identity.** Capability decides first: the acceptance gate is `e2e_tester`, and an ambiguous diagnosis is `deep_reasoner`, however long they run. A row whose work is running tools goes to `operator`, or to `fast_worker` when `operator` is unset.
@@ -83,7 +82,7 @@ Target: 700 words or fewer. Its rules apply to a row whatever identity runs it. 
 Other prose changes:
 
 - `references/goal-file-template.md`: the `## Spend` block, the `effort` rule, an `e2e_tester` example row, and acceptance as "a command to run, a behaviour to observe, or evidence to inspect".
-- `references/delegation-flow.md`: the `operator` rule in the split, the two row options, the load rule for `artefact-rows.md` on entry and in Phases 1 and 4, and the generated-agent list.
+- `references/delegation-flow.md`: the `operator` rule in the split, the `effort` cell, the load rule for `artefact-rows.md` on entry and in Phases 1 and 4, and the generated-agent list.
 - `references/packet-templates.md`: one line saying that a paid-call packet replaces the secrets line as `artefact-rows.md` describes.
 - `references/e2e-acceptance.md`: one identity, two jobs, and the rule for a goal file from before 4.0.0 (below).
 - `references/arbitration.md`: the Evidence slot reads "the full scoped diff, or the artefact evidence", and an approval never stands in for a user sign-off.
@@ -140,7 +139,7 @@ A read-only stress test walked each item against the code, with the v4 tuple pat
 
 - `evals/fixtures/scripts/judge.py`: `DELEGATED` gains the new names. The e2e case finds two rows with identity `e2e_tester`, the later one depending on the earlier one and on an implementation row. The self-tests change with it.
 - `e2e-added-for-user-observable-change.yaml`: fixture config and `must_contain` use the new name.
-- New cases: `operator-row-for-tool-run`, `paid-call-needs-recorded-cap`, `artefact-review-opens-evidence`.
+- New cases: `operator-row-for-tool-run`, `paid-call-needs-recorded-cap`, `artefact-review-reads-evidence`.
 - `test-prompts.json`: the three e2e cases are fixed, and each changed gate dimension gets two prompts.
 
 How the two versions are compared:
@@ -228,3 +227,51 @@ Found during the review and left alone:
 | 13 (advisory) | Two claims about the repository were wrong | The quality preset claim is corrected, and apply prints the plan notes |
 
 The review also asked for sharper acceptance criteria. The Verification section now states exact write sequences, field-level assertions for `resolve`, the evidence the miniloop is accepted on, and the file set for the retired-name check.
+
+## Build notes
+
+What the build changed from the plan above, and why.
+
+- **`operator` is not in the trigger description.** The plan added it to the list of identity names that trigger the skill. In the live tryout a Codex worker, handed an `operator` packet, loaded this skill for itself and read the delegation flow before doing its task. The description lists the three core identities only.
+- **A long command's check may be its exit-status file.** The Codex sandbox denied both of the worker's process probes under `default` posture. The worker fell back to the exit-status file and the growing log, and that fallback is now the rule.
+- **The reference landed as one commit.** The change gate asks for one dimension per round. `artefact-rows.md` carries rules for the delegation contract, monitoring and review, and they load only together, so it is one commit with separate test prompts per dimension. The split-decision change is its own commit.
+- **The review case is `artefact-review-reads-evidence`.** An eval fixture is text, so it cannot hold a PNG for the driver to open. The case plants a probe file that contradicts the worker's report and checks that the session read it and did not accept the row.
+- **Setup helpers are shared.** `existing_config`, `retired_source` and `_optional_defaults` in `handoff-setup.py` serve `build_plan`, the terminal wizard and the page's `build_state`, so the three agree on the fill and on the toggle defaults.
+- **The notice reaches delegation.** `delegate-job.sh` passes `resolve`'s stderr through, so a submit against a config with retired sections prints the notice once. One existing test asserted empty stderr there and now asserts the one line.
+- **Two prose mentions outside the plan's file list.** `scripts/validate-verdict.py` and `assets/verdict-schema.json` named `e2e_verifier` in a docstring and a description.
+- **`docs/skill-structure.svg` gained a box** for the new reference, and its word counts were measured again.
+
+How the work ran: the driver kept the plan, the flow prose, the test prompts, the write-sequence replay, the live run and the release text. `fast_worker` (cursor, `claude-sonnet-5-5-xhigh`) ran four rows: the identity switch, the setup migration, the evals and the docs. Each passed its review on the first pass, with no fix round. `deep_reasoner` (codex, `gpt-6.1-sol`, `xhigh`) ran the spec review. `operator` (codex, `gpt-6.1-sol`, `high`) ran three jobs in the scratch project.
+
+## Results
+
+Checks on the released tree:
+
+- `python3 -m unittest discover -s tests`: 1,233 tests pass (1,181 before the migration row).
+- `bash scripts/check-skill-repo.sh .`: `fail=0`. The description is 1,012 of 1,024 characters and the router 879 of 900 words.
+- `python3 scripts/run-test-prompts.py`: 64 cases pass. `judge.py --self-test`: 585 assertions pass.
+
+Write sequences, with the real CLI on scratch copies:
+
+- A three-identity file, then `set-review` at its current values: byte-identical.
+- A five-identity file, bare and then legacy form, through `set`, `set`, `set-review`: both retired chunks byte-identical after each write, and the second `set` changed nothing. The first write removed one blank line before `[e2e_specifier]`, as predicted.
+
+Migration by hand, on a scratch repo with its own home directory:
+
+- `resolve` printed the notice once on stderr and the core values on stdout, and wrote nothing.
+- `submit --role e2e_specifier --dry-run` was refused and named `e2e_tester`.
+- `--preview` showed `[e2e_specifier]` becoming `[e2e_tester]` and `[e2e_verifier]` removed, with two notes. `--apply` printed the same notes and made one backup.
+- A second `--apply` printed `UNCHANGED` and left identical bytes.
+- `--rollback` restored the original config byte for byte.
+
+The live run, in a scratch project with `operator` on codex under `default`:
+
+| Job | What it did | Evidence the driver checked |
+|---|---|---|
+| tryout | `sleep 150` in the background, checked at 60, 120 and 180 seconds; `network: reachable` | the job log |
+| T1 | a 20-second 1280x720 clip, an 8-frame contact sheet, an 11-minute real-time capture | both probe files, the driver's own `ffprobe` and `shasum` (both matched), `long.exit-status` of 0, 13 logged checks with a longest gap of 69 seconds, and the contact sheet opened in the driver session |
+| T2 | `cargo build --release` of a new crate | `build.exit-status` of 0, the driver's own checksum of the binary (matched), and the binary run by the driver |
+
+The run's receipt validates and names `operator` in `roles_used`. No paid API was called, so the paid-call rules stay provisional.
+
+EVAL_RESULTS_PLACEHOLDER
