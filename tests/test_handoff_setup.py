@@ -1872,5 +1872,696 @@ class AntigravitySetupTests(SetupTests):
                       "effort=model [custom]", output)
 
 
+LEGACY_PREFIX = "hosts.claude_code.identities."
+CORE = {
+    "deep_reasoner": ("claude", "opus", "high"),
+    "fast_worker": ("codex", "gpt-fast", "medium"),
+    "arbiter": ("codex", "gpt-arbiter", "xhigh"),
+}
+ALL_CLAUDE = {
+    "deep_reasoner": ("claude", "opus", "high"),
+    "fast_worker": ("claude", "sonnet", "medium"),
+    "arbiter": ("claude", "opus", "high"),
+}
+# What a v3.12 setup wrote. The specifier carries a permission and a verified
+# state on purpose: the migration must carry the first and never the second.
+SPECIFIER = (
+    'backend = "codex"\nmodel = "gpt-spec"\neffort = "xhigh"\n'
+    'permission_mode = "allow-all"\nverified = true\nverified_at = "2026-01-02T03:04:05Z"\n'
+)
+VERIFIER = (
+    'backend = "claude"\nmodel = "sonnet"\neffort = "high"\n'
+    'permission_mode = "default"\nverified = true\nverified_at = "2026-01-02T03:04:06Z"\n'
+)
+TESTER = (
+    'backend = "codex"\nmodel = "gpt-own"\neffort = "high"\n'
+    'verified = true\nverified_at = "2026-02-03T04:05:06Z"\n'
+)
+OPERATOR = (
+    'backend = "codex"\nmodel = "gpt-op"\neffort = "medium"\n'
+    'verified = true\nverified_at = "2026-03-04T05:06:07Z"\n'
+)
+
+
+def config_text(form: str = "bare", sections=None, core=CORE) -> str:
+    """The core three, then ``sections`` (name -> body), every header in ``form``."""
+
+    prefix = LEGACY_PREFIX if form == "legacy" else ""
+    parts = ["# project config\nschema_version = 2\nrevision = 3\n\n"]
+    for name, (backend, model, effort) in core.items():
+        parts.append(f'[{prefix}{name}]\nbackend = "{backend}"\nmodel = "{model}"\neffort = "{effort}"\n\n')
+    for name, body in (sections or {}).items():
+        parts.append(f"[{prefix}{name}]\n{body}\n")
+    parts.append("[review]\nspec_max_rounds = 1\nimplementation_max_rounds = 3\n")
+    return "".join(parts)
+
+
+class RetiredMigrationTests(unittest.TestCase):
+    """Setup apply is the migration for the e2e pair retired in 4.0.0.
+
+    Borrows the fixture and helpers of SetupTests without re-running its tests.
+    """
+
+    setUp = SetupTests.setUp
+    run_cli = SetupTests.run_cli
+    claude_args = SetupTests.claude_args
+    custom_args = SetupTests.custom_args
+    write_codex_native = SetupTests.write_codex_native
+    snapshot = SetupTests.snapshot
+    configured = SetupTests.configured
+
+    @property
+    def config(self) -> Path:
+        return self.repo / ".handoff" / "config.toml"
+
+    def write_config(self, text: str) -> Path:
+        self.config.parent.mkdir(parents=True, exist_ok=True)
+        self.config.write_text(text, encoding="utf-8", newline="")
+        return self.config
+
+    def text(self) -> str:
+        return self.config.read_text(encoding="utf-8")
+
+    def core_args(self, action="--apply", *extra, choices=CORE):
+        return (*self.custom_args(choices, action), *extra)
+
+    def fresh_repo(self, name: str) -> None:
+        self.repo = self.root / name
+        self.repo.mkdir()
+
+    def retired_headers(self, text=None):
+        return handoff_setup.handoff_config.retired_headers(self.text() if text is None else text)
+
+    def retired_chunks(self, text: str):
+        return {
+            chunk.name: chunk.text
+            for chunk in handoff_setup.handoff_config.split_sections(text)
+            if chunk.name and chunk.name.rsplit(".", 1)[-1] in handoff_setup.RETIRED_IDENTITIES
+        }
+
+    def notes(self, output: str):
+        return [line for line in output.splitlines() if line.startswith("NOTE: ")]
+
+    def assert_migrates_the_five_identity_file(self, form: str):
+        prefix = LEGACY_PREFIX if form == "legacy" else ""
+        original = config_text(form, {"e2e_specifier": SPECIFIER, "e2e_verifier": VERIFIER})
+        self.write_config(original)
+        before = self.snapshot()
+
+        status, preview, error = self.run_cli(*self.core_args("--preview"))
+        # The page shows apply's stderr, so the plan notes carry the news, not a notice.
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual(before, self.snapshot())
+        self.assertIn(f"-[{prefix}e2e_specifier]\n", preview)
+        self.assertIn(f"-[{prefix}e2e_verifier]\n", preview)
+        self.assertIn("+[e2e_tester]\n", preview)
+        removed = f"[{prefix}e2e_specifier], [{prefix}e2e_verifier]"
+        filled = (
+            "e2e_tester filled from retired e2e_specifier: backend=codex, model=gpt-spec, "
+            "effort=xhigh, permission_mode=allow-all; verified starts false"
+        )
+        self.assertIn(f"NOTE: retired sections removed: {removed}", preview)
+        self.assertIn(f"NOTE: {filled}", preview)
+
+        status, output, error = self.run_cli(*self.core_args())
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual(self.notes(preview), self.notes(output))
+        text = self.text()
+        self.assertEqual([], self.retired_headers(text))
+        self.assertEqual(1, text.count("[e2e_tester]"))
+        self.assertNotIn("hosts.claude_code", text)
+        tester = self.configured()["e2e_tester"]
+        self.assertEqual(
+            ("codex", "gpt-spec", "xhigh", "allow-all"),
+            (tester["backend"], tester["model"], tester["effort"], tester["permission_mode"]),
+        )
+        # The old verification belongs to the old section and is not carried over.
+        self.assertIs(False, tester["verified"])
+        self.assertNotIn("verified_at", tester)
+        self.assertEqual(["deep_reasoner", "fast_worker", "arbiter", "e2e_tester"], list(self.configured()))
+
+        after = self.snapshot()
+        status, output, error = self.run_cli(*self.core_args())
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual(after, self.snapshot())
+        self.assertNotIn("retired sections removed", output)
+
+        status, _, error = self.run_cli("--rollback", "--repo", str(self.repo))
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual(original, self.text())
+
+    def test_apply_migrates_a_five_identity_file_and_rollback_restores_it(self):
+        self.assert_migrates_the_five_identity_file("bare")
+
+    def test_apply_migrates_the_same_file_in_the_legacy_header_form(self):
+        self.assert_migrates_the_five_identity_file("legacy")
+
+    def test_a_lone_verifier_fills_e2e_tester(self):
+        self.write_config(config_text("bare", {"e2e_verifier": VERIFIER}))
+        status, output, error = self.run_cli(*self.core_args())
+        self.assertEqual((0, ""), (status, error))
+        self.assertEqual([], self.retired_headers())
+        tester = self.configured()["e2e_tester"]
+        self.assertEqual(
+            ("claude", "sonnet", "high", "default", False),
+            (tester["backend"], tester["model"], tester["effort"], tester["permission_mode"], tester["verified"]),
+        )
+        self.assertIn(
+            "NOTE: e2e_tester filled from retired e2e_verifier: backend=claude, model=sonnet, "
+            "effort=high, permission_mode=default; verified starts false",
+            output,
+        )
+
+    def test_an_existing_e2e_tester_wins_and_keeps_its_verified_state(self):
+        for label, sections in (
+            ("tester first", {"e2e_tester": TESTER, "e2e_specifier": SPECIFIER, "e2e_verifier": VERIFIER}),
+            ("retired first", {"e2e_specifier": SPECIFIER, "e2e_tester": TESTER, "e2e_verifier": VERIFIER}),
+        ):
+            with self.subTest(label):
+                self.fresh_repo(f"repo-{label.replace(' ', '-')}")
+                self.write_config(config_text("bare", sections))
+                status, output, error = self.run_cli(*self.core_args())
+                self.assertEqual((0, ""), (status, error))
+                text = self.text()
+                self.assertEqual(1, text.count("[e2e_tester]"))
+                self.assertEqual([], self.retired_headers(text))
+                tester = self.configured()["e2e_tester"]
+                self.assertEqual(("codex", "gpt-own", "high"), (tester["backend"], tester["model"], tester["effort"]))
+                self.assertIs(True, tester["verified"])
+                self.assertEqual("2026-02-03T04:05:06Z", tester["verified_at"])
+                self.assertIn("NOTE: existing [e2e_tester] wins over the retired sections", output)
+                after = self.snapshot()
+                self.assertEqual(0, self.run_cli(*self.core_args())[0])
+                self.assertEqual(after, self.snapshot())
+
+    def test_preset_mode_writes_the_preset_and_shows_the_old_triple(self):
+        old = 'backend = "claude"\nmodel = "opus-old"\neffort = "max"\n'
+        self.write_config(config_text("bare", {"e2e_specifier": old}))
+        status, output, error = self.run_cli(*self.claude_args("--apply"))
+        self.assertEqual((0, ""), (status, error))
+        tester = self.configured()["e2e_tester"]
+        self.assertEqual(("codex", "gpt-detected", "xhigh"), (tester["backend"], tester["model"], tester["effort"]))
+        self.assertEqual([], self.retired_headers())
+        self.assertIn(
+            "NOTE: e2e_tester takes the balanced preset (backend=codex, model=gpt-detected, effort=xhigh); "
+            "retired values not carried over: e2e_specifier (backend=claude, model=opus-old, effort=max)",
+            output,
+        )
+
+    def test_no_with_e2e_removes_the_retired_sections_and_configures_nothing(self):
+        for label, arguments in (("custom", self.core_args), ("preset", self.claude_args)):
+            with self.subTest(label):
+                self.fresh_repo(f"repo-{label}")
+                self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER, "e2e_verifier": VERIFIER}))
+                status, output, error = self.run_cli(*arguments("--apply", "--no-with-e2e"))
+                self.assertEqual((0, ""), (status, error))
+                self.assertEqual([], self.retired_headers())
+                self.assertNotIn("e2e_tester", self.configured())
+                self.assertIn(
+                    "NOTE: e2e_tester not configured because --no-with-e2e was given; retired values not "
+                    "carried over: e2e_specifier (backend=codex, model=gpt-spec, effort=xhigh); "
+                    "e2e_verifier (backend=claude, model=sonnet, effort=high)",
+                    output,
+                )
+
+    def test_a_flag_that_names_every_e2e_field_beats_the_retired_values(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        flags = ("--role-backend", "e2e_tester=claude", "--role-model", "e2e_tester=haiku",
+                 "--role-effort", "e2e_tester=low", "--role-permission-mode", "e2e_tester=default")
+        status, output, error = self.run_cli(*self.core_args("--apply", *flags))
+        self.assertEqual((0, ""), (status, error))
+        tester = self.configured()["e2e_tester"]
+        self.assertEqual(("claude", "haiku", "low", "default"), (
+            tester["backend"], tester["model"], tester["effort"], tester["permission_mode"]))
+        self.assertIn("NOTE: e2e_tester comes from the --role-* flags; retired values not carried over", output)
+
+    def test_a_flag_fills_only_the_fields_it_names_and_the_rest_come_from_the_file(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        status, output, error = self.run_cli(
+            *self.core_args("--apply", "--role-model", "e2e_tester=gpt-new")
+        )
+        self.assertEqual((0, ""), (status, error))
+        tester = self.configured()["e2e_tester"]
+        self.assertEqual(("codex", "gpt-new", "xhigh", "allow-all"), (
+            tester["backend"], tester["model"], tester["effort"], tester["permission_mode"]))
+        self.assertIs(False, tester["verified"])
+        self.assertIn("e2e_tester filled from retired e2e_specifier: backend=codex, effort=xhigh, permission_mode=allow-all", output)
+
+    def test_build_plan_never_mutates_its_arguments_and_can_run_twice(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        args = handoff_setup.build_parser().parse_args(list(self.core_args("--apply")))
+        args.repo = args.repo.resolve()
+        before = {key: (list(value) if isinstance(value, list) else value) for key, value in vars(args).items()}
+        first = handoff_setup.build_plan(args, self.env)
+        second = handoff_setup.build_plan(args, self.env)
+        self.assertEqual(before, vars(args))
+        self.assertIsNone(args.with_e2e)
+        self.assertEqual([change.new for change in first.changes], [change.new for change in second.changes])
+        self.assertEqual(first.notes, second.notes)
+
+    # Toggles. An omitted flag keeps what the file has, so a second flagless
+    # apply never drops an identity the first one wrote.
+
+    def test_an_omitted_toggle_keeps_the_sections_the_file_has(self):
+        for index, (with_e2e, with_operator) in enumerate(((False, False), (True, False), (False, True), (True, True))):
+            for label, arguments in (("custom", self.core_args), ("preset", self.claude_args)):
+                with self.subTest(with_e2e=with_e2e, with_operator=with_operator, mode=label):
+                    self.fresh_repo(f"repo-{index}-{label}")
+                    sections = {}
+                    if with_e2e:
+                        sections["e2e_tester"] = TESTER
+                    if with_operator:
+                        sections["operator"] = OPERATOR
+                    self.write_config(config_text("bare", sections))
+                    expected = list(handoff_setup.identities_for(with_e2e, with_operator))
+                    self.assertEqual(0, self.run_cli(*arguments("--apply"))[0])
+                    self.assertEqual(expected, list(self.configured()))
+                    first = self.snapshot()
+                    self.assertEqual(0, self.run_cli(*arguments("--apply"))[0])
+                    self.assertEqual(first, self.snapshot())
+                    if label == "custom":
+                        # Filled from the file, so nothing about the identity changed.
+                        for name, body in (("e2e_tester", TESTER), ("operator", OPERATOR)):
+                            if name in expected:
+                                values = self.configured()[name]
+                                self.assertEqual("gpt-own" if name == "e2e_tester" else "gpt-op", values["model"])
+                                self.assertIs(True, values["verified"])
+
+    def test_an_omitted_toggle_adds_nothing_the_file_lacks(self):
+        for label, arguments in (("custom", self.core_args), ("preset", self.claude_args)):
+            with self.subTest(label):
+                self.fresh_repo(f"repo-{label}")
+                self.write_config(config_text("bare"))
+                self.assertEqual(0, self.run_cli(*arguments("--apply"))[0])
+                self.assertEqual(list(handoff_setup.CORE_IDENTITIES), list(self.configured()))
+
+    def test_an_explicit_flag_always_wins_over_the_file(self):
+        for index, (with_e2e, with_operator) in enumerate(((False, False), (True, False), (False, True), (True, True))):
+            with self.subTest(with_e2e=with_e2e, with_operator=with_operator):
+                self.fresh_repo(f"repo-{index}")
+                self.write_config(config_text("bare", {"e2e_tester": TESTER, "operator": OPERATOR}))
+                status, _, error = self.run_cli(*self.claude_args(
+                    "--apply",
+                    "--with-e2e" if with_e2e else "--no-with-e2e",
+                    "--with-operator" if with_operator else "--no-with-operator",
+                ))
+                self.assertEqual((0, ""), (status, error))
+                self.assertEqual(list(handoff_setup.identities_for(with_e2e, with_operator)), list(self.configured()))
+
+    def test_an_explicit_positive_adds_a_section_the_file_lacks_in_preset_mode(self):
+        self.write_config(config_text("bare"))
+        self.assertEqual(0, self.run_cli(*self.claude_args("--apply", "--with-operator"))[0])
+        self.assertEqual("operator", list(self.configured())[-1])
+
+    def test_a_field_still_missing_after_the_fill_raises_the_custom_mode_error(self):
+        self.write_config(config_text("bare"))
+        before = self.snapshot()
+        for extra in (("--with-e2e",), ("--with-e2e", "--role-model", "e2e_tester=gpt-new")):
+            with self.subTest(extra):
+                status, _, error = self.run_cli(*self.core_args("--apply", *extra))
+                self.assertEqual(2, status)
+                self.assertIn("custom mode requires --role-backend, --role-model, and --role-effort for:", error)
+                self.assertIn("e2e_tester", error)
+                self.assertEqual(before, self.snapshot())
+
+    def interactive(self, answers, *extra):
+        from unittest.mock import patch
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=answers) as prompt:
+            status, output, error = self.run_cli("--interactive", "--repo", str(self.repo), *extra)
+        return status, output, error, [entry.args[0] for entry in prompt.call_args_list]
+
+    def custom_answers(self, optional, identities, scope="1"):
+        answers = ["4", scope, "n", "n", "", "", *optional]
+        for _ in identities:
+            answers.extend(["claude", "opus", "high", ""])
+        return [*answers, "n"]
+
+    def test_the_terminal_wizard_default_follows_the_file(self):
+        e2e_prompt = "Also configure the optional e2e_tester identity? [{}]: "
+        operator_prompt = "Also configure the optional operator identity? [{}]: "
+        core = list(handoff_setup.CORE_IDENTITIES)
+        cases = (
+            ("nothing", config_text("bare"), (), "y/N", "y/N", core),
+            ("e2e_tester", config_text("bare", {"e2e_tester": TESTER}), (), "Y/n", "y/N", [*core, "e2e_tester"]),
+            ("operator", config_text("bare", {"operator": OPERATOR}), (), "y/N", "Y/n", [*core, "operator"]),
+            ("both", config_text("bare", {"e2e_tester": TESTER, "operator": OPERATOR}), (), "Y/n", "Y/n",
+             [*core, "e2e_tester", "operator"]),
+            ("retired", config_text("bare", {"e2e_specifier": SPECIFIER}), (), "Y/n", "y/N", [*core, "e2e_tester"]),
+            ("an explicit flag", config_text("bare", {"e2e_tester": TESTER}), ("--no-with-e2e",), "y/N", "y/N", core),
+        )
+        for index, (label, text, flags, e2e_default, operator_default, expected) in enumerate(cases):
+            with self.subTest(label):
+                self.fresh_repo(f"repo-{index}")
+                self.write_config(text)
+                status, output, error, asked = self.interactive(self.custom_answers(("", ""), expected), *flags)
+                self.assertEqual(0, status, error)
+                self.assertIn(e2e_prompt.format(e2e_default), asked)
+                self.assertIn(operator_prompt.format(operator_default), asked)
+                self.assertEqual(
+                    [f"{name} backend [claude/codex/copilot/cursor/antigravity]: " for name in expected],
+                    [item for item in asked if item.endswith(" backend [claude/codex/copilot/cursor/antigravity]: ")],
+                )
+
+    def test_the_terminal_wizard_answer_overrides_the_default_and_a_preset_leaves_it_to_the_plan(self):
+        core = list(handoff_setup.CORE_IDENTITIES)
+        self.write_config(config_text("bare", {"e2e_tester": TESTER}))
+        # Typing n drops it, and typing y keeps it.
+        status, output, error, _ = self.interactive(self.custom_answers(("n", ""), core))
+        self.assertEqual(0, status, error)
+        self.assertNotIn("e2e_tester: backend=", output)
+        status, output, error, _ = self.interactive(self.custom_answers(("y", "y"), [*core, "e2e_tester", "operator"]))
+        self.assertEqual(0, status, error)
+        self.assertIn("e2e_tester: backend=claude [custom]", output)
+        self.assertIn("operator: backend=claude [custom]", output)
+        # A preset asks nothing about them: the plan keeps what the file has.
+        status, output, error, asked = self.interactive(["1", "1", "n", "n", "", "", "n"])
+        self.assertEqual(0, status, error)
+        self.assertFalse([item for item in asked if "optional" in item])
+        self.assertIn("e2e_tester: backend=codex [built-in]", output)
+
+    def test_the_terminal_wizard_reads_the_selected_scope_for_its_default(self):
+        core = list(handoff_setup.CORE_IDENTITIES)
+        self.write_config(config_text("bare", {"e2e_tester": TESTER}))
+        status, _, error, asked = self.interactive(self.custom_answers(("", ""), core, scope="2"))
+        self.assertEqual(0, status, error)
+        self.assertIn("Also configure the optional e2e_tester identity? [y/N]: ", asked)
+
+    # Agent files and the routing block.
+
+    def retired_agent(self, name: str, content: str = "---\nname: generated\n---\nbody\n") -> Path:
+        path = self.repo.resolve() / ".claude" / "agents" / f"handoff-{name.replace('_', '-')}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        manifest = self.repo.resolve() / ".handoff" / ".generated-manifest"
+        recorded = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else {}
+        recorded[str(path)] = handoff_setup.sha256(content)
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return path
+
+    def recorded(self):
+        return json.loads((self.repo.resolve() / ".handoff" / ".generated-manifest").read_text(encoding="utf-8"))
+
+    def test_apply_removes_a_manifest_matched_retired_agent_file(self):
+        for index, name in enumerate(handoff_setup.RETIRED_IDENTITIES):
+            with self.subTest(name):
+                self.fresh_repo(f"repo-{index}")
+                self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+                agent = self.retired_agent(name)
+                status, preview, error = self.run_cli(*self.core_args("--preview"))
+                self.assertEqual((0, ""), (status, error))
+                self.assertIn(f"[DELETE] {agent}", preview)
+                self.assertTrue(agent.exists())
+                status, output, error = self.run_cli(*self.core_args())
+                self.assertEqual((0, ""), (status, error))
+                self.assertIn(f"REMOVED {agent}", output)
+                self.assertFalse(agent.exists())
+                self.assertNotIn(str(agent), self.recorded())
+
+    def test_apply_refuses_a_modified_retired_agent_file_and_still_migrates_the_config(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        agent = self.retired_agent("e2e_specifier")
+        agent.write_text("edited by the user\n", encoding="utf-8")
+        status, output, error = self.run_cli(*self.core_args())
+        self.assertEqual(1, status)
+        self.assertIn(f"REFUSED {agent}: refusing to delete an agent file modified since generation", error)
+        self.assertEqual("edited by the user\n", agent.read_text(encoding="utf-8"))
+        self.assertIn(str(agent), self.recorded())
+        self.assertEqual([], self.retired_headers())
+
+    def test_uninstall_removes_a_matched_retired_agent_file_and_skips_a_modified_one(self):
+        self.write_config(config_text("bare"))
+        matched = self.retired_agent("e2e_specifier")
+        modified = self.retired_agent("e2e_verifier")
+        modified.write_text("edited by the user\n", encoding="utf-8")
+        status, output, error = self.run_cli("--uninstall", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertIn(f"REMOVED {matched}", output)
+        self.assertFalse(matched.exists())
+        self.assertIn(f"SKIPPED {modified}: modified since generation; left in place", error)
+        self.assertEqual("edited by the user\n", modified.read_text(encoding="utf-8"))
+        self.assertEqual([str(modified)], list(self.recorded()))
+
+    def test_no_write_agents_leaves_a_retired_agent_file_and_a_note_names_it(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        specifier = self.retired_agent("e2e_specifier")
+        verifier = self.retired_agent("e2e_verifier")
+        manifest = (self.repo.resolve() / ".handoff" / ".generated-manifest").read_bytes()
+        status, output, error = self.run_cli(*self.core_args("--preview", "--no-write-agents"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn(
+            f"NOTE: retired agent files left in place because --no-write-agents was given: {specifier}, {verifier}",
+            output,
+        )
+        status, output, error = self.run_cli(*self.core_args("--apply", "--no-write-agents"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertTrue(specifier.exists() and verifier.exists())
+        self.assertEqual(manifest, (self.repo.resolve() / ".handoff" / ".generated-manifest").read_bytes())
+        self.assertIn("retired agent files left in place", output)
+        # With no retired agent file there is nothing to name.
+        specifier.unlink()
+        verifier.unlink()
+        status, output, _ = self.run_cli(*self.core_args("--preview", "--no-write-agents"))
+        self.assertNotIn("retired agent files", output)
+
+    RETIRED_POLICY = (
+        "Route reasoning-intensive, ambiguous work to handoff-deep-reasoner.\n"
+        "Route acceptance-gate authoring to handoff-e2e-specifier.\n"
+        "Route acceptance-gate execution to handoff-e2e-verifier.\n"
+    )
+
+    def block(self, policy: str, *, tamper: str = "") -> str:
+        digest = handoff_setup.sha256(policy)
+        if tamper:
+            policy = policy.replace("ambiguous", tamper)
+        return (
+            f"{handoff_setup.BEGIN_MARKER}\n{handoff_setup.HASH_PREFIX}{digest} -->\n"
+            f"{policy}{handoff_setup.END_MARKER}\n"
+        )
+
+    def write_routing(self, block: str) -> Path:
+        path = self.repo / "CLAUDE.md"
+        path.write_text(f"# User rules\n\nKeep this.\n\n{block}\nTail rule.\n", encoding="utf-8")
+        return path
+
+    def test_a_managed_block_that_names_a_retired_agent_is_refreshed_by_an_apply(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        routing = self.write_routing(self.block(self.RETIRED_POLICY))
+        original = routing.read_text(encoding="utf-8")
+        status, preview, error = self.run_cli(*self.core_args("--preview"))
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn(f"[WRITE] {routing.resolve()}", preview)
+        self.assertIn("-Route acceptance-gate authoring to handoff-e2e-specifier.", preview)
+        self.assertIn("+Route acceptance-gate authoring and execution to handoff-e2e-tester.", preview)
+        self.assertEqual(original, routing.read_text(encoding="utf-8"))
+        status, _, error = self.run_cli(*self.core_args())
+        self.assertEqual((0, ""), (status, error))
+        refreshed = routing.read_text(encoding="utf-8")
+        expected = original.replace(
+            self.block(self.RETIRED_POLICY),
+            handoff_setup.render_managed_block(handoff_setup.identities_for(True, False)),
+        )
+        self.assertEqual(expected, refreshed)
+        self.assertTrue(refreshed.startswith("# User rules\n\nKeep this.\n\n"))
+        self.assertTrue(refreshed.endswith("\nTail rule.\n"))
+        self.assertNotIn("handoff-e2e-specifier", refreshed)
+        self.assertNotIn("handoff-e2e-verifier", refreshed)
+        # The next apply has nothing left to refresh.
+        after = self.snapshot()
+        self.assertEqual(0, self.run_cli(*self.core_args())[0])
+        self.assertEqual(after, self.snapshot())
+
+    def test_a_hand_edited_block_that_names_a_retired_agent_is_blocked_like_the_explicit_flag(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}))
+        routing = self.write_routing(self.block(self.RETIRED_POLICY, tamper="hand-edited"))
+        original = routing.read_bytes()
+        status, preview, error = self.run_cli(*self.core_args("--preview"))
+        self.assertEqual((1, ""), (status, error))
+        self.assertIn(f"[REFUSED] {routing.resolve()}", preview)
+        reason = "managed routing content hash does not match"
+        self.assertIn(f"REFUSED: {reason}", preview)
+        status, _, error = self.run_cli(*self.core_args())
+        self.assertEqual(1, status)
+        self.assertIn(f"REFUSED {routing.resolve()}: {reason}", error)
+        self.assertEqual(original, routing.read_bytes())
+        # The rest of the plan is applied, as it is when the explicit flag is refused.
+        self.assertEqual([], self.retired_headers())
+        status, _, flagged = self.run_cli(*self.core_args("--apply", "--routing-block"))
+        self.assertEqual(1, status)
+        self.assertIn(reason, flagged)
+
+    def test_the_implicit_refresh_needs_a_valid_block_that_names_a_retired_agent_and_an_agent_write(self):
+        self.write_config(config_text("bare"))
+        untouched = {
+            "a block that names no retired agent": self.block(
+                handoff_setup.routing_policy(handoff_setup.CORE_IDENTITIES)
+            ),
+            "a block with a duplicated marker": (
+                self.block(self.RETIRED_POLICY) + handoff_setup.BEGIN_MARKER + "\n"
+            ),
+            "a text that only mentions the name": "The old handoff-e2e-specifier agent is gone.\n",
+        }
+        for label, block in untouched.items():
+            with self.subTest(label):
+                routing = self.write_routing(block)
+                original = routing.read_bytes()
+                status, preview, error = self.run_cli(*self.core_args("--preview"))
+                self.assertEqual((0, ""), (status, error))
+                self.assertNotIn(str(routing.resolve()), preview)
+                self.assertEqual(0, self.run_cli(*self.core_args())[0])
+                self.assertEqual(original, routing.read_bytes())
+        routing = self.write_routing(self.block(self.RETIRED_POLICY))
+        original = routing.read_bytes()
+        status, preview, _ = self.run_cli(*self.core_args("--preview", "--no-write-agents"))
+        self.assertEqual(0, status)
+        self.assertNotIn(str(routing.resolve()), preview)
+        self.assertEqual(0, self.run_cli(*self.core_args("--apply", "--no-write-agents"))[0])
+        self.assertEqual(original, routing.read_bytes())
+        # An explicit removal still removes.
+        self.assertEqual(0, self.run_cli(*self.core_args("--apply", "--remove-routing-block"))[0])
+        self.assertNotIn(handoff_setup.BEGIN_MARKER, routing.read_text(encoding="utf-8"))
+
+    # Uninstall, notes, and the stderr notice.
+
+    def test_uninstall_remove_config_clears_retired_sections_in_both_forms(self):
+        codex = (
+            "\n[hosts.codex.identities.deep_reasoner]\n"
+            'backend = "codex"\nmodel = "stale-model" # keep this byte-for-byte\neffort = "xhigh"\n'
+        )
+        for index, form in enumerate(("bare", "legacy")):
+            with self.subTest(form):
+                self.fresh_repo(f"repo-{index}")
+                original = config_text(form, {"e2e_specifier": SPECIFIER, "e2e_verifier": VERIFIER}) + codex
+                self.write_config(original)
+                before = self.snapshot()
+                # Without --remove-config the file is not touched.
+                self.assertEqual(0, self.run_cli("--uninstall", "--repo", str(self.repo))[0])
+                self.assertEqual(original, self.text())
+                self.assertEqual(before, self.snapshot())
+                status, output, error = self.run_cli("--uninstall", "--repo", str(self.repo), "--remove-config")
+                self.assertEqual((0, ""), (status, error))
+                self.assertIn("identities cleared", output)
+                text = self.text()
+                self.assertEqual([], self.retired_headers(text))
+                self.assertEqual({}, handoff_setup.handoff_config.identities_of(
+                    handoff_setup.handoff_config.validate_config(text)))
+                self.assertIn(codex, text)
+                self.assertIn("[review]", text)
+                self.assertNotIn(LEGACY_PREFIX, text.replace("hosts.codex.identities.", ""))
+
+    def test_apply_prints_the_plan_notes_and_neither_preview_nor_apply_prints_the_notice(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER, "e2e_verifier": VERIFIER}))
+        status, preview, preview_error = self.run_cli(*self.core_args("--preview"))
+        status_apply, output, apply_error = self.run_cli(*self.core_args())
+        self.assertEqual((0, 0), (status, status_apply))
+        self.assertEqual("", preview_error)
+        self.assertEqual("", apply_error)
+        self.assertTrue(self.notes(output))
+        self.assertEqual(self.notes(preview), self.notes(output))
+        self.assertIn("NOTE: retired sections removed: [e2e_specifier], [e2e_verifier]", output)
+        # Notes come before the file actions, in the order print_plan puts them.
+        self.assertLess(output.index("NOTE: "), output.index("APPLIED "))
+
+    def notice_lines(self, stderr: str):
+        return [line for line in stderr.splitlines() if line.startswith("notice: ")]
+
+    def test_status_and_smoke_print_the_notice_once_and_the_smoke_write_keeps_the_sections(self):
+        self.write_config(config_text("bare", {"e2e_specifier": SPECIFIER}, core=ALL_CLAUDE))
+        retired = self.retired_chunks(self.text())
+        self.assertEqual(1, len(retired))
+        status, output, error = self.run_cli("--status", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertEqual(1, len(self.notice_lines(error)), error)
+        self.assertIn(f"notice: {self.config.resolve()}: [e2e_specifier] retired in 4.0.0", error)
+        self.assertEqual("", "".join(line for line in error.splitlines(keepends=True) if "notice:" not in line))
+        self.assertNotIn("notice:", output)
+        status, output, error = self.run_cli("--smoke", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertEqual(1, len(self.notice_lines(error)), error)
+        self.assertNotIn("notice:", output)
+        self.assertIn("verified=true", self.run_cli("--status", "--repo", str(self.repo))[1])
+        # Smoke records `verified` and leaves every retired byte alone.
+        self.assertEqual(retired, self.retired_chunks(self.text()))
+        # After the migration the notice is gone.
+        self.assertEqual(0, self.run_cli(*self.core_args("--apply", choices=ALL_CLAUDE))[0])
+        status, _, error = self.run_cli("--status", "--repo", str(self.repo))
+        self.assertEqual((0, ""), (status, error))
+
+    def test_status_names_a_retired_section_in_the_global_file_and_the_global_scope_migrates_it(self):
+        global_config = self.xdg / "handoff" / "config.toml"
+        global_config.parent.mkdir(parents=True)
+        global_config.write_text(
+            config_text("bare", {"e2e_specifier": SPECIFIER}, core=ALL_CLAUDE), encoding="utf-8", newline=""
+        )
+        status, _, error = self.run_cli("--status", "--repo", str(self.repo))
+        self.assertEqual(0, status, error)
+        self.assertEqual(1, len(self.notice_lines(error)), error)
+        self.assertIn(f"notice: {global_config}: [e2e_specifier]", error)
+        # The command the notice names: --scope global --preview, then --apply.
+        scoped = (*self.core_args("--preview", choices=ALL_CLAUDE), "--scope", "global")
+        status, preview, error = self.run_cli(*scoped)
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("-[e2e_specifier]\n", preview)
+        self.assertEqual(0, self.run_cli(*(item if item != "--preview" else "--apply" for item in scoped))[0])
+        self.assertEqual([], self.retired_headers(global_config.read_text(encoding="utf-8")))
+        status, _, error = self.run_cli("--status", "--repo", str(self.repo))
+        self.assertEqual((0, ""), (status, error))
+
+    # Refusals, and the schema v1 path.
+
+    def test_a_retired_section_setup_cannot_read_stops_the_plan_and_names_the_header(self):
+        legacy = f"{LEGACY_PREFIX}e2e_verifier"
+        cases = {
+            "an invalid backend": (
+                config_text("bare") + '[e2e_specifier]\nbackend = "gemini"\nmodel = "m"\neffort = "high"\n',
+                ["[e2e_specifier]", "backend must be one of"],
+            ),
+            "a duplicate": (
+                config_text("bare", {"e2e_specifier": SPECIFIER})
+                + f"[{legacy}]\n{VERIFIER}\n[e2e_verifier]\n{VERIFIER}",
+                [f"[{legacy}] and [e2e_verifier]", "defined twice"],
+            ),
+        }
+        for index, (label, (text, expected)) in enumerate(cases.items()):
+            with self.subTest(label):
+                self.fresh_repo(f"repo-{index}")
+                self.write_config(text)
+                before = self.snapshot()
+                for action in ("--preview", "--apply"):
+                    status, output, error = self.run_cli(*self.core_args(action))
+                    self.assertEqual((2, ""), (status, output), action)
+                    for part in expected:
+                        self.assertIn(part, error)
+                    self.assertIn("nothing was written", error)
+                    self.assertEqual(before, self.snapshot(), action)
+                # Reading is not affected.
+                self.assertEqual(0, self.run_cli("--status", "--repo", str(self.repo))[0])
+
+    def test_a_schema_v1_file_stays_a_blank_start_and_read_retired_never_sees_it(self):
+        from unittest.mock import patch
+        original = (
+            "schema_version = 1\nrevision = 7\n\n"
+            "[hosts.claude_code.roles.deep_reasoner]\nmodel = \"claude-old-deep\"\neffort = \"high\"\n\n"
+            # Invalid on purpose: read_retired would refuse it if it were called.
+            '[e2e_specifier]\nbackend = "gemini"\n'
+        )
+        self.write_config(original)
+        with patch.object(handoff_setup.handoff_config, "read_retired", side_effect=AssertionError("called")):
+            status, preview, error = self.run_cli(*self.claude_args("--preview"))
+            self.assertEqual((0, ""), (status, error))
+            self.assertIn("NOTE: v1 config replaced by a fresh schema v2 document", preview)
+            self.assertNotIn("retired", preview)
+            self.assertEqual(original, self.text())
+            status, output, error = self.run_cli(*self.claude_args())
+            self.assertEqual((0, ""), (status, error))
+        rewritten = self.text()
+        self.assertIn("schema_version = 2", rewritten)
+        self.assertNotIn("e2e_specifier", rewritten)
+        self.assertEqual(list(handoff_setup.CORE_IDENTITIES), list(self.configured()))
+        backups = sorted((self.repo / ".handoff" / "backups").glob("*/files/*"))
+        self.assertTrue(any(path.read_text(encoding="utf-8") == original for path in backups))
+
+
 if __name__ == "__main__":
     unittest.main()

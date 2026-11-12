@@ -366,33 +366,117 @@ def _validate_data(
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             raise ConfigValidationError(f"review.{key} must be an integer of at least 1")
     for identity, fields in identities_of(data).items():
-        backend = fields.get("backend")
-        if backend not in BACKENDS:
-            raise ConfigValidationError(
-                f"{identity}.backend must be one of {', '.join(BACKENDS)}"
-            )
-        for required in ("model", "effort"):
-            if required not in fields or not isinstance(fields[required], str) or not fields[required].strip():
-                raise ConfigValidationError(
-                    f"{identity}.{required} must be a non-empty string"
-                )
-        permission_mode = fields.get("permission_mode", DEFAULT_PERMISSION_MODE)
-        if permission_mode not in PERMISSION_MODES:
-            raise ConfigValidationError(
-                f"{identity}.permission_mode must be one of "
-                f"{', '.join(PERMISSION_MODES)}"
-            )
-        if "verified" in fields and not isinstance(fields["verified"], bool):
-            raise ConfigValidationError(f"{identity}.verified must be a boolean")
-        if "verified_at" in fields and not isinstance(fields["verified_at"], str):
-            raise ConfigValidationError(f"{identity}.verified_at must be a string")
+        _validate_identity_fields(identity, fields)
     return data
+
+
+def _validate_identity_fields(identity: str, fields: Mapping[str, Any]) -> None:
+    """One identity's values. Shared with read_retired, so a retired section is
+    held to the rules an identity section is."""
+
+    backend = fields.get("backend")
+    if backend not in BACKENDS:
+        raise ConfigValidationError(
+            f"{identity}.backend must be one of {', '.join(BACKENDS)}"
+        )
+    for required in ("model", "effort"):
+        if required not in fields or not isinstance(fields[required], str) or not fields[required].strip():
+            raise ConfigValidationError(
+                f"{identity}.{required} must be a non-empty string"
+            )
+    permission_mode = fields.get("permission_mode", DEFAULT_PERMISSION_MODE)
+    if permission_mode not in PERMISSION_MODES:
+        raise ConfigValidationError(
+            f"{identity}.permission_mode must be one of "
+            f"{', '.join(PERMISSION_MODES)}"
+        )
+    if "verified" in fields and not isinstance(fields["verified"], bool):
+        raise ConfigValidationError(f"{identity}.verified must be a boolean")
+    if "verified_at" in fields and not isinstance(fields["verified_at"], str):
+        raise ConfigValidationError(f"{identity}.verified_at must be a string")
 
 
 def validate_config(text: str, *, path: Optional[Path] = None) -> Dict[str, Any]:
     """Parse and validate the schema-v2 values."""
 
     return _validate_data(parse_config(text, path=path), path=path)
+
+
+def _retired_name(section: Optional[str]) -> Optional[str]:
+    """The retired identity a table header names, in either header form, else None.
+
+    Exact names only: a dotted header such as [e2e_specifier.x] is some other
+    table that happens to start with a retired name, and is not one of these.
+    """
+
+    if section is None:
+        return None
+    name = section[len(LEGACY_IDENTITY_PREFIX):] if section.startswith(LEGACY_IDENTITY_PREFIX) else section
+    return name if name in RETIRED_IDENTITIES else None
+
+
+def retired_headers(text: str) -> List[str]:
+    """Every retired section header in ``text``, as written, in file order."""
+
+    return [chunk.name for chunk in split_sections(text) if _retired_name(chunk.name)]
+
+
+def read_retired(text: str, path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
+    """The values of each retired section, keyed by retired name.
+
+    parse_config leaves these sections opaque, so reading a config never
+    depends on them. Only setup calls this, to carry their values into
+    e2e_tester, and it holds them to the rules an identity section is held to:
+    a section that would not have loaded as an identity must not migrate as
+    one. A name defined twice is refused, because two tables for one name would
+    let one of them win silently.
+    """
+
+    where = f" in {path}" if path is not None else ""
+    found: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+    for chunk in split_sections(text):
+        name = _retired_name(chunk.name)
+        if name is None:
+            continue
+        if name in found:
+            raise ConfigValidationError(
+                f"retired identity {name!r} is defined twice "
+                f"([{found[name][0]}] and [{chunk.name}]){where}; keep one."
+            )
+        try:
+            fields = _parse_assignments(chunk)
+            for retired in RETIRED_IDENTITY_FIELDS:
+                fields.pop(retired, None)
+            _validate_identity_fields(name, fields)
+        except ConfigError as error:
+            raise ConfigValidationError(f"retired section [{chunk.name}]{where}: {error}") from None
+        found[name] = (chunk.name, fields)
+    return {name: found[name][1] for name in RETIRED_IDENTITIES if name in found}
+
+
+RETIRED_NOTICE = (
+    "retired in 4.0.0 and ignored; e2e_tester replaces them. "
+    "Migrate with /agent-handoff config, or for the global file: "
+    "handoff-setup.py --scope global --preview, then --apply."
+)
+
+
+def warn_retired(*paths: Path) -> None:
+    """One stderr line per existing file that still has a retired section.
+
+    Stderr, because delegate-job.sh parses this command's stdout. It never
+    raises: a file that cannot be read or parsed is skipped, and the command's
+    own error path is the one that reports it.
+    """
+
+    for path in paths:
+        try:
+            path = Path(path)
+            headers = retired_headers(_read_text(path)) if path.is_file() else []
+        except (OSError, ValueError, ConfigError):
+            continue
+        if headers:
+            print(f"notice: {path}: [{', '.join(headers)}] {RETIRED_NOTICE}", file=sys.stderr)
 
 
 def _format_value(value: Any) -> str:
@@ -428,11 +512,15 @@ def update_host(
     identities: Optional[Mapping[str, Mapping[str, Any]]] = None,
     *,
     path: Optional[Path] = None,
+    drop_retired: bool = False,
 ) -> str:
     """Replace the identity chunks, preserving every other chunk byte-for-byte.
 
     Every owned chunk goes, in bare or legacy form, and the bare sections take
-    the place of the first one.
+    the place of the first one. A retired chunk is unowned, so it stays too,
+    unless ``drop_retired`` is set: only setup passes it, because only setup
+    carries a retired section's values forward, and a plain ``set`` must never
+    lose a section the user has not migrated.
     """
 
     if identities is None:
@@ -454,7 +542,11 @@ def update_host(
         for chunk in chunks
     ):
         raise _legacy_v1_error(path)
-    indexes = [index for index, chunk in enumerate(chunks) if _identity_name(chunk.name) is not None]
+    indexes = [
+        index for index, chunk in enumerate(chunks)
+        if _identity_name(chunk.name) is not None
+        or (drop_retired and _retired_name(chunk.name) is not None)
+    ]
     insert_at = indexes[0] if indexes else len(chunks)
     kept = [chunk.text for index, chunk in enumerate(chunks) if index not in indexes]
     if emitted:
@@ -788,6 +880,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     path = _scope_path(args.scope, args.repo)
     try:
+        # First, so a command that goes on to fail still says what it ignored.
+        # resolve reads both layers; every other command reads the selected one.
+        if args.command == "resolve":
+            warn_retired(global_config_path(), project_config_path(args.repo))
+        else:
+            warn_retired(path)
         if args.command == "resolve":
             resolved = resolve_config(args.repo, _parse_override(args.override))
             # Look every key up before printing, so a missing key prints nothing.

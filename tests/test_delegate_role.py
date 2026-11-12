@@ -351,7 +351,15 @@ class DelegateRoleTests(unittest.TestCase):
                     + f'\n[{prefix}e2e_verifier]\nbackend = "codex"\nmodel = "gpt-verify"\neffort = "high"\n'
                 )
                 result, _ = self.run_submit(config, "--role", "fast_worker")
-                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                self.assertEqual(0, result.returncode, result.stderr)
+                # The resolve step names the retired sections once, on stderr, so the
+                # job's stdout stays the single JSON object the driver parses.
+                notice = result.stderr.splitlines()
+                self.assertEqual(1, len(notice), result.stderr)
+                self.assertIn(
+                    f"[{prefix}e2e_specifier, {prefix}e2e_verifier] retired in 4.0.0 and ignored",
+                    notice[0],
+                )
                 parsed = self.parsed(result.stdout)
                 self.assertEqual(("fast_worker", "gpt-fast"), (parsed["role"], parsed["model"]))
 

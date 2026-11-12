@@ -700,6 +700,23 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         }
         for identity, values in identities.items()
     }
+    # A v3.12 project still has e2e_specifier / e2e_verifier sections, which
+    # the engine ignores on read. Setup migrates them into e2e_tester, so the
+    # page shows that value as the current one: merged here, before the model
+    # options below, so a filled Copilot, Cursor or Antigravity model outside
+    # the catalogue stays selectable. The page is project scope only, so only
+    # the project file is read; a section of its own wins over the fill.
+    existing = engine.existing_config(engine.handoff_config.project_config_path(repo))
+    retired = engine.retired_source(existing.retired)
+    if retired and "e2e_tester" not in existing.identities:
+        values = retired[1]
+        current["e2e_tester"] = {
+            "backend": values["backend"],
+            "model": values["model"],
+            "effort": values["effort"],
+            "permission_mode": values.get("permission_mode", "default"),
+            "model_source": "existing config",
+        }
     # The release lookups wait on the network and the probes below wait on
     # subprocesses, so the lookups start first and are collected last: the two
     # waits overlap instead of adding up.
@@ -810,6 +827,12 @@ def build_state(repo: Path, env: Mapping[str, str]) -> Dict[str, Any]:
         "initial_review": dict(resolved["review"]),
         "core_identities": list(engine.CORE_IDENTITIES),
         "optional_identities": list(engine.OPTIONAL_IDENTITIES),
+        # The toggles the page opens with checked: an apply from the page sends
+        # every toggle explicitly, so one left unchecked would remove the
+        # identity from the config.
+        "optional_present": [
+            identity for identity in engine.OPTIONAL_IDENTITIES if identity in current
+        ],
         "write_agents_available": True,
     }
 
@@ -1002,6 +1025,9 @@ class SetupController:
     def __init__(self, repo: Path, env: Mapping[str, str]):
         self.repo = repo.resolve()
         self.env = dict(env)
+        # Despite the name, rebuilt after every successful apply (see apply):
+        # the page reads this on each load, and a snapshot taken at start would
+        # show an identity the install just added as absent.
         self.initial_state = build_state(self.repo, self.env)
         self.lock = threading.Lock()
         self.preview_digest: Optional[str] = None
@@ -1074,6 +1100,11 @@ class SetupController:
                     str(payload["scope"]),
                 ]
                 smoke = self._run(smoke_args, timeout=120)
+            if applied.returncode == 0:
+                # After the smoke too, which writes `verified`. Without this a
+                # reload shows the pre-install config, and the next apply from
+                # that page would remove what this one added.
+                self.initial_state = build_state(self.repo, self.env)
         return {
             "ok": applied.returncode == 0,
             "code": applied.returncode,

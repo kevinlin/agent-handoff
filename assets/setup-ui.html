@@ -893,6 +893,11 @@
       state = await api('/api/state');
       mode = state.initial_mode;
       matrix = clone(state.initial_matrix);
+      // An apply from this page sends every toggle explicitly, so an optional identity the config
+      // already has must open checked, or the install would remove it. The block opens too, so the
+      // checked toggle and its card are not hidden behind a closed summary.
+      for (const identity of state.optional_present) $(OPTIONAL_CONTROLS[identity].toggle).checked = true;
+      if (state.optional_present.length) $('e2eAddOn').open = true;
       $('repo').textContent = state.repo;
       const codex = state.detected.codex_model ? ` · ${state.detected.codex_model} / ${state.detected.codex_effort || 'not set'}` : '';
       const config = state.config_source === 'default' ? 'No config yet' : 'Existing config';

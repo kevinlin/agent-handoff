@@ -1345,6 +1345,261 @@ class IdentityLayoutTests(unittest.TestCase):
                 self.assertEqual(2, self.run_cli("set", "--role", "deep_reasoner", "--effort", "xhigh")[0])
                 self.assertEqual(before, path.read_bytes())
 
+    # The notice. A retired section is ignored on read, so the one thing the
+    # engine owes the user is a line saying so, on stderr: delegate-job.sh
+    # parses stdout.
+    NOTICE_TAIL = (
+        "retired in 4.0.0 and ignored; e2e_tester replaces them. "
+        "Migrate with /agent-handoff config, or for the global file: "
+        "handoff-setup.py --scope global --preview, then --apply.\n"
+    )
+
+    def warn(self, *paths) -> str:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            handoff_config.warn_retired(*paths)
+        return stderr.getvalue()
+
+    def without_retired(self, text: str) -> str:
+        return "".join(
+            chunk.text for chunk in handoff_config.split_sections(text)
+            if not (chunk.name and chunk.name.rsplit(".", 1)[-1] in handoff_config.RETIRED_IDENTITIES)
+        )
+
+    def test_warn_retired_names_the_file_and_the_headers_as_written(self):
+        legacy = handoff_config.LEGACY_IDENTITY_PREFIX
+        mixed = self.retired_file("bare").replace("[e2e_verifier]", f"[{legacy}e2e_verifier]")
+        only_verifier = self.without_retired(self.retired_file("bare")) + (
+            "[e2e_verifier]\n" + self.RETIRED_BODIES["e2e_verifier"]
+        )
+        cases = (
+            (self.retired_file("bare"), "e2e_specifier, e2e_verifier"),
+            (self.retired_file("legacy"), f"{legacy}e2e_specifier, {legacy}e2e_verifier"),
+            (mixed, f"e2e_specifier, {legacy}e2e_verifier"),
+            (only_verifier, "e2e_verifier"),
+        )
+        for text, headers in cases:
+            with self.subTest(headers=headers):
+                path = self.write_project(text)
+                self.assertEqual(f"notice: {path}: [{headers}] {self.NOTICE_TAIL}", self.warn(path))
+
+    def test_warn_retired_prints_one_line_per_file_that_has_a_retired_section(self):
+        project = self.write_project(self.retired_file("bare"))
+        global_path = handoff_config.global_config_path()
+        global_path.parent.mkdir(parents=True)
+        global_path.write_text(self.retired_file("legacy"), encoding="utf-8", newline="")
+        clean = self.root / "clean.toml"
+        clean.write_text(self.without_retired(self.retired_file("bare")), encoding="utf-8", newline="")
+        lines = self.warn(project, global_path, clean, self.root / "missing.toml").splitlines()
+        self.assertEqual(2, len(lines), lines)
+        self.assertTrue(lines[0].startswith(f"notice: {project}: "))
+        self.assertTrue(lines[1].startswith(f"notice: {global_path}: "))
+        self.assertEqual("", self.warn(clean))
+
+    def test_warn_retired_skips_a_file_it_cannot_read_or_parse(self):
+        binary = self.root / "binary.toml"
+        binary.write_bytes(b"\xff\xfe[e2e_specifier]\n")
+        unparsable = self.root / "unparsable.toml"
+        unparsable.write_text(self.retired_file("bare") + '[[e2e_specifier]]\nbackend = "codex"\n', encoding="utf-8")
+        self.assertEqual("", self.warn(binary, unparsable, self.root))
+        # The command's own error path reports what warn_retired skipped.
+        self.write_project(unparsable.read_text(encoding="utf-8"))
+        status, stdout, stderr = self.run_cli("validate")
+        self.assertEqual((2, ""), (status, stdout))
+        self.assertIn("array-of-tables headers are not supported", stderr)
+        self.assertEqual([], [line for line in stderr.splitlines() if line.startswith("notice: ")])
+
+    def test_read_commands_print_the_notice_and_change_neither_stdout_nor_the_file(self):
+        commands = (
+            ("resolve",),
+            ("resolve", "deep_reasoner.model", "fast_worker.effort"),
+            ("get",),
+            ("get", "fast_worker.model"),
+            ("validate",),
+        )
+        for form in ("bare", "legacy"):
+            retired = self.retired_file(form)
+            clean = self.without_retired(retired)
+            for command in commands:
+                with self.subTest(form=form, command=command):
+                    self.write_project(clean)
+                    _, clean_stdout, clean_stderr = self.run_cli(*command)
+                    self.assertEqual("", clean_stderr)
+                    path = self.write_project(retired)
+                    before = path.read_bytes()
+                    status, stdout, stderr = self.run_cli(*command)
+                    self.assertEqual(0, status, stderr)
+                    self.assertEqual(clean_stdout, stdout)
+                    self.assertEqual(1, stderr.count("notice: "), stderr)
+                    self.assertEqual(1, len(stderr.splitlines()), stderr)
+                    self.assertEqual(before, path.read_bytes())
+
+    def test_resolve_names_each_layer_that_has_a_retired_section_and_the_other_commands_one(self):
+        project = self.write_project(self.retired_file("bare"))
+        global_path = handoff_config.global_config_path()
+        global_path.parent.mkdir(parents=True)
+        global_path.write_text(self.retired_file("legacy"), encoding="utf-8", newline="")
+        _, _, stderr = self.run_cli("resolve")
+        self.assertEqual([global_path, project], [
+            Path(line.split("notice: ", 1)[1].split(": [", 1)[0]) for line in stderr.splitlines()
+        ])
+        # Any other command reads only the selected scope.
+        _, _, stderr = self.run_cli("validate")
+        self.assertEqual(1, stderr.count("notice: "))
+        self.assertIn(str(project), stderr)
+        status, _, stderr = self.run_cli("--scope", "global", "validate")
+        self.assertEqual(0, status, stderr)
+        self.assertEqual(1, stderr.count("notice: "))
+        self.assertIn(str(global_path), stderr)
+
+    def test_set_and_set_review_print_the_notice_and_keep_each_retired_chunk(self):
+        writes = (
+            ("set", "--role", "fast_worker", "--effort", "high"),
+            ("set-review", "--spec-max-rounds", "2"),
+        )
+        for form in ("bare", "legacy"):
+            original = self.retired_file(form)
+            retired = self.retired_chunks(original)
+            self.assertEqual(2, len(retired))
+            for command in writes:
+                with self.subTest(form=form, command=command):
+                    path = self.write_project(original)
+                    status, stdout, stderr = self.run_cli(*command)
+                    self.assertEqual((0, f"{path}\n"), (status, stdout))
+                    self.assertEqual(1, stderr.count("notice: "), stderr)
+                    self.assertEqual(1, len(stderr.splitlines()), stderr)
+                    self.assertEqual(retired, self.retired_chunks(path.read_text(encoding="utf-8")))
+
+    def test_read_retired_reads_both_header_forms_and_mixed_forms(self):
+        legacy = handoff_config.LEGACY_IDENTITY_PREFIX
+        expected = {
+            "e2e_specifier": {"backend": "codex", "model": "gpt-spec", "effort": "xhigh"},
+            "e2e_verifier": {"backend": "claude", "model": "sonnet", "effort": "high"},
+        }
+        mixed = (
+            self.retired_file("bare").replace("[e2e_verifier]", f"[{legacy}e2e_verifier]")
+        )
+        reversed_mixed = (
+            self.retired_file("bare").replace("[e2e_specifier]", f"[{legacy}e2e_specifier]")
+        )
+        for label, text in (
+            ("bare", self.retired_file("bare")),
+            ("legacy", self.retired_file("legacy")),
+            ("mixed", mixed),
+            ("mixed the other way", reversed_mixed),
+        ):
+            with self.subTest(label):
+                result = handoff_config.read_retired(text)
+                self.assertEqual(expected, result)
+                self.assertEqual(["e2e_specifier", "e2e_verifier"], list(result))
+
+    def test_read_retired_reads_one_section_and_ignores_everything_else(self):
+        core = self.without_retired(self.retired_file("bare"))
+        self.assertEqual({}, handoff_config.read_retired(core))
+        self.assertEqual({}, handoff_config.read_retired(""))
+        only = core + "[e2e_verifier]\n" + self.RETIRED_BODIES["e2e_verifier"]
+        self.assertEqual(
+            {"e2e_verifier": {"backend": "claude", "model": "sonnet", "effort": "high"}},
+            handoff_config.read_retired(only),
+        )
+        # Optional fields come through, and so does a header that only starts with a retired name.
+        extra = core + (
+            "[e2e_specifier]\n"
+            'backend = "codex"\nmodel = "gpt-spec"\neffort = "xhigh"\n'
+            'permission_mode = "allow-all"\nverified = true\nverified_at = "2026-01-01T00:00:00Z"\n'
+            "auto_review_spec = true\n\n"
+            "[e2e_specifier.extra]\nk = 1\n"
+        )
+        self.assertEqual(
+            {
+                "e2e_specifier": {
+                    "backend": "codex", "model": "gpt-spec", "effort": "xhigh",
+                    "permission_mode": "allow-all", "verified": True,
+                    "verified_at": "2026-01-01T00:00:00Z",
+                }
+            },
+            handoff_config.read_retired(extra),
+        )
+
+    def test_read_retired_refuses_a_duplicate_and_names_both_headers(self):
+        legacy = handoff_config.LEGACY_IDENTITY_PREFIX
+        core = self.without_retired(self.retired_file("bare"))
+        body = self.RETIRED_BODIES["e2e_specifier"]
+        for first, second in (
+            ("e2e_specifier", "e2e_specifier"),
+            ("e2e_specifier", f"{legacy}e2e_specifier"),
+            (f"{legacy}e2e_specifier", "e2e_specifier"),
+            (f"{legacy}e2e_specifier", f"{legacy}e2e_specifier"),
+        ):
+            with self.subTest(first=first, second=second):
+                text = core + f"[{first}]\n{body}\n[{second}]\n{body}"
+                with self.assertRaises(handoff_config.ConfigValidationError) as raised:
+                    handoff_config.read_retired(text, Path("config.toml"))
+                message = str(raised.exception)
+                self.assertIn("defined twice", message)
+                self.assertIn(f"[{first}] and [{second}]", message)
+                self.assertIn("config.toml", message)
+
+    def test_read_retired_refuses_values_that_do_not_validate_and_names_the_header(self):
+        legacy = handoff_config.LEGACY_IDENTITY_PREFIX
+        core = self.without_retired(self.retired_file("bare"))
+        bodies = {
+            "an invalid backend": ('backend = "gemini"\nmodel = "m"\neffort = "high"\n', "backend must be one of"),
+            "no model": ('backend = "codex"\neffort = "high"\n', "model must be a non-empty string"),
+            "a blank effort": ('backend = "codex"\nmodel = "m"\neffort = " "\n', "effort must be a non-empty string"),
+            "an invalid permission": (
+                'backend = "codex"\nmodel = "m"\neffort = "high"\npermission_mode = "root"\n',
+                "permission_mode must be one of",
+            ),
+            "a non-boolean verified": (
+                'backend = "codex"\nmodel = "m"\neffort = "high"\nverified = "yes"\n',
+                "verified must be a boolean",
+            ),
+            "syntax outside the subset": ('backend = "codex"\nmodel = "m"\neffort = [1, 2]\n', "outside the supported TOML subset"),
+        }
+        for header in ("e2e_specifier", f"{legacy}e2e_verifier"):
+            for label, (body, reason) in bodies.items():
+                with self.subTest(header=header, body=label):
+                    with self.assertRaises(handoff_config.ConfigValidationError) as raised:
+                        handoff_config.read_retired(core + f"[{header}]\n{body}")
+                    self.assertIn(f"[{header}]", str(raised.exception))
+                    self.assertIn(reason, str(raised.exception))
+
+    def test_reading_never_calls_read_retired_and_never_refuses_a_retired_section(self):
+        invalid = self.without_retired(self.retired_file("bare")) + (
+            '[e2e_specifier]\nbackend = "gemini"\n\n[e2e_specifier]\nbackend = "codex"\n'
+        )
+        path = self.write_project(invalid)
+        with patch.object(handoff_config, "read_retired", side_effect=AssertionError("called")):
+            parsed = handoff_config.validate_config(invalid)
+            resolved = handoff_config.resolve_config(self.repo, env=self.env)
+            for command in (("validate",), ("get",), ("resolve",)):
+                self.assertEqual(0, self.run_cli(*command)[0], command)
+        self.assertEqual(list(handoff_config.CORE_IDENTITIES), list(handoff_config.identities_of(parsed)))
+        self.assertEqual(list(handoff_config.CORE_IDENTITIES), list(handoff_config.identities_of(resolved)))
+        self.assertEqual(invalid, path.read_text(encoding="utf-8"))
+
+    def test_update_host_drops_retired_chunks_only_when_asked(self):
+        identities = handoff_config.identities_of(handoff_config.validate_config(self.retired_file("bare")))
+        for form in ("bare", "legacy"):
+            with self.subTest(form=form):
+                original = self.retired_file(form)
+                kept = handoff_config.update_host(original, identities)
+                self.assertEqual(self.retired_chunks(original), self.retired_chunks(kept))
+                dropped = handoff_config.update_host(original, identities, drop_retired=True)
+                self.assertEqual([], handoff_config.retired_headers(dropped))
+                self.assertEqual({}, self.retired_chunks(dropped))
+                self.assertEqual(
+                    list(handoff_config.CORE_IDENTITIES),
+                    list(handoff_config.identities_of(handoff_config.validate_config(dropped))),
+                )
+                self.assertIn("[review]", dropped)
+                self.assertEqual(dropped, handoff_config.update_host(dropped, identities, drop_retired=True))
+        # Nothing owned in the file: the retired chunks still go, and the emitted sections land where they were.
+        retired_only = self.PREAMBLE + "[e2e_specifier]\n" + self.RETIRED_BODIES["e2e_specifier"] + "\n[review]\nspec_max_rounds = 1\n"
+        cleared = handoff_config.update_host(retired_only, {}, drop_retired=True)
+        self.assertEqual(self.PREAMBLE + "[review]\nspec_max_rounds = 1\n", cleared)
+
 
 class RetiredRoutingSectionTests(unittest.TestCase):
     """[routing] held one key that nothing read. Since 3.9.5 it is an unknown section."""

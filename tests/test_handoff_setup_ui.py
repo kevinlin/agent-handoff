@@ -1685,5 +1685,234 @@ class CliHelpPageTests(unittest.TestCase):
         self.assertIn("max-width:min(28rem, calc(100vw - 32px))", rule.group(1))
 
 
+RETIRED_SPECIFIER = (
+    'backend = "codex"\nmodel = "gpt-spec"\neffort = "xhigh"\npermission_mode = "allow-all"\n'
+)
+RETIRED_VERIFIER = 'backend = "claude"\nmodel = "sonnet"\neffort = "high"\n'
+
+
+def v312_config(sections: str = "", legacy: bool = False) -> str:
+    prefix = "hosts.claude_code.identities." if legacy else ""
+    return (
+        "schema_version = 2\nrevision = 3\n\n"
+        f'[{prefix}deep_reasoner]\nbackend = "claude"\nmodel = "opus"\neffort = "high"\n\n'
+        f'[{prefix}fast_worker]\nbackend = "codex"\nmodel = "gpt-detected"\neffort = "medium"\n\n'
+        f'[{prefix}arbiter]\nbackend = "codex"\nmodel = "gpt-detected"\neffort = "xhigh"\n\n'
+        + sections
+        + "[review]\nspec_max_rounds = 1\nimplementation_max_rounds = 3\n"
+    )
+
+
+class RetiredSectionSetupUITests(unittest.TestCase):
+    """The page opens on a v3.12 project and keeps what the config already has.
+
+    Reuses SetupUITests' fixture without re-running its tests.
+    """
+
+    def setUp(self):
+        SetupUITests.setUp(self)
+        fake = self.bin / "cursor-agent"
+        fake.write_text(CURSOR_UI_FAKE, encoding="utf-8")
+        fake.chmod(0o755)
+        self.env["HANDOFF_TEST_CURSOR_ARGS"] = str(self.root / "cursor-ui-args.txt")
+
+    payload = SetupUITests.payload
+
+    def write_config(self, text: str) -> Path:
+        path = self.repo / ".handoff" / "config.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8", newline="")
+        return path
+
+    def state(self):
+        return handoff_setup_ui.build_state(self.repo, self.env)
+
+    def served_payload(self, controller):
+        """What the page would submit for the state it was just served."""
+
+        state = controller.state()
+        present = state["optional_present"]
+        return {
+            "mode": "custom",
+            "identities": {
+                identity: {
+                    field: state["initial_matrix"][identity][field]
+                    for field in ("backend", "model", "effort", "permission_mode")
+                }
+                for identity in [*state["core_identities"], *present]
+            },
+            "with_e2e": "e2e_tester" in present,
+            "with_operator": "operator" in present,
+            "review": dict(state["initial_review"]),
+            "scope": "project",
+            "exclude_choice": "track",
+            "routing_action": "none",
+            "write_agents": False,
+            "smoke": False,
+        }
+
+    def test_a_retired_file_pre_checks_e2e_and_fills_e2e_tester_from_the_specifier(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                self.write_config(v312_config(
+                    f"[{'hosts.claude_code.identities.' if legacy else ''}e2e_specifier]\n{RETIRED_SPECIFIER}\n"
+                    f"[{'hosts.claude_code.identities.' if legacy else ''}e2e_verifier]\n{RETIRED_VERIFIER}\n",
+                    legacy,
+                ))
+                state = self.state()
+                self.assertEqual(["e2e_tester"], state["optional_present"])
+                self.assertEqual("custom", state["initial_mode"])
+                tester = state["initial_matrix"]["e2e_tester"]
+                self.assertEqual(
+                    ("codex", "gpt-spec", "xhigh", "allow-all", "existing config"),
+                    (tester["backend"], tester["model"], tester["effort"], tester["permission_mode"],
+                     tester["model_source"]),
+                )
+                # The retired model is not in the Codex catalogue, and stays selectable.
+                self.assertIn("gpt-spec", [option["value"] for option in state["model_options"]["codex"]])
+                # The core identities are untouched, and the retired sections are no identity.
+                self.assertEqual("opus", state["initial_matrix"]["deep_reasoner"]["model"])
+                self.assertNotIn("e2e_specifier", state["initial_matrix"])
+
+    def test_a_lone_verifier_fills_e2e_tester(self):
+        self.write_config(v312_config(f"[e2e_verifier]\n{RETIRED_VERIFIER}\n"))
+        state = self.state()
+        self.assertEqual(["e2e_tester"], state["optional_present"])
+        tester = state["initial_matrix"]["e2e_tester"]
+        self.assertEqual(("claude", "sonnet", "high", "default"), (
+            tester["backend"], tester["model"], tester["effort"], tester["permission_mode"]))
+
+    def test_an_e2e_tester_section_of_its_own_beats_the_retired_ones(self):
+        own = 'backend = "codex"\nmodel = "gpt-own"\neffort = "high"\n'
+        self.write_config(v312_config(f"[e2e_tester]\n{own}\n[e2e_specifier]\n{RETIRED_SPECIFIER}\n"))
+        state = self.state()
+        self.assertEqual(["e2e_tester"], state["optional_present"])
+        self.assertEqual("gpt-own", state["initial_matrix"]["e2e_tester"]["model"])
+
+    def test_the_operator_section_pre_checks_operator_and_a_file_with_neither_checks_nothing(self):
+        operator = 'backend = "codex"\nmodel = "gpt-op"\neffort = "medium"\n'
+        self.write_config(v312_config(f"[operator]\n{operator}\n"))
+        state = self.state()
+        self.assertEqual(["operator"], state["optional_present"])
+        self.assertEqual("gpt-op", state["initial_matrix"]["operator"]["model"])
+        self.write_config(v312_config(f"[e2e_specifier]\n{RETIRED_SPECIFIER}\n[operator]\n{operator}\n"))
+        self.assertEqual(["e2e_tester", "operator"], self.state()["optional_present"])
+        self.write_config(v312_config())
+        self.assertEqual([], self.state()["optional_present"])
+        (self.repo / ".handoff" / "config.toml").unlink()
+        self.assertEqual([], self.state()["optional_present"])
+
+    def test_a_filled_cursor_model_outside_the_catalogue_stays_selectable(self):
+        retired = 'backend = "cursor"\nmodel = "gpt-5.2-retired"\neffort = "model"\n'
+        self.write_config(v312_config(f"[e2e_specifier]\n{retired}\n"))
+        state = self.state()
+        kept = {option["value"]: option for option in state["model_options"]["cursor"]}
+        self.assertEqual("Not in the current catalogue", kept["gpt-5.2-retired"]["label"])
+        self.assertEqual(["model"], kept["gpt-5.2-retired"]["efforts"])
+        self.assertIn("gpt-5.4-mini-low", kept)
+        self.assertEqual("gpt-5.2-retired", state["initial_matrix"]["e2e_tester"]["model"])
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        # The page can submit it: normalize_payload refuses a Cursor slug that is not offered.
+        result = controller.preview(self.served_payload(controller))
+        self.assertTrue(result["ok"], result)
+
+    def test_a_retired_section_setup_cannot_read_stops_the_page_and_names_the_header(self):
+        self.write_config(v312_config('[e2e_specifier]\nbackend = "gemini"\n'))
+        with self.assertRaises(handoff_setup_ui.engine.SetupError) as raised:
+            self.state()
+        self.assertIn("[e2e_specifier]", str(raised.exception))
+
+    def test_preview_and_install_migrate_the_retired_sections_and_a_reload_shows_the_result(self):
+        path = self.write_config(v312_config(
+            f"[e2e_specifier]\n{RETIRED_SPECIFIER}\n[e2e_verifier]\n{RETIRED_VERIFIER}\n"
+        ))
+        original = path.read_bytes()
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        raw = self.served_payload(controller)
+        self.assertTrue(raw["with_e2e"])
+        preview = controller.preview(raw)
+        self.assertTrue(preview["ok"], preview)
+        self.assertEqual("", preview["error"])
+        self.assertIn("-[e2e_specifier]\n", preview["output"])
+        self.assertIn("-[e2e_verifier]\n", preview["output"])
+        self.assertIn("+[e2e_tester]\n", preview["output"])
+        self.assertEqual(original, path.read_bytes())
+        applied = controller.apply(raw)
+        self.assertTrue(applied["ok"], applied)
+        self.assertEqual("", applied["error"])
+        self.assertIn("NOTE: retired sections removed: [e2e_specifier], [e2e_verifier]", applied["output"])
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual([], handoff_setup_ui.engine.handoff_config.retired_headers(text))
+        reloaded = controller.state()
+        self.assertEqual(["e2e_tester"], reloaded["optional_present"])
+        self.assertEqual("gpt-spec", reloaded["initial_matrix"]["e2e_tester"]["model"])
+        self.assertEqual("allow-all", reloaded["initial_matrix"]["e2e_tester"]["permission_mode"])
+        # A restarted page reads the same.
+        self.assertEqual(reloaded["initial_matrix"], self.state()["initial_matrix"])
+
+    def test_a_reload_after_an_install_that_adds_operator_shows_it_and_the_next_apply_keeps_it(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        self.assertEqual([], controller.state()["optional_present"])
+        raw = self.payload(controller)
+        raw["with_operator"] = True
+        self.assertTrue(controller.preview(raw)["ok"])
+        applied = controller.apply(raw)
+        self.assertTrue(applied["ok"], applied)
+        state = controller.state()
+        self.assertEqual(["operator"], state["optional_present"])
+        self.assertEqual("codex", state["initial_matrix"]["operator"]["backend"])
+        # What a reloaded page submits keeps the identity: nothing would be removed.
+        second = self.served_payload(controller)
+        self.assertTrue(second["with_operator"])
+        preview = controller.preview(second)
+        self.assertTrue(preview["ok"], preview)
+        config = [item for item in preview["files"] if item["path"].endswith(".handoff/config.toml")]
+        self.assertEqual(["UNCHANGED"], [item["state"] for item in config])
+        self.assertIn("operator", (self.repo / ".handoff" / "config.toml").read_text(encoding="utf-8"))
+
+    def test_the_state_is_rebuilt_after_apply_and_smoke_and_not_after_a_failed_apply(self):
+        controller = handoff_setup_ui.SetupController(self.repo, self.env)
+        events = []
+        real_run, real_build = controller._run, handoff_setup_ui.build_state
+
+        def run(arguments, **keywords):
+            for action in ("--apply", "--smoke"):
+                if action in arguments:
+                    events.append(action.strip("-"))
+                    code = outcomes[action]
+                    return subprocess.CompletedProcess(list(arguments), code, "", "")
+            return real_run(arguments, **keywords)
+
+        def build(*arguments):
+            events.append("build")
+            return real_build(*arguments)
+
+        for label, smoke, outcomes, expected in (
+            ("apply only", False, {"--apply": 0}, ["apply", "build"]),
+            ("apply then smoke", True, {"--apply": 0, "--smoke": 1}, ["apply", "smoke", "build"]),
+            ("a failed apply", True, {"--apply": 2}, ["apply"]),
+        ):
+            with self.subTest(label):
+                del events[:]
+                raw = self.payload(controller)
+                raw["smoke"] = smoke
+                with mock.patch.object(controller, "_run", side_effect=run), \
+                        mock.patch.object(handoff_setup_ui, "build_state", side_effect=build):
+                    self.assertTrue(controller.preview(raw)["ok"])
+                    controller.apply(raw)
+                self.assertEqual(expected, events)
+
+    def test_the_page_checks_the_present_toggles_and_opens_the_block_before_it_draws(self):
+        source = PAGE.read_text(encoding="utf-8")
+        load = source[source.index("async function load()"):]
+        checked = "for (const identity of state.optional_present) $(OPTIONAL_CONTROLS[identity].toggle).checked = true;"
+        opened = "if (state.optional_present.length) $('e2eAddOn').open = true;"
+        for line in (checked, opened):
+            self.assertIn(line, load)
+        self.assertLess(load.index(checked), load.index("renderIdentities();"))
+        self.assertLess(load.index(opened), load.index("renderIdentities();"))
+        self.assertIn('<details id="e2eAddOn" class="e2e-addon">', source)
+
+
 if __name__ == "__main__":
     unittest.main()

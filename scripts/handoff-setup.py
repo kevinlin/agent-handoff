@@ -36,6 +36,7 @@ SPEC.loader.exec_module(handoff_config)
 IDENTITIES = handoff_config.IDENTITIES
 CORE_IDENTITIES = handoff_config.CORE_IDENTITIES
 OPTIONAL_IDENTITIES = handoff_config.OPTIONAL_IDENTITIES
+RETIRED_IDENTITIES = handoff_config.RETIRED_IDENTITIES
 identities_for = handoff_config.identities_for
 ordered = handoff_config.ordered
 BACKENDS = handoff_config.BACKENDS
@@ -807,9 +808,11 @@ def load_manifest(path: Path) -> Tuple[str, Dict[str, str]]:
 
 def _agent_paths(args: argparse.Namespace, env: Mapping[str, str]) -> Dict[str, Path]:
     root = args.repo.resolve() / ".claude" / "agents" if args.scope == "project" else home_path(env) / ".claude" / "agents"
+    # The retired names are listed so the removal branch in build_plan, and
+    # uninstall, clean up the agent files a 3.x setup generated for them.
     return {
         identity: root / f"handoff-{identity.replace('_', '-')}.md"
-        for identity in IDENTITIES
+        for identity in IDENTITIES + RETIRED_IDENTITIES
     }
 
 def _routing_path(args: argparse.Namespace, env: Mapping[str, str]) -> Path:
@@ -874,13 +877,185 @@ def _cli_unavailable(
         if not available[str(desired[identity]["backend"])]
     ]
 
+@dataclass
+class ExistingConfig:
+    """What one scope's config file holds before setup writes it."""
+
+    text: str
+    legacy: bool
+    identities: Mapping[str, Mapping[str, Any]]
+    review: Mapping[str, Any]
+    retired: Mapping[str, Mapping[str, Any]]
+    retired_headers: Sequence[str]
+
+
+def existing_config(path: Path) -> ExistingConfig:
+    text = read_text(path) if path.exists() else ""
+    if not text:
+        return ExistingConfig(text, False, {}, {}, {}, [])
+    # A v1 document is a blank start, so nothing in it is read: its backup is
+    # what keeps the old values, and read_retired never sees it.
+    if _is_legacy_v1(text):
+        return ExistingConfig(text, True, {}, {}, {}, [])
+    parsed = handoff_config.validate_config(text, path=path)
+    try:
+        retired = handoff_config.read_retired(text, path)
+    except handoff_config.ConfigError as error:
+        raise SetupError(
+            f"{str(error).rstrip('.')}. Fix that section in the config, then run "
+            "setup again; nothing was written."
+        ) from None
+    return ExistingConfig(
+        text,
+        False,
+        handoff_config.identities_of(parsed),
+        parsed.get("review", {}),
+        retired,
+        handoff_config.retired_headers(text),
+    )
+
+
+def retired_source(
+    retired: Mapping[str, Mapping[str, Any]]
+) -> Optional[Tuple[str, Mapping[str, Any]]]:
+    """The retired section e2e_tester is filled from: e2e_specifier, else e2e_verifier."""
+
+    return next(((name, retired[name]) for name in RETIRED_IDENTITIES if name in retired), None)
+
+
+def _optional_defaults(
+    args: argparse.Namespace, existing: ExistingConfig
+) -> Tuple[bool, bool]:
+    """Resolve the two optional-identity toggles: an explicit flag wins, and an
+    omitted one keeps what the file already has.
+
+    Without that, a flagless second apply would drop an identity the first one
+    wrote. e2e_tester also stays on while a retired section is present, because
+    that section is what setup migrates into it.
+    """
+
+    with_e2e = getattr(args, "with_e2e", None)
+    with_operator = getattr(args, "with_operator", None)
+    return (
+        ("e2e_tester" in existing.identities or bool(existing.retired))
+        if with_e2e is None else with_e2e,
+        "operator" in existing.identities if with_operator is None else with_operator,
+    )
+
+
+# The four fields a --role-* flag can name, with the Namespace list that holds each.
+FILL_FIELDS = (
+    ("backend", "role_backend"),
+    ("model", "role_model"),
+    ("effort", "role_effort"),
+    ("permission_mode", "role_permission_mode"),
+)
+
+
+def _fill_optional(
+    selected: argparse.Namespace, existing: ExistingConfig
+) -> Dict[str, Tuple[str, List[str]]]:
+    """Custom mode: give each optional identity the fields no flag names, from the file.
+
+    An identity takes them from its own section. e2e_tester with no section of
+    its own takes them from the retired e2e_specifier, else e2e_verifier, so a
+    migrating user is never asked for values the file already holds. Returns
+    identity -> (where the values came from, the fields filled).
+
+    ``selected`` is a copy of the parsed arguments, and the role lists are
+    replaced rather than appended to: apply_plan builds the plan twice from the
+    same arguments, and a second append would repeat an identity.
+    """
+
+    lists = {attr: list(getattr(selected, attr)) for _, attr in FILL_FIELDS}
+    named = {
+        field: parse_identity_values(lists[attr], f"--role-{field.replace('_', '-')}")
+        for field, attr in FILL_FIELDS
+    }
+    wanted = {"e2e_tester": selected.with_e2e, "operator": selected.with_operator}
+    filled: Dict[str, Tuple[str, List[str]]] = {}
+    for identity in OPTIONAL_IDENTITIES:
+        if not wanted[identity]:
+            continue
+        retired = retired_source(existing.retired) if identity == "e2e_tester" else None
+        if identity in existing.identities:
+            origin, values = identity, existing.identities[identity]
+        elif retired:
+            origin, values = retired
+        else:
+            continue
+        for field, attr in FILL_FIELDS:
+            if identity in named[field] or field not in values:
+                continue
+            lists[attr].append(f"{identity}={values[field]}")
+            filled.setdefault(identity, (origin, []))[1].append(field)
+    for _, attr in FILL_FIELDS:
+        setattr(selected, attr, lists[attr])
+    return filled
+
+
+def _triple(values: Mapping[str, Any]) -> str:
+    return f"backend={values['backend']}, model={values['model']}, effort={values['effort']}"
+
+
+def _retired_notes(
+    args: argparse.Namespace,
+    existing: ExistingConfig,
+    desired: Mapping[str, Mapping[str, Any]],
+    filled: Mapping[str, Tuple[str, List[str]]],
+) -> List[str]:
+    """Say what setup did with the retired sections, which it always removes."""
+
+    if not existing.retired_headers:
+        return []
+    notes = [
+        "retired sections removed: "
+        + ", ".join(f"[{header}]" for header in existing.retired_headers)
+    ]
+    old = "; ".join(f"{name} ({_triple(values)})" for name, values in existing.retired.items())
+    if "e2e_tester" not in desired:
+        notes.append(
+            "e2e_tester not configured because --no-with-e2e was given; "
+            f"retired values not carried over: {old}"
+        )
+    elif args.mode != "custom":
+        notes.append(
+            f"e2e_tester takes the {args.mode} preset ({_triple(desired['e2e_tester'])}); "
+            f"retired values not carried over: {old}"
+        )
+    elif "e2e_tester" in filled and filled["e2e_tester"][0] == "e2e_tester":
+        notes.append(
+            "existing [e2e_tester] wins over the retired sections; "
+            f"retired values not carried over: {old}"
+        )
+    elif "e2e_tester" in filled:
+        origin, fields = filled["e2e_tester"]
+        notes.append(
+            f"e2e_tester filled from retired {origin}: "
+            + ", ".join(f"{field}={desired['e2e_tester'][field]}" for field in fields)
+            + "; verified starts false"
+        )
+    else:
+        notes.append(
+            f"e2e_tester comes from the --role-* flags; retired values not carried over: {old}"
+        )
+    return notes
+
+
 def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
-    desired, sources, notes = choose_identities(args, env)
     path = config_path(args.scope, args.repo, env)
-    old_config = read_text(path) if path.exists() else ""
-    current_identities: Mapping[str, Mapping[str, Any]] = {}
-    current_review: Mapping[str, Any] = {}
-    legacy = bool(old_config and _is_legacy_v1(old_config))
+    # Read before the identities are chosen: the toggles and the fill both
+    # depend on what the file already holds.
+    existing = existing_config(path)
+    old_config = existing.text
+    selected = argparse.Namespace(**vars(args))
+    selected.with_e2e, selected.with_operator = _optional_defaults(args, existing)
+    filled = _fill_optional(selected, existing) if args.mode == "custom" else {}
+    desired, sources, notes = choose_identities(selected, env)
+    notes.extend(_retired_notes(args, existing, desired, filled))
+    legacy = existing.legacy
+    current_identities: Mapping[str, Mapping[str, Any]] = existing.identities
+    current_review: Mapping[str, Any] = existing.review
     if legacy:
         # A v1 document has no v2 chunks worth keeping, so start from a blank
         # one; create_backup holds the original and --rollback restores it.
@@ -889,18 +1064,21 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
             "the old file is kept in the apply backup"
         )
     else:
-        if old_config:
-            parsed = handoff_config.validate_config(old_config, path=path)
-            current_identities = handoff_config.identities_of(parsed)
-            current_review = parsed.get("review", {})
         preserve_verification(current_identities, desired)
     review = desired_review(args, env, current_review)
-    new_config = handoff_config.update_host("" if legacy else old_config, identities=desired, path=path)
+    # Setup is the migration, so it drops retired sections whatever the toggles
+    # say: they are ignored on read, and keeping them would leave the notice
+    # printing on every command.
+    new_config = handoff_config.update_host(
+        "" if legacy else old_config, identities=desired, path=path, drop_retired=True
+    )
     new_config = handoff_config.update_review(new_config, review, path=path)
     # update_review puts a blank line between the identity block and an
     # appended [review], and the next identity write drops that line. Converge
     # before the first write so the next identical apply is byte-idempotent.
-    new_config = handoff_config.update_host(new_config, identities=desired, path=path)
+    new_config = handoff_config.update_host(
+        new_config, identities=desired, path=path, drop_retired=True
+    )
 
     unavailable = _cli_unavailable(desired, env)
     for identity in desired:
@@ -965,6 +1143,17 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
                     )
         new_manifest = json.dumps(updated_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         changes.append(FileChange(mpath, old_manifest, new_manifest, mpath.exists()))
+    else:
+        left = [
+            str(agent_path)
+            for identity, agent_path in _agent_paths(args, env).items()
+            if identity in RETIRED_IDENTITIES and agent_path.exists()
+        ]
+        if left:
+            notes.append(
+                "retired agent files left in place because --no-write-agents was given: "
+                + ", ".join(left)
+            )
 
     if args.routing_block or args.remove_routing_block:
         rpath = _routing_path(args, env)
@@ -974,6 +1163,19 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
             changes.append(FileChange(rpath, old, new, rpath.exists()))
         except SetupError as error:
             changes.append(FileChange(rpath, old, old, rpath.exists(), str(error)))
+    elif args.write_agents:
+        # The apply above removes the retired agent files, and a managed block
+        # that still routes to them would send work to agents that are gone. So
+        # the block is refreshed without being asked, and the preview shows it.
+        # A block that fails its hash check is blocked exactly as the explicit
+        # flag blocks it.
+        rpath = _routing_path(args, env)
+        old = read_text(rpath) if rpath.exists() else ""
+        if _names_retired_agent(old):
+            try:
+                changes.append(FileChange(rpath, old, update_managed_block(old, desired, args.force), True))
+            except SetupError as error:
+                changes.append(FileChange(rpath, old, old, True, str(error)))
 
     exclude, note = _git_exclude_change(args)
     if exclude:
@@ -981,6 +1183,20 @@ def build_plan(args: argparse.Namespace, env: Mapping[str, str]) -> Plan:
     if note:
         notes.append(note)
     return Plan(changes, notes, sources, unavailable)
+
+def _names_retired_agent(text: str) -> bool:
+    """Whether the routing file has a structurally valid managed block that
+    routes to a retired agent. The hash is not checked here: a block that fails
+    it still names the agent, and the caller reports it as blocked."""
+
+    try:
+        region = _managed_region(text, force=True)
+    except SetupError:
+        return False
+    if region is None:
+        return False
+    block = text[region[0]:region[1]]
+    return any(f"handoff-{name.replace('_', '-')}" in block for name in RETIRED_IDENTITIES)
 
 def unified_diff(change: FileChange) -> str:
     before = change.old.splitlines(keepends=True)
@@ -1323,6 +1539,11 @@ def apply_plan(
     with handoff_config.ConfigLock(lock_path):
         plan = build_plan(args, env)
         _require_available(plan)
+        # The notes are how apply reports a migration: the page shows apply's
+        # stderr in its result box, so a stderr notice would tell the user to
+        # migrate just after they did. Same line shape as print_plan.
+        for note in plan.notes:
+            print(f"NOTE: {note}")
         backup = create_backup(args.repo, plan.changes, args.timestamp)
         for change in plan.changes:
             if change.blocked:
@@ -1618,7 +1839,7 @@ def uninstall(args: argparse.Namespace, env: Mapping[str, str]) -> int:
             cpath = config_path(args.scope, args.repo, env)
             if cpath.exists():
                 old = read_text(cpath)
-                cleared = handoff_config.update_host(old, identities={})
+                cleared = handoff_config.update_host(old, identities={}, drop_retired=True)
                 if cleared != old:
                     if not args.dry_run:
                         handoff_config.atomic_write(cpath, cleared)
@@ -1666,13 +1887,26 @@ def interactive(args: argparse.Namespace, env: Mapping[str, str]) -> int:
     identity_models: List[str] = []
     identity_efforts: List[str] = []
     identity_permissions: List[str] = []
-    with_e2e = getattr(args, "with_e2e", False)
-    with_operator = getattr(args, "with_operator", False)
+    # Left as given in a preset: build_plan resolves an omitted toggle itself.
+    with_e2e = getattr(args, "with_e2e", None)
+    with_operator = getattr(args, "with_operator", None)
     if mode == "custom":
-        answer = input("Also configure the optional e2e_tester identity? [y/N]: ").strip().lower()
-        with_e2e = answer in ("y", "yes")
-        answer = input("Also configure the optional operator identity? [y/N]: ").strip().lower()
-        with_operator = answer in ("y", "yes")
+        # Plain Enter takes the value build_plan would resolve for this scope,
+        # so answering nothing never drops an identity the file already has.
+        default_e2e, default_operator = _optional_defaults(
+            args, existing_config(config_path(scope, args.repo, env))
+        )
+
+        def ask(identity: str, default: bool) -> bool:
+            answer = input(
+                f"Also configure the optional {identity} identity? [{'Y/n' if default else 'y/N'}]: "
+            ).strip().lower()
+            if answer in ("y", "yes"):
+                return True
+            return False if answer in ("n", "no") else default
+
+        with_e2e = ask("e2e_tester", default_e2e)
+        with_operator = ask("operator", default_operator)
         for identity in identities_for(with_e2e, with_operator):
             backend = input(f"{identity} backend [claude/codex/copilot/cursor/antigravity]: ").strip()
             identity_backends.append(f"{identity}={backend}")
@@ -1726,19 +1960,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-e2e",
         dest="with_e2e",
         action="store_true",
-        help="Also configure the optional e2e_tester identity.",
+        help="Also configure the optional e2e_tester identity (default: keep it if the config has it or a retired e2e section).",
     )
     e2e.add_argument("--no-with-e2e", dest="with_e2e", action="store_false")
-    parser.set_defaults(with_e2e=False)
+    # None, not False: an omitted flag keeps what the config file has, and only
+    # --no-with-e2e removes it.
+    parser.set_defaults(with_e2e=None)
     operator = parser.add_mutually_exclusive_group()
     operator.add_argument(
         "--with-operator",
         dest="with_operator",
         action="store_true",
-        help="Also configure the optional operator identity.",
+        help="Also configure the optional operator identity (default: keep it if the config has it).",
     )
     operator.add_argument("--no-with-operator", dest="with_operator", action="store_false")
-    parser.set_defaults(with_operator=False)
+    parser.set_defaults(with_operator=None)
     parser.add_argument("--spec-max-rounds", type=int, metavar="N", help="Spec review passes before the arbiter rules on a declined blocking finding (default: keep the current value, else 1).")
     parser.add_argument("--implementation-max-rounds", type=int, metavar="N", help="Driver review passes on a delegated diff before the arbiter rules (default: keep the current value, else 3).")
     agents = parser.add_mutually_exclusive_group()
@@ -1761,6 +1997,12 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
     environ = os.environ if env is None else env
     args.repo = args.repo.resolve()
     try:
+        if args.status or args.smoke:
+            # Preview and apply carry this in their plan notes on stdout.
+            handoff_config.warn_retired(
+                handoff_config.global_config_path(environ),
+                handoff_config.project_config_path(args.repo),
+            )
         if args.interactive:
             return interactive(args, environ)
         if args.status:
