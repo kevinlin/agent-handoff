@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-version: 3.12.0
+version: 4.0.0
 description: |
   Agent Handoff: Claude Code plans, splits and reviews project work while a worker CLI (Codex, a second Claude Code, GitHub Copilot, Cursor or Antigravity) executes it as background jobs, and every run ends with a receipt. Use on "agent handoff" or "/agent-handoff" with any sub-command: resume, config (also setup, init), tryout, transcript, cost-receipt, visualise (visualize), migrate. Also use on "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split work between Claude Code and a worker CLI to save quota; on "resume", "config", "setup" or "tryout agent handoff"; on a request that names a Handoff identity (deep_reasoner, fast_worker, arbiter); and on requests to show a delegated job's transcript or conversation history, a run's cost receipt, the session timeline, or to migrate handoff evidence. Not for ordinary code review. Do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
@@ -19,6 +19,7 @@ This file routes. Find the command below, read the file it names, and read furth
 - **Never move a task to another identity to change its vendor or meter.** That is a config change (`/agent-handoff config`, or `handoff-config.py set`), and you say so. A user who asks for such a swap is asking for that config change: name it and offer it, and do not re-route the task. If the configured identity is wrong for the work, say so and ask.
 - **Identity values live only in config**: `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global). Never copy them into a prompt or a doc.
 - **The user owns the work.** Accept nothing on a worker's summary. Review the diff, or the evidence of a row that is not a diff, against the acceptance criteria first.
+- **No paid call without the user's recorded cap, and never print a key's value.** See `references/artefact-rows.md`.
 - **Report only what was measured.** Never state a token saving, an avoided cost, or context kept out of the driver.
 - **Say what is missing.** When a worker CLI the config needs is not installed, say so up front.
 

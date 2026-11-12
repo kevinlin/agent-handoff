@@ -31,15 +31,15 @@ What the agent-handoff skill loads into context, and when. Introduced in v3.12.0
 
 ## What a request loads
 
-Measured with `wc -w` at v3.12.0, against v3.11.1.
+Measured with `wc -w`.
 
-| Request | v3.11.1 | v3.12.0 |
-|---|---|---|
-| A delegated run on codex and claude | 12,311 words | 6,040 words |
-| `/agent-handoff transcript` | 3,231 words | 1,829 words |
-| `/agent-handoff config` | 4,778 words | 2,561 words |
+| Request | v3.11.1 | v3.12.0 | v4.0.0 |
+|---|---|---|---|
+| A delegated run on codex and claude | 12,311 words | 6,040 words | 6,417 words |
+| `/agent-handoff transcript` | 3,231 words | 1,829 words | 1,883 words |
+| `/agent-handoff config` | 4,778 words | 2,561 words | 2,703 words |
 
-The delegated run counts `SKILL.md`, the flow, two backend files, the goal-file template, the packet templates, the receipt and the wrap-up memory step. A run that reaches arbitration, e2e or PR delivery adds that one file. The whole surface, every file together, went from 18,035 words to 13,310.
+The delegated run counts `SKILL.md`, the flow, two backend files, the goal-file template, the packet templates, the receipt and the wrap-up memory step. A run that reaches arbitration, e2e, an artefact row or PR delivery adds that one file. The whole surface, every file together, went from 18,035 words to 13,310 in v3.12.0. v4.0.0 brings it to 14,806: `references/artefact-rows.md` is 776 of the added words, and a plain software run never loads it.
 
 ## Rules for changing the surface
 
