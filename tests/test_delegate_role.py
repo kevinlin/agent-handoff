@@ -1433,6 +1433,70 @@ class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
         self.assertIn("session_error: query (status 400)", text)
         self.assertIn("Unsupported value", text)
 
+    # Real 1.0.109 event shapes, trimmed. `apply_patch`, the tool GPT models edit
+    # files with, sends its arguments as raw patch text: a plain string, where
+    # `bash` and `sql` send an object.
+    COPILOT_109_LOG = (
+        {"type": "tool.execution_start", "data": {
+            "toolCallId": "call_a", "toolName": "bash",
+            "arguments": {"command": "cat check.sh", "description": "Inspect check script"},
+            "turnId": "0", "model": "gpt-6.1-sol", "toolTitle": "Running command"}},
+        {"type": "tool.execution_complete", "data": {
+            "toolCallId": "call_a", "turnId": "0", "shellExecution": {"exitCode": 0},
+            "success": True,
+            "result": {"content": "echo CHECK_OK\n<shellId: 0 completed with exit code 0>"}}},
+        {"type": "tool.execution_start", "data": {
+            "toolCallId": "custom_call_b", "toolName": "apply_patch",
+            "arguments": "*** Begin Patch\n*** Add File: /repo/greet.py\n"
+                         "+def greet(name):\n+    return f\"Hello, {name}!\"\n*** End Patch\n",
+            "turnId": "1", "model": "gpt-6.1-sol", "toolTitle": "Applying patch"}},
+        {"type": "tool.execution_complete", "data": {
+            "toolCallId": "custom_call_b", "turnId": "1",
+            "fileEdits": [{"path": "/repo/greet.py", "kind": "create"}], "success": True,
+            "result": {"content": "Added 1 file(s): /repo/greet.py"}}},
+        {"type": "tool.execution_start", "data": {
+            "toolCallId": "call_c", "toolName": "bash",
+            "arguments": {"command": "bash check.sh", "description": "Run repository acceptance check"},
+            "turnId": "2", "model": "gpt-6.1-sol", "toolTitle": "Running command"}},
+        {"type": "tool.execution_complete", "data": {
+            "toolCallId": "call_c", "turnId": "2", "shellExecution": {"exitCode": 0},
+            "success": True,
+            "result": {"content": "CHECK_OK\n<shellId: 1 completed with exit code 0>"}}},
+        {"type": "assistant.message", "data": {
+            "messageId": "m-1", "content": "CHECK_OK", "toolRequests": [], "turnId": "3",
+            "phase": "final_answer"}},
+        {"type": "result", "sessionId": "sess-fixture-109", "exitCode": 0,
+         "usage": {"premiumRequests": 1, "sessionDurationMs": 16637}},
+    )
+
+    def test_result_survives_a_tool_whose_arguments_are_a_plain_string(self):
+        """1.0.109's apply_patch sends raw patch text, so `arguments` is not always an object.
+
+        `result` crashed on it (`'str' object has no attribute 'get'`). Only
+        command-bearing arguments count as a command run, so the patch is not
+        listed and the two bash commands are.
+        """
+
+        job_id = self.submit()
+        job = self.finish(job_id)
+        job.joinpath("log.jsonl").write_text(
+            "".join(json.dumps(event) + "\n" for event in self.COPILOT_109_LOG),
+            encoding="utf-8",
+        )
+
+        as_json = self.delegate("result", job_id, "--repo", str(self.repo), "--json")
+        self.assertEqual(0, as_json.returncode, as_json.stderr)
+        payload = json.loads(as_json.stdout)
+        self.assertEqual("CHECK_OK", payload["agent_message"])
+        self.assertEqual(["cat check.sh", "bash check.sh"], payload["commands"])
+        self.assertEqual(0, payload["permission_denied"])
+
+        as_text = self.delegate("result", job_id, "--repo", str(self.repo))
+        self.assertEqual(0, as_text.returncode, as_text.stderr)
+        self.assertIn("commands_run: 2", as_text.stdout)
+        self.assertIn("permission_denied: 0", as_text.stdout)
+        self.assertIn("CHECK_OK", as_text.stdout)
+
     def test_ephemeral_events_are_dropped(self):
         """82 streaming deltas in one small job; folding them in would repeat it."""
 

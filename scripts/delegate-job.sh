@@ -1317,7 +1317,10 @@ try:
                         messages.append(data["content"])
                 elif etype == "tool.execution_start":
                     copilot_tools[data.get("toolCallId")] = data.get("toolName") or ""
-                    command = (data.get("arguments") or {}).get("command")
+                    # `arguments` is an object for bash and sql, but 1.0.109's
+                    # apply_patch sends raw patch text, a plain string.
+                    arguments = data.get("arguments")
+                    command = arguments.get("command") if isinstance(arguments, dict) else None
                     if command:
                         commands.append(command)
                 elif etype == "tool.execution_complete":
