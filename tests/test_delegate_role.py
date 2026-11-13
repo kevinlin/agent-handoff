@@ -44,11 +44,42 @@ ANTIGRAVITY_HELP = (
 )
 
 
-def help_shim(help_text: str = ANTIGRAVITY_HELP, exit_code: int = 0) -> str:
-    """A fake CLI prologue answering --help on stderr and nothing else."""
+# What `copilot --help` lists, trimmed to the lines Handoff's session-sync rule
+# reads. Real, measured: 1.0.109 prints help on stdout and exits 0, lists
+# --sync-session and --reasoning-effort, and lists none of --remote, --no-remote,
+# --no-remote-export, or --effort. 1.0.98 lists the four remote flags and no
+# --sync-session. A help that lists neither opt-out is a CLI Handoff cannot make
+# safe.
+COPILOT_HELP_CURRENT = (
+    "Usage: copilot [options] [command]\n"
+    "  --reasoning-effort <level>  Set the reasoning effort level\n"
+    "  --sync-session[=<on|off>]   Enable or disable read-only account history sync for this run only\n"
+)
+COPILOT_HELP_LEGACY = (
+    "Usage: copilot [options] [command]\n"
+    "  --reasoning-effort <level>  Set the reasoning effort level\n"
+    "  --remote                    Enable remote sessions\n"
+    "  --remote-export             Enable remote export\n"
+    "  --no-remote                 Disable remote sessions\n"
+    "  --no-remote-export          Disable remote export\n"
+)
+COPILOT_HELP_NEITHER = (
+    "Usage: copilot [options] [command]\n"
+    "  --reasoning-effort <level>  Set the reasoning effort level\n"
+)
 
+
+def help_shim(
+    help_text: str = ANTIGRAVITY_HELP, exit_code: int = 0, stream: str = "stderr"
+) -> str:
+    """A fake CLI prologue answering --help and nothing else.
+
+    agy prints its help on stderr, so that is the default; copilot prints on stdout.
+    """
+
+    redirect = " >&2" if stream == "stderr" else ""
     return (
-        'if [ "${1:-}" = "--help" ]; then cat >&2 <<\'HELP\'\n'
+        f'if [ "${{1:-}}" = "--help" ]; then cat{redirect} <<\'HELP\'\n'
         f"{help_text}HELP\nexit {exit_code}\nfi\n"
     )
 
@@ -57,6 +88,12 @@ def antigravity_shim() -> str:
     """A fake agy prologue: a bare version number, and help on stderr (VERSION, HELP)."""
 
     return version_shim("1.3.5") + help_shim()
+
+
+def copilot_shim(help_text: str = COPILOT_HELP_CURRENT, exit_code: int = 0) -> str:
+    """A fake GitHub Copilot CLI prologue: its --version, and --help on stdout."""
+
+    return version_shim(GITHUB_COPILOT_VERSION) + help_shim(help_text, exit_code, stream="stdout")
 
 
 def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dict[str, str]:
@@ -68,9 +105,10 @@ def make_env(root: Path, codex_body: str, claude_body: str | None = None) -> dic
     for name, body in (("codex", codex_body), ("claude", claude_body or codex_body)):
         env[f"HANDOFF_{name.upper()}_BIN"] = str(write_fake(root / name, body))
     # The copilot fake identifies itself the way GitHub Copilot CLI does, so
-    # discovery has something real to match on rather than a name.
+    # discovery has something real to match on rather than a name, and answers
+    # --help like the real one: submit reads it to pick the session-sync flag.
     env["HANDOFF_COPILOT_BIN"] = str(
-        write_fake(root / "copilot", version_shim(GITHUB_COPILOT_VERSION) + codex_body)
+        write_fake(root / "copilot", copilot_shim() + codex_body)
     )
     env["HANDOFF_CURSOR_BIN"] = str(
         write_fake(root / "cursor-agent", version_shim("2026.09.28-64d2043") + codex_body)
@@ -460,6 +498,18 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("config:project", parsed["backend_source"])
         self.assertTrue(parsed["codex_bin"].endswith("/copilot"), parsed["codex_bin"])
 
+    def test_the_dry_run_prints_the_copilot_egress_flags_and_only_for_copilot(self):
+        result, _ = self.run_submit(None, "--backend", "copilot")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        self.assertEqual("--sync-session=off", self.parsed(result.stdout)["copilot_egress"])
+        for backend in ("codex", "claude", "cursor", "antigravity"):
+            with self.subTest(backend=backend):
+                result, _ = self.run_submit(
+                    None, "--backend", backend, *(["--model", "fixture-model"] if backend == "antigravity" else [])
+                )
+                self.assertEqual((0, ""), (result.returncode, result.stderr))
+                self.assertEqual("", self.parsed(result.stdout)["copilot_egress"])
+
     def test_non_git_repo_appends_skip_git_repo_check(self):
         result, repo = self.run_submit(None)
         self.assertFalse((repo / ".git").exists())
@@ -577,11 +627,14 @@ class BackendLifecycle:
         marker = self.root / "injected"
         values = ["ordinary-model", f'$(touch {marker})', f'`touch {marker}`', 'model"; false; #']
         worker = Path(self.env[f"HANDOFF_{self.BACKEND.upper()}_BIN"])
-        # An antigravity worker must also answer --help with its two flags, or the
-        # identity check would refuse the shim before quoting is ever tested.
-        write_fake(worker, version_shim(GITHUB_COPILOT_VERSION if self.BACKEND == "copilot" else "fixture")
-                   + (help_shim() if self.BACKEND == "antigravity" else "")
-                   + "printf '%s\\n' \"$@\"\n")
+        # An antigravity worker must also answer --help with its two flags, and a
+        # copilot one with its session-sync flag, or the check would refuse the
+        # shim before quoting is ever tested.
+        if self.BACKEND == "copilot":
+            prologue = copilot_shim()
+        else:
+            prologue = version_shim("fixture") + (help_shim() if self.BACKEND == "antigravity" else "")
+        write_fake(worker, prologue + "printf '%s\\n' \"$@\"\n")
         for value in values:
             with self.subTest(value=value):
                 job_id = self.submit("--model", value)
@@ -1133,8 +1186,8 @@ class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
         for flag in (
             "--output-format json",
             "--no-ask-user",
-            "--no-remote",
-            "--no-remote-export",
+            "--sync-session=off",
+            "--reasoning-effort",
             "--no-auto-update",
             "--allow-all-tools",
             "--usage-output-file",
@@ -1142,8 +1195,100 @@ class CopilotWorktreeTests(BackendLifecycle, unittest.TestCase):
         ):
             with self.subTest(flag=flag):
                 self.assertIn(flag, run_sh)
+        # 1.0.103 retired --no-remote, and --no-remote-export and --effort are
+        # unlisted in 1.0.109's help, so none of them is relied on there.
+        # --reasoning-effort contains --effort, hence the lookbehind.
+        for pattern in (r"--no-remote\b", r"--no-remote-export", r"(?<![\w-])--effort\b"):
+            with self.subTest(absent=pattern):
+                self.assertNotRegex(run_sh, pattern)
         # Without this a long prompt can leave the job waiting on stdin forever.
         self.assertIn("</dev/null", run_sh)
+
+    def set_copilot_help(self, help_text: str, exit_code: int = 0):
+        """Rewrite the fake copilot so its --help answers differently from now on."""
+
+        write_fake(Path(self.env["HANDOFF_COPILOT_BIN"]), copilot_shim(help_text, exit_code) + "exit 0\n")
+
+    def assert_no_job_directory(self):
+        self.assertEqual([], list((self.repo / ".handoff" / "jobs").glob("job-*")))
+
+    def test_legacy_help_gets_the_remote_flag_pair(self):
+        """1.0.98 and 1.0.83 list --no-remote-export and no --sync-session."""
+
+        self.set_copilot_help(COPILOT_HELP_LEGACY)
+        run_sh = self.exec_line(self.submit())
+        self.assertIn("--no-remote --no-remote-export", run_sh)
+        self.assertNotIn("--sync-session", run_sh)
+        self.assertIn("--reasoning-effort", run_sh)
+
+    def test_sync_session_is_checked_before_the_legacy_pair(self):
+        self.set_copilot_help(COPILOT_HELP_CURRENT + COPILOT_HELP_LEGACY)
+        run_sh = self.exec_line(self.submit())
+        self.assertIn("--sync-session=off", run_sh)
+        self.assertNotRegex(run_sh, r"--no-remote\b")
+
+    def assert_egress_refusal(self, result):
+        self.assertNotEqual(0, result.returncode)
+        for text in (
+            self.env["HANDOFF_COPILOT_BIN"],
+            GITHUB_COPILOT_VERSION,
+            "--sync-session",
+            "--no-remote-export",
+            "copilot update",
+            "HANDOFF_COPILOT_BIN",
+        ):
+            with self.subTest(names=text):
+                self.assertIn(text, result.stderr)
+        self.assert_no_job_directory()
+
+    # A help that hangs past cli_help_text's 10-second limit is not tested: the
+    # script has no env hook to shorten it, and a test that sleeps 10 seconds is
+    # not worth the suite's time. The timeout and a non-zero exit share one
+    # branch in cli_help_text, so the exit case below covers the failure path.
+    def test_a_cli_that_offers_no_sync_opt_out_is_refused_before_any_job_directory(self):
+        for name, help_text, exit_code in (
+            ("lists-neither", COPILOT_HELP_NEITHER, 0),
+            ("help-exits-non-zero", COPILOT_HELP_CURRENT, 3),
+        ):
+            self.set_copilot_help(help_text, exit_code)
+            for arguments in ((), ("--dry-run",)):
+                with self.subTest(help=name, arguments=arguments):
+                    self.assert_egress_refusal(self.submit_raw(*arguments))
+
+    def test_a_dry_run_prints_the_egress_flags(self):
+        result = self.submit_raw("--dry-run")
+        self.assertEqual((0, ""), (result.returncode, result.stderr))
+        self.assertEqual("--sync-session=off", parse_pairs(result.stdout)["copilot_egress"])
+        self.set_copilot_help(COPILOT_HELP_LEGACY)
+        result = self.submit_raw("--dry-run")
+        self.assertEqual("--no-remote --no-remote-export", parse_pairs(result.stdout)["copilot_egress"])
+        self.assert_no_job_directory()
+
+    def test_a_fix_round_re_reads_help_because_the_cli_can_update_between_rounds(self):
+        self.set_copilot_help(COPILOT_HELP_LEGACY)
+        job_id = self.submit()
+        self.finish(job_id)
+        self.assertIn("--no-remote --no-remote-export", self.exec_line(job_id))
+
+        self.set_copilot_help(COPILOT_HELP_CURRENT)
+        result = self.resume(job_id)
+        self.assertEqual(0, result.returncode, result.stderr)
+        round_two = self.exec_line(result.stdout.strip())
+        self.assertIn("--sync-session=off", round_two)
+        self.assertNotRegex(round_two, r"--no-remote\b")
+        self.assertNotRegex(round_two, r"(?<![\w-])--effort\b")
+        self.assertIn("--reasoning-effort", round_two)
+
+    def test_a_fix_round_is_refused_when_help_no_longer_lists_an_opt_out(self):
+        job_id = self.submit()
+        self.finish(job_id)
+        self.set_copilot_help(COPILOT_HELP_NEITHER)
+        result = self.resume(job_id)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("--sync-session", result.stderr)
+        self.assertIn("--no-remote-export", result.stderr)
+        self.assertIn(GITHUB_COPILOT_VERSION, result.stderr)
+        self.assertFalse(self.job_dir(f"{job_id}-r2").exists())
 
     def test_export_flags_are_banned_and_blanket_permissions_require_allow_all(self):
         # The three allow-all flags are equivalent to --allow-all / --yolo.
@@ -1315,9 +1460,10 @@ class CopilotBinaryDiscoveryTests(unittest.TestCase):
         self.aws = self.install("aws-bin", AWS_COPILOT_VERSION)
 
     def install(self, directory: str, version: str) -> Path:
-        return write_fake(
-            self.root / directory / "copilot", version_shim(version) + "exit 0\n"
-        )
+        # Only the GitHub CLI answers --help the way submit reads it; the AWS
+        # fake is refused on --version before help is ever asked.
+        prologue = copilot_shim() if version == GITHUB_COPILOT_VERSION else version_shim(version)
+        return write_fake(self.root / directory / "copilot", prologue + "exit 0\n")
 
     def dry_run(self, env: dict[str, str]):
         return run_delegate(

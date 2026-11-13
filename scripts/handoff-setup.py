@@ -1277,11 +1277,16 @@ def validate_copilot_pair(
     binary: str,
     model: str,
     effort: str,
+    egress_flags: Sequence[str],
     env: Mapping[str, str],
     *,
     cwd: Path,
 ) -> Tuple[bool, str]:
     """Check one copilot model-and-effort pair against the real CLI.
+
+    ``egress_flags`` are the session-sync opt-out flags, taken from the
+    ``copilot_egress=`` line of ``delegate-job.sh``'s dry-run. The rule that
+    picks them from the CLI's own help lives only there.
 
     The cost is asymmetric. A wrong model, or an effort that model does not
     support, is refused at the CLI layer before any session exists: plain-text
@@ -1309,13 +1314,12 @@ def validate_copilot_pair(
         "json",
         "--model",
         model,
-        "--effort",
+        "--reasoning-effort",
         effort,
         "--mode",
         "plan",
         "--no-ask-user",
-        "--no-remote",
-        "--no-remote-export",
+        *egress_flags,
         "--no-auto-update",
     ]
     try:
@@ -1716,10 +1720,33 @@ def smoke(args: argparse.Namespace, env: Mapping[str, str]) -> int:
                         file=sys.stderr,
                     )
                     continue
+                # The session-sync opt-out is spelled differently across CLI
+                # releases, and the rule that picks it lives in delegate-job.sh
+                # only; the dry-run prints what it picked.
+                egress_flags = next(
+                    (
+                        line.partition("=")[2].split()
+                        for line in result.stdout.splitlines()
+                        if line.startswith("copilot_egress=")
+                    ),
+                    [],
+                )
+                if not egress_flags:
+                    failures = True
+                    print(
+                        f"{identity}: FAIL\nthe delegate dry-run printed no "
+                        "copilot_egress= flags, so the paid check was not run; "
+                        "run 'copilot update', or point HANDOFF_COPILOT_BIN at a "
+                        "GitHub Copilot CLI whose --help lists --sync-session or "
+                        "--no-remote-export",
+                        file=sys.stderr,
+                    )
+                    continue
                 passed, detail = validate_copilot_pair(
                     binary,
                     str(configured[identity]["model"]),
                     str(configured[identity]["effort"]),
+                    egress_flags,
                     env,
                     cwd=args.repo,
                 )

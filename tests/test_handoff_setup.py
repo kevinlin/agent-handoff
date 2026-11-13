@@ -964,9 +964,34 @@ class ReviewCapsSetupTests(SetupTests):
         self.assertIn("[review]\nspec_max_rounds = 2\nimplementation_max_rounds = 5\n", self.config_text())
 
 
+# What `copilot --help` lists, trimmed to the lines Handoff's session-sync rule
+# reads. 1.0.109 lists --sync-session and none of the old remote flags; 1.0.98
+# lists the remote flags and no --sync-session. The fake answers with whichever
+# HANDOFF_TEST_COPILOT_HELP holds.
+COPILOT_HELP_CURRENT = (
+    "Usage: copilot [options] [command]\n"
+    "  --reasoning-effort <level>  Set the reasoning effort level\n"
+    "  --sync-session[=<on|off>]   Enable or disable read-only account history sync for this run only\n"
+)
+COPILOT_HELP_LEGACY = (
+    "Usage: copilot [options] [command]\n"
+    "  --reasoning-effort <level>  Set the reasoning effort level\n"
+    "  --remote                    Enable remote sessions\n"
+    "  --remote-export             Enable remote export\n"
+    "  --no-remote                 Disable remote sessions\n"
+    "  --no-remote-export          Disable remote export\n"
+)
+COPILOT_HELP_NEITHER = (
+    "Usage: copilot [options] [command]\n"
+    "  --reasoning-effort <level>  Set the reasoning effort level\n"
+)
+
+# --help is answered before the argument log: it is Handoff's own read of the
+# CLI, not an invocation, and an assertion that no -p session ran counts the log.
 COPILOT_FAKE = """#!/bin/sh
 case "$1" in
   --version) printf 'GitHub Copilot CLI 1.0.83.\\n'; exit 0 ;;
+  --help) printf '%s' "${HANDOFF_TEST_COPILOT_HELP-}"; exit 0 ;;
 esac
 if [ -n "${HANDOFF_TEST_COPILOT_ARGS:-}" ]; then
   printf '%s\\n' "$@" >> "$HANDOFF_TEST_COPILOT_ARGS"
@@ -995,6 +1020,7 @@ class CopilotSetupTests(SetupTests):
         self.copilot_args_log = self.root / "copilot-args.txt"
         self.write_copilot(self.bin / "copilot", COPILOT_FAKE)
         self.env["HANDOFF_TEST_COPILOT_ARGS"] = str(self.copilot_args_log)
+        self.env["HANDOFF_TEST_COPILOT_HELP"] = COPILOT_HELP_CURRENT
 
     def write_copilot(self, path, body):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1158,11 +1184,46 @@ class CopilotSetupTests(SetupTests):
         self.assertIn("--mode", arguments)
         self.assertIn("plan", arguments)
         self.assertNotIn("--allow-all-tools", arguments)
-        self.assertIn("--no-remote", arguments)
-        self.assertIn("--no-remote-export", arguments)
+        self.assertIn("--sync-session=off", arguments)
+        self.assertIn("--reasoning-effort", arguments)
+        for retired in ("--no-remote", "--no-remote-export", "--effort"):
+            self.assertNotIn(retired, arguments)
         self.assertIn("mai-code-1.1-flash", arguments)
         self.assertIn("medium", arguments)
         self.assertTrue(self.configured()["fast_worker"]["verified"])
+
+    def test_copilot_smoke_forwards_the_legacy_egress_flags_the_dry_run_detected(self):
+        # The detection rule lives in delegate-job.sh only; this proves Python
+        # passes on what the dry-run printed rather than choosing for itself.
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
+        self.env["HANDOFF_TEST_COPILOT_HELP"] = COPILOT_HELP_LEGACY
+        status, output, error = self.run_cli(
+            "--smoke", "--repo", str(self.repo), "--timestamp", "2026-07-20T01:02:03Z"
+        )
+        self.assertEqual((0, ""), (status, error))
+        self.assertIn("fast_worker: PASS (model and effort accepted by Copilot)", output)
+        arguments = self.copilot_invocations()
+        self.assertIn("--no-remote", arguments)
+        self.assertIn("--no-remote-export", arguments)
+        self.assertNotIn("--sync-session=off", arguments)
+        self.assertIn("--reasoning-effort", arguments)
+        self.assertTrue(self.configured()["fast_worker"]["verified"])
+
+    def test_copilot_smoke_fails_before_the_paid_check_when_help_offers_no_opt_out(self):
+        self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])
+        self.env["HANDOFF_TEST_COPILOT_HELP"] = COPILOT_HELP_NEITHER
+        status, output, error = self.run_cli(
+            "--smoke", "--repo", str(self.repo), "--timestamp", "2026-07-20T01:02:03Z"
+        )
+        self.assertEqual(1, status)
+        self.assertIn("fast_worker: FAIL", error)
+        self.assertIn("lists neither --sync-session nor --no-remote-export", error)
+        self.assertEqual(2, output.count("PASS"))
+        # --help is not logged, so an empty log means no paid -p session ran.
+        self.assertEqual([], self.copilot_invocations())
+        identities = self.configured()
+        self.assertFalse(identities["fast_worker"]["verified"])
+        self.assertTrue(identities["arbiter"]["verified"])
 
     def test_copilot_smoke_failure_keeps_only_that_identity_unverified(self):
         self.assertEqual(0, self.run_cli(*self.custom_args(self.copilot_choices()))[0])

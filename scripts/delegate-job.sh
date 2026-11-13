@@ -60,10 +60,15 @@ denial events, exited 0, and reported writes that had not happened. A read-only
 copilot job therefore drops `--allow-all-tools` entirely.
 
 A copilot job never carries `--share`, `--share-gist`,
-`--worktree`, or `--enable-memory`, and always carries
-`--no-remote --no-remote-export`: session export to GitHub web and mobile is on
-by default, and a delegated job's prompt and repository contents are not
-exportable material.
+`--worktree`, or `--enable-memory`, and always turns session sync off: 1.0.83's
+help described session export to GitHub web and mobile as on by default, and a
+delegated job's prompt and repository contents are not exportable material. The flag is the one the
+installed CLI's own --help lists, read at submit and again on every fix round:
+`--sync-session=off`, or `--no-remote --no-remote-export` on a CLI older than
+1.0.103, which retired `--no-remote`. A retired flag is a hard error before any
+session, so a CLI whose help lists neither is refused, naming its version.
+`--no-remote-export` and `--effort` still parse on 1.0.109 but are unlisted, so
+they are not relied on; the effort flag is `--reasoning-effort`.
 
 --role resolves backend, model, effort, and permission_mode from Handoff config, and the
 identity's backend decides which CLI executes the job — always. --backend is
@@ -180,6 +185,7 @@ JOBS_SUBDIR=".handoff/jobs"
 PERMISSION_MODE=""
 PERMISSION_POSTURE="default"
 PERMISSION_POSTURE_SOURCE="default"
+COPILOT_EGRESS=""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() {
@@ -325,16 +331,14 @@ discover_copilot_bin() {
   return 1
 }
 
-is_antigravity_bin() {
-  # An IDE launcher has been linked as `agy` before (Homebrew), and agy --version
-  # prints only a bare number (VERSION), so neither name nor version identifies
-  # the CLI. What identifies it is the protocol Handoff depends on: its --help
-  # lists both --conversation and --dangerously-skip-permissions. The CLI prints
-  # that help on stderr (HELP), so both streams are read together. python3 holds
-  # the 10 second limit because macOS ships no `timeout`; output goes to a file,
-  # not a pipe, so a launcher that hangs and leaves children behind cannot keep
-  # the call open after the kill. A candidate that fails or times out is refused.
-  python3 - "$1" <<'PY_AGY'
+cli_help_text() {
+  # Prints one CLI's `--help`, stdout and stderr together, and returns 1 when the
+  # call fails or times out. Two identity checks read help (agy's, and copilot's
+  # egress flag), and they must fail the same way. python3 holds the 10 second
+  # limit because macOS ships no `timeout`; stdin is /dev/null; output goes to a
+  # file, not a pipe, so a launcher that hangs and leaves children behind cannot
+  # keep the call open after the kill. A non-zero exit counts as a failure.
+  python3 - "$1" <<'PY_HELP'
 import subprocess, sys, tempfile
 
 with tempfile.TemporaryFile() as out:
@@ -345,9 +349,51 @@ with tempfile.TemporaryFile() as out:
         sys.exit(1)
     out.seek(0)
     text = out.read().decode("utf-8", "replace")
-ok = done.returncode == 0 and "--conversation" in text and "--dangerously-skip-permissions" in text
-sys.exit(0 if ok else 1)
-PY_AGY
+if done.returncode != 0:
+    sys.exit(1)
+sys.stdout.buffer.write(text.encode("utf-8"))
+PY_HELP
+}
+
+is_antigravity_bin() {
+  # An IDE launcher has been linked as `agy` before (Homebrew), and agy --version
+  # prints only a bare number (VERSION), so neither name nor version identifies
+  # the CLI. What identifies it is the protocol Handoff depends on: its --help
+  # lists both --conversation and --dangerously-skip-permissions. The CLI prints
+  # that help on stderr (HELP), which cli_help_text reads along with stdout. A
+  # candidate whose help fails or times out is refused.
+  local help
+  help="$(cli_help_text "$1")" || return 1
+  [[ "$help" == *"--conversation"* && "$help" == *"--dangerously-skip-permissions"* ]]
+}
+
+copilot_egress_flags() {
+  # Prints the flags that turn Copilot's session sync off, as the binary's own
+  # --help lists them; returns 1 when help lists neither spelling or cannot be
+  # read. 1.0.103 retired --no-remote, and a retired flag is a hard error before
+  # any session, so the spelling cannot be fixed in advance. --sync-session is
+  # checked first: 1.0.109 lists it and none of the old four. 1.0.98 and 1.0.83
+  # list --no-remote-export. --no-remote-export still parses on 1.0.109 but is
+  # unlisted, so it is not relied on there.
+  local help
+  help="$(cli_help_text "$1")" || return 1
+  if [[ "$help" == *"--sync-session"* ]]; then
+    printf '%s\n' "--sync-session=off"
+  elif [[ "$help" == *"--no-remote-export"* ]]; then
+    printf '%s\n' "--no-remote --no-remote-export"
+  else
+    return 1
+  fi
+}
+
+resolve_copilot_egress() {
+  # Settles COPILOT_EGRESS for the binary resolve_worker_bin or resume's reuse
+  # check settled on. Empty on every other backend. Runs before the job
+  # directory is written, so a refusal leaves nothing behind.
+  COPILOT_EGRESS=""
+  [ "$BACKEND" = "copilot" ] || return 0
+  COPILOT_EGRESS="$(copilot_egress_flags "$CODEX_BIN")" \
+    || die "$CODEX_BIN ('$CODEX_VERSION') lists neither --sync-session nor --no-remote-export in --help, or its --help failed or timed out, so Handoff cannot turn Copilot session sync off; run 'copilot update', or point HANDOFF_COPILOT_BIN at a GitHub Copilot CLI that lists one"
 }
 
 discover_antigravity_bin() {
@@ -653,14 +699,18 @@ cmd_submit() {
   validate_effort "$BACKEND" "$EFFORT"
   resolve_worker_bin "$BACKEND"
   resolve_permission_mode
+  # Before the dry-run return and before the job directory: a CLI that offers no
+  # sync opt-out is refused here, and --dry-run refuses it too.
+  resolve_copilot_egress
 
   LABEL="$(echo "$LABEL" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//;s/-$//')"
   if [ "$DRY_RUN" = "true" ]; then
     local SKIP_GIT_REPO_CHECK=""
     [ "$BACKEND" = "codex" ] && { is_git_repo "$REPO" || SKIP_GIT_REPO_CHECK="--skip-git-repo-check"; }
-    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\n' \
+    printf 'role=%s\nbackend=%s\nbackend_source=%s\nmodel=%s\neffort=%s\nmodel_source=%s\neffort_source=%s\ncodex_bin=%s\ncodex_bin_source=%s\ncodex_version=%s\nskip_git_repo_check=%s\npermission_mode=%s\npermission_posture=%s\npermission_posture_source=%s\ncopilot_egress=%s\n' \
       "${ROLE:-none}" "$BACKEND" "$BACKEND_SOURCE" "${MODEL:-default}" "$EFFORT" "$MODEL_SOURCE" "$EFFORT_SOURCE" \
-      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK" "$PERMISSION_MODE" "$PERMISSION_POSTURE" "$PERMISSION_POSTURE_SOURCE"
+      "$CODEX_BIN" "$CODEX_BIN_SOURCE" "$CODEX_VERSION" "$SKIP_GIT_REPO_CHECK" "$PERMISSION_MODE" "$PERMISSION_POSTURE" "$PERMISSION_POSTURE_SOURCE" \
+      "$COPILOT_EGRESS"
     return 0
   fi
   local JOB_ID
@@ -826,6 +876,9 @@ cmd_resume() {
     resolve_worker_bin "$BACKEND"
   fi
   resolve_permission_mode
+  # Re-detected on every round, not read from the parent's run.sh: the CLI can
+  # update between rounds, and a flag the new build retired is a hard error.
+  resolve_copilot_egress
   local JOB_ID="${ROOT_ID}-r${ROUND}"
   JOB="$(job_dir "$JOB_ID")"
   [ -e "$JOB" ] && die "job dir already exists: $JOB"
@@ -935,13 +988,18 @@ write_claude_exec_line() {
 
 write_copilot_exec_line() {
   local effort="$1" model="$2" read_only="$3" session_id="$4"
-  # Egress defaults are overridden explicitly. Session export to GitHub web and
-  # mobile is on by default, and a delegated job carries the prompt and the
-  # repository contents. --share, --share-gist,
+  # Egress defaults are overridden explicitly. 1.0.83's help described session
+  # export to GitHub web and mobile as on by default, and a delegated job carries
+  # the prompt and the repository contents. The opt-out is COPILOT_EGRESS, the spelling the
+  # installed CLI's --help lists (resolve_copilot_egress): 1.0.103 retired
+  # --no-remote, and a retired flag is a hard error before any session.
+  # --no-remote-export and --effort still parse on 1.0.109 but are unlisted
+  # there, so neither is relied on; the effort flag is --reasoning-effort.
+  # --share, --share-gist,
   # --worktree, and --enable-memory are never passed: Handoff owns the worktree
   # protocol, pinned to an immutable base SHA.
-  local args="--output-format json --effort $effort --no-ask-user"
-  args="$args --no-remote --no-remote-export --no-auto-update"
+  local args="--output-format json --reasoning-effort $effort --no-ask-user"
+  args="$args $COPILOT_EGRESS --no-auto-update"
   # --mode plan and --allow-all-tools are mutually exclusive here, and that is a
   # correctness requirement rather than a preference. Probed together, plan mode
   # still won on disk, but the worker attempted only its read, emitted ZERO
