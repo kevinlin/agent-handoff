@@ -452,6 +452,7 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 | Binary is a real `agy` CLI, never an IDE launcher | script (`--help` identity check in `resolve_worker_bin`, `cli_available`, resume) | none available |
 | Antigravity read-only never carries the skip flag | script (the posture resolver) | none available |
 | Every antigravity job pins `--print-timeout 0s` | script (`write_run_script`) | none available |
+| Every copilot job and copilot smoke runs with session sync off | script (`copilot_egress_flags` at submit and resume; smoke takes the dry-run's flags) | none available |
 | Antigravity posture narrower than skip-permissions | nothing | a worker reads outside the repo, reaches the network, and commits |
 | A plan-mode job's writes | `agy`'s headless auto-deny | a user allow rule might approve one; the driver checks the tree and, on a change, rejects the output, saves it to `.handoff/rejected/<task-id>.patch`, restores the paths, and records `read-only write` |
 | A fix round that lost its session | `status` and `result` id comparison | warns; the round's output lacks the parent's context, and the driver resubmits |

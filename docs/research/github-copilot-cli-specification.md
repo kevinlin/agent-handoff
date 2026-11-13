@@ -725,6 +725,35 @@ footnote. Pass `--no-remote --no-remote-export`, and never pass `--share` or `--
 **[help]** `--secret-env-vars[=vars...]` strips named environment values from shell and MCP
 environments and redacts them from output. Worth considering for a delegation wrapper.
 
+### 11.1 Revisited on 1.0.109, 2026-11-13
+
+The flags above changed after this document was written. The 1.0.83 text stays as it was, because
+it records what ran then.
+
+- **[probed] RETIRED.** Handoff 4.0.0's copilot command line failed on 1.0.109 in a real run: exit
+  1 about a second after submit, `error: --no-remote was removed. Use /remote off in a session;
+  manage incoming connections in /environments.` on stderr, empty JSON stream, no usage file, no
+  session. `copilot --no-remote --version` reproduces it without a session.
+- **[changelog]** 1.0.103: "retire legacy --remote/--no-remote startup flags". The CLI's
+  `changelog.json` ships beside each cached build under `~/Library/Caches/copilot/pkg/`.
+- **[help]** Read from the cached builds' own `--help`: 1.0.83 lists `--effort, --reasoning-effort`,
+  `--remote`, `--remote-export`, `--no-remote` and `--no-remote-export`, and no `--sync-session`.
+  1.0.98 still lists the four remote flags but no longer `--effort`. 1.0.104 and 1.0.109 list
+  `--sync-session[=<on|off>]` ("Enable or disable read-only account history sync for this run
+  only") and none of the remote flags.
+- **[probed]** On 1.0.109, `--no-remote-export` and `--effort` still parse (`<flag> --version`
+  prints the version), so they are unlisted aliases. `--remote-control` does not parse.
+- **[probed] SYNCOFF.** `copilot -p <reply-only prompt> --output-format json --model gpt-6.1-sol
+  --reasoning-effort low --mode plan --no-ask-user --sync-session=off --no-auto-update
+  --log-level debug` exited 0 with one premium request, and its log reads `Remote exporter setup:
+  syncEnabled=false, shouldStart=false, attributionOnly=false, connectMode=false`. The event types
+  in section 4 were unchanged.
+- **[open]** Whether a prompt-mode run with no sync flag syncs on 1.0.109. No baseline was run.
+
+Handoff 4.0.1 reads `--help` and passes `--sync-session=off` when it is listed, or `--no-remote
+--no-remote-export` when that is, and refuses a CLI that lists neither. It passes
+`--reasoning-effort` in place of `--effort`.
+
 ---
 
 ## 12. Worktrees

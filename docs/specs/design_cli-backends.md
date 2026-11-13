@@ -14,7 +14,7 @@ Each CLI's behaviour comes from live probes, recorded in `docs/research/`:
 
 | CLI | Research doc | Probed on |
 | --- | --- | --- |
-| Copilot | `github-copilot-cli-specification.md`, `fetch-copilot-models.md` | GitHub Copilot CLI 1.0.83 |
+| Copilot | `github-copilot-cli-specification.md`, `fetch-copilot-models.md` | GitHub Copilot CLI 1.0.83; the command line re-checked on 1.0.109 (4.0.1) |
 | Cursor | `cursor-cli-specification.md` | build `2026.09.28-64d2043`, fifteen runs plus the live end-to-end run |
 | Antigravity | `antigravity-cli-specification.md` | `agy` 1.3.5, 55 evidence records plus three driver runs and the live end-to-end run |
 | all | `cross-agent-cli-permissin-mode.md` | the permission-posture proposal this design deviates from (*Deviations*) |
@@ -147,7 +147,7 @@ No preset names a copilot, cursor, or antigravity identity; the presets use clau
 | --- | --- | --- |
 | codex | `codex exec "$PROMPT" --json -C "$WORKDIR" -c 'model_reasoning_effort="<effort>"' -m "$MODEL"`, plus `--skip-git-repo-check` outside a git repo | `cd "$WORKDIR"`, then `codex exec resume <id> "$PROMPT" --json -c 'model_reasoning_effort="<effort>"'`: `exec resume` takes no `-C` or `-s`, so cwd comes from the shell and sandbox from `-c` |
 | claude | strip `ANTHROPIC_*` and `CLAUDE_CODE_*`, `cd "$WORKDIR"`, then `claude --print --output-format stream-json --verbose --permission-prompts none --permission-mode <mode> --effort <effort> --model "$MODEL" -- "$PROMPT"` | the same with `--resume "$SESSION_ID"` in place of `--model` |
-| copilot | `copilot -p "$PROMPT" -C "$WORKDIR" --output-format json --effort <effort> --no-ask-user --no-remote --no-remote-export --no-auto-update --usage-output-file "$JOB/usage.json" --log-dir "$JOB/copilot-logs" --session-id <uuid> --model "$MODEL"` | `cd "$WORKDIR"`, then the same flags with `--resume "$SESSION_ID"` in place of `-C`, `--session-id`, and `--model` |
+| copilot | `copilot -p "$PROMPT" -C "$WORKDIR" --output-format json --reasoning-effort <effort> --no-ask-user <sync-off> --no-auto-update --usage-output-file "$JOB/usage.json" --log-dir "$JOB/copilot-logs" --session-id <uuid> --model "$MODEL"`, where `<sync-off>` is `--sync-session=off`, or `--no-remote --no-remote-export` on a CLI older than 1.0.103 | `cd "$WORKDIR"`, then the same flags with `--resume "$SESSION_ID"` in place of `-C`, `--session-id`, and `--model` |
 | cursor | `cd "$WORKDIR"`, then `cursor-agent -p "$PROMPT" --output-format stream-json --trust --workspace "$WORKDIR" --model "$MODEL"` | `cd "$WORKDIR"`, then `--resume "$SESSION_ID"` in place of `--workspace` and `--model` |
 | antigravity | `cd "$WORKDIR"`, then `agy -p "$PROMPT" --output-format stream-json --model "$MODEL" --print-timeout 0s` | the same plus `--conversation "$SESSION_ID"`; the model is passed again |
 
@@ -155,7 +155,7 @@ The posture flags (*Permission posture*) follow each line. A fix round always ru
 
 Per-backend reasons:
 
-- **copilot** always carries `--no-remote --no-remote-export`: session export to GitHub web and mobile is on by default, and a delegated job's prompt and repository contents are not exportable material. Usage and Copilot's own logs land in the job directory, which `cleanup` keeps.
+- **copilot** always turns session sync off. 1.0.83's help described export to GitHub web and mobile as on by default; whether 1.0.109's prompt mode syncs without a flag was not measured. Either way, a delegated job's prompt and repository contents are not material to sync, so the opt-out is passed explicitly. The flag that does it changed under Handoff: 1.0.103 retired `--remote` and `--no-remote` and added `--sync-session[=on|off]`, and a retired flag is a hard error before any session (RETIRED). So `copilot_egress_flags` in `delegate-job.sh` reads the binary's own `--help`, at submit and again on every fix round, because the CLI can update between rounds. Help that lists `--sync-session` gets `--sync-session=off`. Help that lists `--no-remote-export` gets `--no-remote --no-remote-export`, the pair probed on 1.0.83. Help that lists neither is refused before the job directory is written, and the refusal names the version found. On 1.0.109, `--sync-session=off` logs `Remote exporter setup: syncEnabled=false, shouldStart=false` (SYNCOFF). 1.0.109 still parses `--no-remote-export` and `--effort`, but its help lists neither, so Handoff passes neither to a current CLI. Effort goes as `--reasoning-effort`, which every release since 1.0.4 accepts. Usage and Copilot's own logs land in the job directory, which `cleanup` keeps.
 - **cursor** always carries `--trust`, because a fresh worktree is a workspace Cursor has never seen. Whether a run without it would prompt or fail was not probed.
 - **antigravity** has no workspace flag: `agy` takes its working directory from the shell, and `init.cwd` records where it landed (P0, WORKTREE). A fresh worktree path needs no trust step (WORKTREE). Every line pins `--print-timeout 0s`. `agy`'s help and changelog give the default as unlimited, but its headless docs page says five minutes. A timed-out run exits 0 with status `SUCCESS` and partial output (TIMEOUTR), so an unpinned default could cut a long job short with only a stderr line to show for it. `0s` was probed (DRV_PT0). If the help is right, the flag changes nothing.
 
@@ -319,6 +319,12 @@ Handoff's refusals happen before a job directory exists. A CLI's model check hap
 - **antigravity:** exit 1 and one `result` event with status `ERROR`, an empty `conversation_id`, and the message and available models in `result.error` and on stderr (MUNKNOWN). The job keeps both verbatim. `result` shows the error; usage reads zero, as `agy` reported it; there is no session id.
 - **copilot:** a wrong model or an effort that model does not support is refused at the CLI layer, on stderr, before any session.
 
+### A flag the CLI no longer accepts is a failed job
+
+A CLI release can retire a flag that a Handoff command line still carries. The CLI then refuses the whole argv before any session, and the job ends `FAILED` about a second after submit. That is how 4.0.0 met Copilot CLI 1.0.109 (RETIRED): exit 1, `error: --no-remote was removed. …` in `stderr.log`, an empty `log.jsonl`, an empty `copilot-logs/`, and no `usage.json`. The session id assigned at submit was never created, so the job cannot be resumed. The driver followed the anomaly path: it read `stderr.log`, took the row back, and recorded it.
+
+The egress flag is now read from `--help`, so that case is a refusal at submit. Any other retired flag, on any backend, still arrives as this failure. The fix is a Handoff release, never a retry or a model change, and `references/backends/copilot.md` tells the driver so.
+
 ### Mid-run failures
 
 - **copilot:** an API failure can arrive with stderr empty and the detail carried only by a `session.error` event in `log.jsonl`, which is where `result --json` reads it from. An idle or API timeout after model events is not a login error.
@@ -410,7 +416,7 @@ Smoke is the installation probe: it checks that a CLI answers on the configured 
 | --- | --- | --- |
 | codex | the delegate dry-run chain | exit 0 |
 | claude | one fresh, tool-free, non-persistent session: `claude --print --no-session-persistence --no-chrome --permission-mode plan --tools "" --model <model> --effort <effort>` (plus `--agent handoff-<identity>` when that agent file exists), in a cleaned environment, 120-second limit | exit 0 and `HANDOFF_SMOKE_OK` in stdout |
-| copilot | the dry-run chain, then `validate_copilot_pair`: one `copilot -p <sentinel prompt> --output-format json --model <model> --effort <effort> --mode plan --no-ask-user --no-remote --no-remote-export --no-auto-update`, 120-second limit | exit 0 |
+| copilot | the dry-run chain, which also prints the egress flags as `copilot_egress=`; then `validate_copilot_pair` with those flags: one `copilot -p <sentinel prompt> --output-format json --model <model> --reasoning-effort <effort> --mode plan --no-ask-user <sync-off> --no-auto-update`, 120-second limit | exit 0 |
 | cursor | the dry-run chain; the slug's membership in `cursor-agent models`; then one `cursor-agent -p <sentinel prompt> --output-format stream-json --trust --model <slug> --mode ask` | exit 0 and `HANDOFF_SMOKE_OK` in the last `assistant` event's text |
 | antigravity | the dry-run chain; the id's membership in the catalogue; then one `agy -p <sentinel prompt> --output-format stream-json --model <id>` with no posture flag | exit 0, `result.status` `SUCCESS`, and `HANDOFF_SMOKE_OK` in the last `agent_response` text |
 
@@ -418,7 +424,7 @@ The paid step's cost is lopsided on Copilot, Cursor, and Antigravity. A model or
 
 Why the read-only flags differ: Cursor's `--mode ask` is read-only Q&A, and the spec does not claim the run is tool-free. `agy` takes no posture flag. In print mode its default denies every action that needs approval (P0), and the prompt asks only for a reply. `--mode plan` would add a planning instruction that a one-line smoke has no use for, and it was never probed on a reply-only prompt.
 
-`validate_copilot_pair`, `validate_cursor_model`, and `validate_antigravity_model` sit side by side rather than behind one helper: the command lines and the parsing differ.
+`validate_copilot_pair`, `validate_cursor_model`, and `validate_antigravity_model` sit side by side rather than behind one helper: the command lines and the parsing differ. Copilot smoke takes its egress flags from the dry-run rather than reading `--help` itself, so the rule lives in one script.
 
 `/agent-handoff tryout` then runs one small real task per identity. Smoke proves the CLI answers; tryout proves an identity can complete its intended work.
 
@@ -442,6 +448,7 @@ These rows also appear in the flow-wide table in `docs/specs/design_agent-handof
 | Binary is GitHub Copilot CLI, `cursor-agent`, or a real `agy`, never AWS Copilot or an IDE launcher | script (`resolve_worker_bin`, `cli_available`, resume's re-check) | none available |
 | Read-only never pairs plan mode with an unrestricted flag | script (the posture resolvers and exec lines) | none available |
 | Every antigravity job pins `--print-timeout 0s` | script (`write_run_script`) | none available |
+| Every copilot job and copilot smoke runs with session sync off | script (`copilot_egress_flags` at submit and resume; smoke takes the dry-run's flags) | none available |
 | A copilot model and effort pair | catalogue (the wizard refuses a model its served list lacks, and an effort that model does not accept) | a hand-written or `--role-model` config reaches its first job unchecked; smoke and tryout surface it |
 | A cursor base name resolved to an unchosen variant | wizard offers catalogue slugs only; smoke checks membership | a config that skipped smoke runs whatever Cursor picks; `init` records it |
 | Cursor posture narrower than force mode | nothing; only the user's Cursor deny rules | a worker reads outside the repo, reaches the network, and commits |
@@ -491,6 +498,12 @@ An engine older than the release that added a backend meets that backend's job d
 
 This is accepted because the scripts and the flow prose ship together in one skill directory. The config side of the skew is in `docs/specs/design_agent-identities-and-config.md`, *Version skew*.
 
+### CLI releases
+
+The worker CLIs move too, and faster than Handoff. Copilot updates itself by default. `--no-auto-update` keeps a job on the build it launched with, but the next job runs whatever the user's CLI has downloaded since. Between the probed 1.0.83 and 1.0.109, three flags on Handoff's copilot line changed: 1.0.103 retired `--no-remote` (its changelog: "retire legacy --remote/--no-remote startup flags"), and `--no-remote-export` and `--effort` dropped out of help while still parsing.
+
+Handoff reads `--help` at submit for the one flag whose spelling changed. Every other flag on the copilot line is listed in 1.0.109's help, checked by hand for 4.0.1 and not at submit. A general preflight, the whole argv with `--version` appended, parses on 1.0.109 and would catch any retired flag. It is not used, because it rests on parser behaviour Copilot does not document. A retired flag elsewhere fails the job at launch (*A flag the CLI no longer accepts is a failed job*).
+
 ## Verification
 
 **Fake-CLI tests prove wiring, not behaviour.** `tests/test_delegate_role.py` runs the shared `BackendLifecycle` suite (submit, posture, worktree pinning, fix rounds inheriting the tree, `cleanup` refusing a dirty tree) against a subclass per backend, with fake binaries from `make_env()`. Each backend adds:
@@ -502,7 +515,7 @@ This is accepted because the scripts and the flow prose ship together in one ski
 - the denial count, including an antigravity denial whose tool step ended `DONE` (P0's shape) and two actions in one `result`, plus the no-fall-through checks;
 - agent-message selection, and per-invocation usage on a resume fixture whose `result.usage` is cumulative.
 
-**A live end-to-end run on the real CLI** comes with each new backend. It runs in a scratch repo through an installed copy of the skill, and records the helper paths and the installed revision, which `install.sh` compares with the source. It confirms:
+**A live end-to-end run on the real CLI** comes with each new backend, and with each fix to a backend's command line (4.0.1 on copilot). It runs in a scratch repo through an installed copy of the skill, and records the helper paths and the installed revision, which `install.sh` compares with the source. It confirms:
 
 - one expected edit on disk;
 - one named repo check that actually ran, with its output in `log.jsonl`;
@@ -526,6 +539,10 @@ The results are in each research doc's section 12. Both runs found things the pr
 - A latest-version lookup and update prompt for `agy`, until a free source exists.
 
 ## Open questions
+
+Copilot:
+
+- whether a prompt-mode run with no sync flag syncs on 1.0.109. No baseline was run; `--sync-session=off` is passed either way.
 
 Cursor:
 
@@ -560,6 +577,8 @@ Antigravity:
 - **`--mode auto` varies by account on Antigravity.** A later posture other than skip-permissions would behave differently per account, and the fallback is a stderr warning.
 - **A stale working directory after a two-directory resume chain on Antigravity** (RCWD2). Handoff never resumes from a different directory, but the cause is unknown.
 - **The Copilot model catalogue is an undocumented endpoint**, and data-residency tenants get no Copilot model in the wizard.
+- **Copilot's sync opt-out rests on its help text.** A release that renames `--sync-session` makes submit refuse the CLI and name the version, which fails closed. A release that keeps the flag but stops listing it gets the same refusal, a false one until Handoff learns the new help.
+- **Flags retire without warning.** `--no-remote` was listed in 1.0.98's help and was a hard error in 1.0.109, and Handoff had no signal in between. The other backends' command lines carry no check like the copilot one.
 - **Five event shapes across five parsers.** Contained for now, and the reason the normalization module is the first follow-up.
 - **Real behaviour rests on one build, one account, one machine per CLI**, plus one live run each.
 
@@ -582,6 +601,7 @@ Antigravity:
 | 3.9.0 | `cursor`, receipt v7 | `plan_cursor-cli-backend.md` |
 | 3.9.3 | CLI install and update prompts | — |
 | 3.10.0 | `antigravity`, receipt v8 | `plan_antigravity-cli-backend.md` |
+| 4.0.1 | copilot sync opt-out read from `--help`; `--reasoning-effort` | — |
 
 This document consolidates, as of 2026-10-15, what were separate requirements and design docs for Cursor and Antigravity plus the permission-posture, Copilot-catalogue, Antigravity-catalogue, and CLI-prompt sections of `design_agent-identities-and-config.md`. The two plans cite requirement ids (R1.1 …) and decision numbers from the originals, which remain in git history: `git show bcd54de:docs/specs/requirements_cursor-cli-backend.md`, and likewise `design_cursor-cli-backend.md`, `requirements_antigravity-cli-backend.md`, and `design_antigravity-cli-backend.md`.
 
