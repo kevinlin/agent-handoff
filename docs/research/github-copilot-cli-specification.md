@@ -754,6 +754,27 @@ Handoff 4.0.1 reads `--help` and passes `--sync-session=off` when it is listed, 
 --no-remote-export` when that is, and refuses a CLI that lists neither. It passes
 `--reasoning-effort` in place of `--effort`.
 
+The live run that followed the fix (Handoff 4.0.1, `gpt-6.1-sol` at `low`, five jobs in a scratch
+repo through `delegate-job.sh`) found three more changes since 1.0.83:
+
+- **[probed] APPLYPATCH.** GPT models edit files with an `apply_patch` tool whose
+  `tool.execution_start.data.arguments` is the raw patch text, a plain string. `bash` and `sql`
+  arguments are objects, and every `tool.execution_complete.data.result` was an object. 4.0.0's
+  `result` assumed an object and crashed on every job that edited a file.
+- **[probed] USAGECUM.** `usage.json` is cumulative over a resumed session for every counter,
+  `modelMetrics` included. A fix round that made 3 model calls after a parent's 4 reported
+  `requests.count` 7, `requests.cost` 2, `totalUserRequests` 2, and `tokenDetails.cache_read`
+  107,185 against the parent's 52,998. Both files carry the same `sessionStartTime`. On 1.0.83
+  `tokenDetails` and `modelMetrics` were per invocation (section 9). Which release changed it is
+  open.
+- **[probed] COAUTHOR.** A worker commit on a worktree branch carried `Co-authored-by: Copilot
+  <223556219+Copilot@users.noreply.github.com>`.
+
+Unchanged on 1.0.109: a resume logs `session.resume` with the parent's event count and recalled a
+code word only the parent's prompt held (RESUME109); a `--mode plan` job asked to write a file left
+the tree unchanged and said so (RO109); a path-check refusal under `--allow-all-tools` is still a
+`tool.execution_complete` with `error.code: "denied"` (DENY109).
+
 ---
 
 ## 12. Worktrees

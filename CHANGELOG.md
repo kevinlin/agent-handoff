@@ -1,5 +1,41 @@
 # Changelog
 
+## v4.0.1 (2026-11-13)
+
+### Copilot jobs start again on Copilot CLI 1.0.103 and later
+
+- fix: every copilot job failed at launch on Copilot CLI 1.0.103 and later. Handoff passed `--no-remote`, which 1.0.103 retired, and the CLI exits 1 about a second after submit with `error: --no-remote was removed`, before any session starts. A copilot `arbiter` or `e2e_tester` could not run, and copilot smoke failed the same way. A real run on 1.0.109 found it: its `e2e_tester` row failed at launch and the driver took the row back.
+- fix: submit reads `copilot --help` and turns session sync off with the flag the help lists. That flag is `--sync-session=off`, or `--no-remote --no-remote-export` on a CLI older than 1.0.103. A fix round reads the help again, because the CLI can update between rounds. A CLI whose help lists neither flag, or whose `--help` fails or runs past 10 seconds, is refused before the job directory is written. The refusal names the binary and its version and says to run `copilot update`.
+- fix: smoke takes the same flags from the delegate dry-run, which now prints `copilot_egress=`. The rule lives in `delegate-job.sh` only.
+- fix: jobs and smoke pass `--reasoning-effort` where they passed `--effort`. 1.0.109 still accepts `--effort` but no longer lists it, and `--reasoning-effort` has existed since 1.0.4.
+- fix: `delegate-job.sh result` crashed with `'str' object has no attribute 'get'` on every 1.0.109 copilot job that edited a file. GPT models edit through an `apply_patch` tool whose arguments are raw patch text, and `result` expected an object. It now reads a command only from object arguments.
+- refactor: the antigravity identity check and the copilot flag check share one `--help` reader, with the same 10-second limit.
+- docs: `references/backends/copilot.md` says what a launch failure that names a flag means: the CLI and Handoff disagree on a version. The driver takes the row back, reports the version, and does not retry. The file also covers the co-author trailer and the fix-round usage listed below. `docs/specs/design_cli-backends.md` gains two sections, *A flag the CLI no longer accepts is a failed job* and *CLI releases*. The Copilot research doc gains a 1.0.109 addendum (§11.1).
+- Config schema stays `2`. Receipt schema stays `8`.
+
+### What was run
+
+- The failure, reproduced without a session: `copilot --no-remote --version` prints the same error on 1.0.109, and the same command line without that flag parses. The CLI's cached builds date the change. 1.0.83 and 1.0.98 list `--no-remote` and `--no-remote-export`; 1.0.104 and 1.0.109 list `--sync-session` instead; the CLI's own changelog says 1.0.103 retired `--remote` and `--no-remote`.
+- A reply-only run on 1.0.109 with `--sync-session=off --log-level debug` logged `Remote exporter setup: syncEnabled=false, shouldStart=false`.
+- Five copilot jobs ran on 1.0.109 in a scratch repo, submitted through the installed skill:
+  - A fresh job made its edit, and the repo check's `CHECK_OK` is in its log.
+  - Its fix round logged `session.resume` and recalled a code word that only the parent's prompt held.
+  - A `--worktree` job ran on its pinned base commit and committed on its branch. `cleanup` then removed the worktree.
+  - A `--read-only` job asked to write a file left the tree unchanged and said so.
+  - A job asked to read `/etc/hosts` was refused, and `status` reported `permission_denied: 1`.
+- `result --json` parses all five logs. The run's receipt validates, and its cost receipt counts five copilot jobs.
+- `handoff-setup.py --smoke` passed all four identities in this repo, the copilot `arbiter` (claude-opus-5.5 at `max`) among them.
+- Unit suite: 1243 tests pass. `check-skill-repo.sh` reports fail=0, the viewer tests pass 56 of 56, and the 64 test prompts pass.
+- A `deep_reasoner` spec review raised five advisory findings and no blocking one. All five were accepted.
+
+### Found and left alone
+
+- On 1.0.109 a copilot fix round's `usage.json` covers the whole session, parent included. The cost receipt therefore counts the parent's usage again in each fix round. The live run's cost receipt shows 6 premium requests where 5 ran. 1.0.83 reported each invocation on its own, and the release that changed this is unknown, so the correction waits.
+- Copilot 1.0.109 adds `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` to worker commits. Handoff reports the trailer and leaves it in place, as it does Cursor's.
+- The transcript viewer shows an `apply_patch` call as a generic tool row and not as a file change.
+- A copilot job under `permission_mode = "default"` warns that permission checks are bypassed. On a fresh job, the remedy line then says to set `default`, which is already set.
+- No test covers the 10-second `--help` timeout, because nothing shortens it in a test. The non-zero-exit test goes through the same branch.
+
 ## v4.0.0 (2026-11-12)
 
 ### The identity set

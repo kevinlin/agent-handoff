@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-version: 4.0.0
+version: 4.0.1
 description: |
   Agent Handoff: Claude Code plans, splits and reviews project work while a worker CLI (Codex, a second Claude Code, GitHub Copilot, Cursor or Antigravity) executes it as background jobs, and every run ends with a receipt. Use on "agent handoff" or "/agent-handoff" with any sub-command: resume, config (also setup, init), tryout, transcript, cost-receipt, visualise (visualize), migrate. Also use on "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split work between Claude Code and a worker CLI to save quota; on "resume", "config", "setup" or "tryout agent handoff"; on a request that names a Handoff identity (deep_reasoner, fast_worker, arbiter); and on requests to show a delegated job's transcript or conversation history, a run's cost receipt, the session timeline, or to migrate handoff evidence. Not for ordinary code review. Do not trigger on the bare English word "handoff" in unrelated contexts.
 ---

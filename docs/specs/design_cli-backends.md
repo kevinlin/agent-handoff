@@ -336,7 +336,7 @@ The egress flag is now read from `--help`, so that case is a refusal at submit. 
 The shapes below exist on every backend, so a consumer never branches on vendor. How each log is parsed is `docs/specs/design_agent-handoff-evidence.md`'s subject (*Five telemetry shapes*); this is what `delegate-job.sh` prints from it.
 
 - **Agent message.** The last agent message of the invocation, never a field that joins them all: Cursor's last `assistant` event rather than `result.result`, and Antigravity's last `agent_response` step (its `text_delta` values joined) rather than `result.response`, which in P3 ran 1,236 characters against the final step's 949.
-- **Commands.** Cursor's from `shellToolCall.args.command`; Antigravity's from the `CommandLine` of `ACTIVE` `run_command` steps. `agy` logs no exit code for a command (a deliberate `exit 7` ended `DONE` with no error, EXIT7), so `commands_run` lists them without a result, and a worker's report that a check passed is checked by re-running it.
+- **Commands.** Copilot's from `arguments.command` when `arguments` is an object: 1.0.109's `apply_patch` sends raw patch text, which is not a command (APPLYPATCH). Cursor's from `shellToolCall.args.command`; Antigravity's from the `CommandLine` of `ACTIVE` `run_command` steps. `agy` logs no exit code for a command (a deliberate `exit 7` ended `DONE` with no error, EXIT7), so `commands_run` lists them without a result, and a worker's report that a check passed is checked by re-running it.
 - **Denials.** `status` reads the last event and the denial count in one parsed pass. A non-zero count prints `permission_denied: <n> (worker blocked; its self-report is not evidence)`. Antigravity reports denials only in the `denied_actions` list on its terminal `result`, so before that event the count is unknown, never zero. A running job prints no denial line, as a clean job does, because `status` is polled. A finished job with no `result` prints `permission_denied: unknown (no result event; agy reports denials only when a run ends)`, and `result --json` gives `null`.
 - **Errors.** Objects with `status_code`, `error_type`, and `message`. Copilot's come from `session.error`. An antigravity `result` with status `ERROR` adds `{"status_code": null, "error_type": "result_error", "message": <result.error>}`. A stderr line containing `print timeout after` adds `error_type: "print_timeout"`, because a timed-out run can exit 0 with status `SUCCESS` and nothing else shows it. The pinned timeout should make that unreachable; if it fires, the driver treats the job as failed and resubmits.
 - **`context_lost`.** Present on every backend: `true` or `false` on an antigravity resume, `null` wherever it is not measured.
@@ -434,7 +434,7 @@ Receipts, transcripts, and the cost receipt are `docs/specs/design_agent-handoff
 
 - **One flat count pair per backend.** `copilot_jobs`, `cursor_jobs` (receipt v7), and `antigravity_jobs` (receipt v8) joined `codex_jobs` and `cc_jobs`, each with its `*_job_durations`, following the flat-field decision from v3.7.0. `make-receipt.py` splits jobs by the `backend=` line in `meta`, and a job on one backend is never folded into another's count. In `roles_used`, `host` is the CLI that executed the role.
 - **Tokens, never an invented cost.** Cursor reports four token counters and Antigravity five, and neither reports a cost of any kind. Their cost cells read "n/a - no cost figure", like codex and copilot rows read "n/a", never "unknown", which would mean a reading is missing. Showing a dollar amount would be made up. The outside-driver figure counts codex, cursor, and antigravity jobs a second time, and its caveat says so.
-- **Usage is per invocation.** Cursor's last `result.usage` is per invocation. `agy`'s `result.usage` and `result.duration_seconds` are cumulative over the whole conversation (RSAME: 23,989 input tokens, the parent's 11,846 plus the round's 12,143), so the reader sums the `usage` on the log's own `step_update` events. A parent and its fix round then add up on both. A job with no `result` event has unknown usage, never zero.
+- **Usage is per invocation, except a Copilot fix round on 1.0.109.** Copilot's `usage.json` on 1.0.109 is cumulative over a resumed session (USAGECUM), so the cost receipt counts a parent's usage again in each of its fix rounds. 4.0.1 documents this and does not correct it (*Follow-ups*). Cursor's last `result.usage` is per invocation. `agy`'s `result.usage` and `result.duration_seconds` are cumulative over the whole conversation (RSAME: 23,989 input tokens, the parent's 11,846 plus the round's 12,143), so the reader sums the `usage` on the log's own `step_update` events. A parent and its fix round then add up on both. A job with no `result` event has unknown usage, never zero.
 - **The model column.** Cursor's shows the `system/init` display name when the log has one, else the slug from `meta` (a job rejected at launch or killed before `init`). Antigravity's shows the `meta` slug, because `init.model` echoes the selector Handoff passed (MBASE) and `agy` emits no display name.
 
 ## Where it fails closed, and where it doesn't
@@ -525,7 +525,7 @@ Handoff reads `--help` at submit for the one flag whose spelling changed. Every 
 - a `--read-only` job, asked to write a file, that leaves the tree unchanged;
 - a receipt and a cost receipt that count the job.
 
-The results are in each research doc's section 12. Both runs found things the probes and fakes had missed. On Cursor: the silent resume of an unknown id, a mistyped `workingDirectory` surfacing as `spawn /bin/zsh ENOENT`, `askQuestionToolCall` counted as a denial under plan mode, and the commit trailer on worktree commits. On `agy`: plan mode refuses every shell command.
+The results are in each research doc's section 12. Both runs found things the probes and fakes had missed. On Cursor: the silent resume of an unknown id, a mistyped `workingDirectory` surfacing as `spawn /bin/zsh ENOENT`, `askQuestionToolCall` counted as a denial under plan mode, and the commit trailer on worktree commits. On `agy`: plan mode refuses every shell command. The 4.0.1 copilot run found three: `apply_patch`'s string arguments, which crashed `result`; `usage.json` cumulative over a resume; and the Copilot co-author trailer.
 
 ## Not doing
 
@@ -535,14 +535,15 @@ The results are in each research doc's section 12. Both runs found things the pr
 - A catalogue check at submit, and a `--version` identity check for Cursor.
 - A Copilot, Cursor, or Antigravity preset.
 - A cost figure for any backend that reports none.
-- Stripping Cursor's `Co-authored-by` trailer. It is the user's setting; Handoff reports it.
+- Stripping Cursor's or Copilot's `Co-authored-by` trailer. It is the user's setting; Handoff reports it.
 - A latest-version lookup and update prompt for `agy`, until a free source exists.
 
 ## Open questions
 
 Copilot:
 
-- whether a prompt-mode run with no sync flag syncs on 1.0.109. No baseline was run; `--sync-session=off` is passed either way.
+- whether a prompt-mode run with no sync flag syncs on 1.0.109. No baseline was run; `--sync-session=off` is passed either way;
+- which release made `usage.json` cumulative over a resumed session (USAGECUM).
 
 Cursor:
 
@@ -571,7 +572,7 @@ Antigravity:
 - **Base names resolve silently on Cursor.** The web wizard refuses them, smoke checks membership for every other path, and `init` records the model that ran. A config that skips smoke reaches its first job unchecked, as a hand-written Copilot config does.
 - **The Cursor sandbox finding rests on one machine.** It cannot be told whether force mode bypasses Cursor's sandbox or the sandbox is broken there. If a later build runs shells under `--sandbox enabled`, a sandbox-based `default` becomes possible, as its own change with its own probe.
 - **Cursor's allowlist approves things it was not told to.** Probe A's `git commit` ran without an allow rule. Irrelevant under force mode, but the user's allowlist is not a complete description of what Cursor permits.
-- **Commits carry `Co-authored-by: Cursor <cursoragent@cursor.com>`** when the user's Cursor attribution setting is on, including e2e worker commits on worktree branches (live run). No attribution trailer was observed on `agy` commits.
+- **Commits carry `Co-authored-by: Cursor <cursoragent@cursor.com>`** when the user's Cursor attribution setting is on, including e2e worker commits on worktree branches (live run). Copilot 1.0.109 commits carry `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` (COAUTHOR). No attribution trailer was observed on `agy` commits.
 - **Cursor `(NO ZDR)` models.** Twenty Claude Fable slugs are marked as having no zero data retention. A delegated job sends repository contents, so `references/backends/cursor.md` names the marker.
 - **The Antigravity identity check rests on two flag names.** A later `agy` could rename one, and every submit would then refuse the real CLI, naming what it found. That fails closed.
 - **`--mode auto` varies by account on Antigravity.** A later posture other than skip-permissions would behave differently per account, and the fallback is a stderr warning.
@@ -589,6 +590,8 @@ Antigravity:
 - **A sandbox-based cursor `default`**, if a Cursor build runs shells under `--sandbox enabled` on the platforms Handoff supports.
 - **An `--mode auto` antigravity `default`** for accounts that have it, once probed on one, with a guard for the fallback warning.
 - **A latest-version source for `agy`**, and with it a `CLI_RELEASES` entry.
+- **Per-invocation Copilot usage on fix rounds**: subtract the resumed job's own `usage.json` when both files carry the same `sessionStartTime`, once the release that made the file cumulative is known.
+- **`apply_patch` as a file change in the transcript viewer**, from the completion event's `fileEdits`. It renders as a generic tool row today.
 
 ## History
 

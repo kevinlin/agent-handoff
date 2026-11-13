@@ -18,7 +18,7 @@ text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Noto Sans Mon
 <path d="M 1060,300 L 1112,300" fill="none" stroke="var(--color-secondary-stroke)" stroke-width="1.6" marker-end="url(#a-secondary)"/>
 <path d="M 1320,640 L 1320,672" fill="none" stroke="var(--color-neutral-stroke)" stroke-width="1.6" marker-end="url(#a-neutral)"/>
 <text x="1330" y="660" fill="var(--color-neutral-stroke)" font-size="12" font-weight="400" text-anchor="start">read</text>
-<text x="30" y="42" fill="var(--text)" font-size="20" font-weight="700" text-anchor="start">agent-handoff v4.0.0: what loads, and when</text>
+<text x="30" y="42" fill="var(--text)" font-size="20" font-weight="700" text-anchor="start">agent-handoff v4.0.1: what loads, and when</text>
 <text x="30" y="66" fill="var(--text-muted)" font-size="12" font-weight="400" text-anchor="start">Three layers. A request loads SKILL.md, then one L2 file, then only the L3 files its steps name. Word counts are measured from the files.</text>
 <rect x="30" y="100" width="240" height="64" rx="6" fill="var(--mask)"/>
 <rect x="30" y="100" width="240" height="64" rx="6" fill="var(--color-highlight-fill)" stroke="var(--color-highlight-stroke)" stroke-width="1.5"/>

@@ -62,8 +62,9 @@ copilot job therefore drops `--allow-all-tools` entirely.
 A copilot job never carries `--share`, `--share-gist`,
 `--worktree`, or `--enable-memory`, and always turns session sync off: 1.0.83's
 help described session export to GitHub web and mobile as on by default, and a
-delegated job's prompt and repository contents are not exportable material. The flag is the one the
-installed CLI's own --help lists, read at submit and again on every fix round:
+delegated job's prompt and repository contents are not exportable material. The
+flag is the one the installed CLI's own --help lists, read at submit and again
+on every fix round:
 `--sync-session=off`, or `--no-remote --no-remote-export` on a CLI older than
 1.0.103, which retired `--no-remote`. A retired flag is a hard error before any
 session, so a CLI whose help lists neither is refused, naming its version.
