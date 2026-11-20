@@ -1348,6 +1348,15 @@ class CursorSetupTests(SetupTests):
             backend for preset in handoff_setup.PRESETS.values()
             for backend, _, _ in preset.values()})
 
+    def test_a_bracket_model_is_refused_at_setup(self):
+        for model in ("claude-sonnet-5-5[context=1m,reasoning_effort=high]", "gpt-5.4 mini"):
+            with self.subTest(model=model):
+                with self.assertRaises(handoff_setup.SetupError) as refusal:
+                    handoff_setup.validate_backend_models(
+                        {"fast_worker": {"backend": "cursor", "model": model, "effort": "model"}})
+                for part in ("bracket form", "1M context (Max Mode)", "cursor-agent models", "handoff-config.py set"):
+                    self.assertIn(part, str(refusal.exception))
+
     def test_availability_is_cursor_agent_never_the_ide_or_agent(self):
         self.assertTrue(handoff_setup.cli_available("cursor", self.env))
         elsewhere = self.root / "ide-only"
@@ -1681,7 +1690,7 @@ class AntigravitySetupTests(SetupTests):
                     self.assertIn(
                         f"handoff-config.py set --role fast_worker --backend {backend} --model <model>",
                         message)
-        # The clause about a role-less job is untrue on antigravity, so it says the opposite there.
+        # Only copilot can use the CLI default for an ad-hoc job.
         with self.assertRaises(handoff_setup.SetupError) as refusal:
             handoff_setup.validate_backend_models(
                 {"fast_worker": {"backend": "antigravity", "model": "", "effort": "model"}})
@@ -1690,7 +1699,8 @@ class AntigravitySetupTests(SetupTests):
         with self.assertRaises(handoff_setup.SetupError) as refusal:
             handoff_setup.validate_backend_models(
                 {"fast_worker": {"backend": "cursor", "model": "", "effort": "model"}})
-        self.assertIn("runs on the CLI's own default", str(refusal.exception))
+        self.assertIn("a role-less cursor job must name a model too", str(refusal.exception))
+        self.assertNotIn("runs on the CLI's own default", str(refusal.exception))
         # Codex and Claude identities are not held to this.
         for backend in ("codex", "claude"):
             handoff_setup.validate_backend_models(

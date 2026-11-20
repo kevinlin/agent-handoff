@@ -67,6 +67,7 @@ MODEL_EFFORT_BACKENDS = ("cursor", "antigravity")
 # Backends where an identity must name a catalogue model: setup refuses an empty
 # one, and refuses `auto`, which hands the choice back to the vendor.
 MODEL_NAMED_BACKENDS = ("copilot", "cursor", "antigravity")
+CURSOR_MODEL_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 BACKEND_EFFORTS = {
     "claude": CLAUDE_EFFORTS,
     "codex": CODEX_EFFORTS,
@@ -136,45 +137,54 @@ def validate_backend_efforts(identities: Mapping[str, Mapping[str, Any]]) -> Non
 
 
 def validate_backend_models(identities: Mapping[str, Mapping[str, Any]]) -> None:
-    """Refuse ``model = "auto"`` on a copilot, cursor, or antigravity identity, at setup time.
+    """Require a named model on copilot, cursor, and antigravity, and a plain slug on cursor.
 
-    ``delegate-job.sh`` refuses it at submit too, but that is the first real
-    job - late enough that a config naming ``auto`` applies cleanly and then
-    fails on the first delegation. The reason is conceptual, not mechanical:
-    an identity is a deliberate backend+model+effort choice, and ``auto`` hands
-    the model choice back to the vendor per request, which also makes the
-    receipt's model field a record of what the vendor picked.
+    Setup catches invalid choices before the first delegation.
+    An identity is a deliberate backend+model+effort choice. With ``auto``
+    the vendor picks the model per request, so the receipt would record what
+    the vendor picked.
     """
 
     for identity, values in identities.items():
         backend = values["backend"]
         if backend not in MODEL_NAMED_BACKENDS:
             continue
-        model = str(values.get("model") or "").strip()
-        if model == "auto":
+        model = str(values.get("model") or "")
+        if model.strip() == "auto":
             raise SetupError(
                 f"--role-model for {identity} is 'auto', which is refused on {backend}: "
                 "an identity is a deliberate backend+model+effort choice and 'auto' "
                 "resolves per request. Name a concrete model, for example with "
                 f"'handoff-config.py set --role {identity} --backend {backend} --model <model>'."
             )
-        if not model:
+        if not model.strip():
             # The refusal names its fix, as the `auto` one above does.
-            # The parenthetical differs on antigravity because it is untrue
-            # there: agy carries no model over to a resume (RMODEL), so even a
-            # role-less job must name one.
-            latitude = (
-                "(Unlike a role-less copilot or cursor job, a role-less antigravity "
-                "job must name a model too: agy carries no model over, so a resume "
-                "passes it again.)"
-                if backend == "antigravity" else
-                "(A role-less ad-hoc job passes no --model and runs on the CLI's own "
-                "default; a configured identity does not get that latitude.)"
-            )
+            if backend == "copilot":
+                latitude = (
+                    "(A role-less copilot job passes no --model and runs on the CLI's own "
+                    "default; a configured identity must name a model.)"
+                )
+            elif backend == "cursor":
+                latitude = (
+                    "(Without --model, Cursor uses its saved selection, which can use the "
+                    "1M context (Max Mode), so a role-less cursor job must name a model too.)"
+                )
+            else:
+                latitude = (
+                    "(Because agy carries no model over to a resume (RMODEL), a role-less "
+                    "antigravity job must name a model too, and a resume passes it again.)"
+                )
             raise SetupError(
                 f"--role-model for {identity} with backend={backend} must name a model; "
                 f"no model name is guessed. {latitude} Name one with "
                 f"'handoff-config.py set --role {identity} --backend {backend} --model <model>'."
+            )
+        if backend == "cursor" and not CURSOR_MODEL_SLUG.fullmatch(model):
+            raise SetupError(
+                f"--role-model for {identity} with backend=cursor must be a plain slug. "
+                "The bracket form can select Cursor's 1M context (Max Mode). "
+                "Name a slug from 'cursor-agent models' with "
+                f"'handoff-config.py set --role {identity} --backend cursor --model <slug>'."
             )
 
 
@@ -269,7 +279,7 @@ def cursor_catalogue(binary: str, env: Mapping[str, str]) -> Tuple[List[Tuple[st
     models = []
     for line in result.stdout.splitlines():
         slug, separator, name = line.strip().partition(" - ")
-        if separator and slug != "auto" and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", slug):
+        if separator and slug != "auto" and CURSOR_MODEL_SLUG.fullmatch(slug):
             models.append((slug, name.strip()))
     if not models:
         return [], f"cursor-agent models listed no models; {CURSOR_LOGIN_FIX}"

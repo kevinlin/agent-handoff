@@ -10,6 +10,10 @@ set -euo pipefail
 # a Claude Code session (or a /loop tick) can submit work to a worker CLI, poll
 # it, collect the result, and send follow-up fix rounds against the same worker
 # session. The identity's configured backend decides which CLI runs the job.
+# Cursor passes a checked model slug on submit and resume. Status and text
+# result warn about a context in millions, and JSON result reports the size
+# from init.model as context_window (null when unavailable or on other backends).
+# A job that ran at a size in millions holds its slug in this repo for that build.
 #
 # Job directory layout:
 #   prompt.md    the exact prompt sent to the worker CLI
@@ -21,9 +25,10 @@ set -euo pipefail
 #   session_id   worker thread/session id, extracted from log.jsonl — or written
 #                before launch: on copilot, assigned at submit; on a resume of any
 #                backend but antigravity, copied from the parent job
-#   meta         label, backend, effort, mode, permission mode, parent job,
+#   meta         label, backend, model, effort, mode, permission mode, parent job,
 #                timestamps; permission_posture is requested, permission_mode is
 #                the effective backend mode, permission_posture_source records origin;
+#                codex_version records the worker build on every backend;
 #                on an antigravity resume, resumed_session is the conversation id it
 #                asked for, which its own init id is compared with
 #   usage.json   copilot only: final usage counters (--usage-output-file)
@@ -97,10 +102,24 @@ Cursor takes one effort, `model`: Cursor carries effort inside the model slug
 (claude-opus-5-5-high), so the slug is the whole choice. A role-less cursor job
 that names no --effort gets `model`.
 
+Every cursor job needs a plain slug from `cursor-agent models`. The bracket
+form can select the 1M context (Max Mode). A fix round passes the parent's
+recorded slug again because a resume without --model uses the CLI's saved
+selection, which can also use 1M. If the parent lacks a usable slug, resubmit
+with the full packet.
+
+`result --json` includes context_window on every backend. It is the first
+size token in Cursor's init model display name (such as 300K or 1M), or null
+if absent or on another backend. Status and text result warn about sizes in
+millions, even while the job is running. Submit (including --dry-run) and
+resume then hold that slug in this repo until the identity names another slug
+or the cursor build changes.
+
 On cursor the permission posture changes nothing: default and allow-all both
 run in Cursor's force mode (-f), because no narrower Cursor mode let a probed
-worker run its own checks. Deny rules in .cursor/cli.json are the only
-narrowing, and every writing cursor job prints the bypass warning. A cursor job
+worker run its own checks. Deny rules (global ones in ~/.cursor/cli-config.json,
+project ones in .cursor/cli.json) are the only narrowing, and every writing
+cursor job prints the bypass warning. A cursor job
 never carries --worktree, --sandbox, --approve-mcps, --api-key,
 --stream-partial-output, or --yolo.
 
@@ -110,7 +129,7 @@ so neither is ever resolved.
 
 Antigravity takes one effort, `model`: an Antigravity model id carries its effort
 (gemini-3.8-flash-low), so the id is the whole choice. A role-less antigravity job
-that names no --effort gets `model`. Unlike cursor it must name a --model: an empty
+that names no --effort gets `model`. It must name a --model: an empty
 model and `auto` are refused, because a resume passes the model again and an
 unpinned run would use whatever model the CLI has selected at that moment.
 
@@ -606,6 +625,11 @@ print(sid)
 PY
 }
 
+is_cursor_model_slug() {
+  local LC_ALL=C
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
 cmd_submit() {
   local PROMPT_FILE="" LABEL="task" EFFORT="high" MODEL="" ROLE="" READ_ONLY="false" DRY_RUN="false"
   local WORKTREE_BRANCH="" WORKTREE_BASE="" BASE_COMMIT=""
@@ -689,12 +713,18 @@ cmd_submit() {
     [ "$BACKEND" = "antigravity" ] && ARTICLE="an"
     die "model 'auto' is refused on $ARTICLE $BACKEND job: name a concrete model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend $BACKEND --model <model>'"
   fi
-  # Unlike cursor, a role-less antigravity job cannot run on the CLI default
-  # model: without --model, agy runs whatever model is selected at that moment
-  # and init does not name it (MDEFAULT, RMODEL), and a resume has to pass the
-  # same model again because agy carries none over (decision 4).
+  # Even a role-less antigravity job must name a model: without --model, agy
+  # runs whatever model is selected at that moment and init does not name it
+  # (MDEFAULT, RMODEL). A resume has to pass the same model again because agy
+  # carries none over (decision 4).
   if [ "$BACKEND" = "antigravity" ] && [ -z "$MODEL" ]; then
     die "model is empty on an antigravity job: name a catalogue model instead, with 'handoff-config.py set --role ${ROLE:-<identity>} --backend antigravity --model <model>'"
+  fi
+  if [ "$BACKEND" = "cursor" ]; then
+    # Either the saved selection or a bracket selector can send a job to 1M.
+    local CURSOR_MODEL_FIX="name a slug from 'cursor-agent models' with 'handoff-config.py set --role ${ROLE:-<identity>} --backend cursor --model <slug>'"
+    [ -n "$MODEL" ] || die "model is empty on a cursor job: without --model, Cursor uses its saved selection, which can use the 1M context (Max Mode); $CURSOR_MODEL_FIX"
+    is_cursor_model_slug "$MODEL" || die "cursor model must be a single line containing a plain slug: the bracket form can select Cursor's 1M context (Max Mode); $CURSOR_MODEL_FIX"
   fi
   [[ "$MODEL" != *$'\n'* && "$MODEL" != *$'\r'* ]] || die "model must be a single line"
   validate_effort "$BACKEND" "$EFFORT"
@@ -703,6 +733,9 @@ cmd_submit() {
   # Before the dry-run return and before the job directory: a CLI that offers no
   # sync opt-out is refused here, and --dry-run refuses it too.
   resolve_copilot_egress
+  if [ "$BACKEND" = "cursor" ]; then
+    require_cursor_slug_not_held "$MODEL"
+  fi
 
   LABEL="$(echo "$LABEL" | tr -cs 'A-Za-z0-9_-' '-' | sed 's/^-//;s/-$//')"
   if [ "$DRY_RUN" = "true" ]; then
@@ -846,18 +879,26 @@ cmd_resume() {
   local EFFORT
   EFFORT="$(meta_value effort "$PARENT_JOB")"
   validate_effort "$BACKEND" "${EFFORT:-high}"
-  # Every other backend resumes inside a session that carries its model, so the
-  # round records `inherit` and passes none. agy carries no model over (RMODEL:
-  # an unpinned resume reported the CLI selection, not the parent), so the round
-  # passes the parent recorded one again. It is the real id, never `inherit`,
-  # because submit and every resume write the real one; that is what lets a
-  # resume of a resume read it from its own parent without walking the chain.
+  # Codex, Claude, and Copilot carry the model in the resumed session, so the
+  # round records `inherit` and passes none. Cursor and agy instead use the
+  # CLI selection on an unpinned resume (CTXRESUME, RMODEL), so the round
+  # passes and records the parent's actual model. A resume of a resume can
+  # then read the model from its own parent without walking the chain.
   local ROUND_MODEL="" META_MODEL="inherit"
-  if [ "$BACKEND" = "antigravity" ]; then
+  if [ "$BACKEND" = "cursor" ] || [ "$BACKEND" = "antigravity" ]; then
     ROUND_MODEL="$(meta_value model "$PARENT_JOB")"
-    case "$ROUND_MODEL" in
-      ""|inherit|default) die "parent job $PARENT_ID recorded no model, so agy would run whatever model the CLI has selected; resubmit with the full packet on a configured model (handoff-config.py set --role <identity> --backend antigravity --model <model>)" ;;
-    esac
+    if [ "$BACKEND" = "cursor" ]; then
+      # Older rounds recorded inherit and older submits accepted bracket selectors.
+      local CURSOR_RESUME_ERROR="parent job $PARENT_ID did not record a usable plain Cursor slug. Resuming without --model runs Cursor's saved selection, which can use the 1M context (Max Mode), and a bracket selector can select it directly; resubmit with the full packet on a configured slug"
+      case "$ROUND_MODEL" in
+        ""|inherit|default|auto) die "$CURSOR_RESUME_ERROR" ;;
+      esac
+      is_cursor_model_slug "$ROUND_MODEL" || die "$CURSOR_RESUME_ERROR"
+    else
+      case "$ROUND_MODEL" in
+        ""|inherit|default) die "parent job $PARENT_ID recorded no model, so agy would run whatever model the CLI has selected; resubmit with the full packet on a configured model (handoff-config.py set --role <identity> --backend antigravity --model <model>)" ;;
+      esac
+    fi
     META_MODEL="$ROUND_MODEL"
   fi
   CODEX_BIN="$(meta_value codex_bin "$PARENT_JOB")"
@@ -880,6 +921,9 @@ cmd_resume() {
   # Re-detected on every round, not read from the parent's run.sh: the CLI can
   # update between rounds, and a flag the new build retired is a hard error.
   resolve_copilot_egress
+  if [ "$BACKEND" = "cursor" ]; then
+    require_cursor_slug_not_held "$ROUND_MODEL"
+  fi
   local JOB_ID="${ROOT_ID}-r${ROUND}"
   JOB="$(job_dir "$JOB_ID")"
   [ -e "$JOB" ] && die "job dir already exists: $JOB"
@@ -936,7 +980,7 @@ write_run_script() {
     elif [ "$BACKEND" = "copilot" ]; then
       write_copilot_exec_line "$effort" "$model" "$read_only" "$session_id"
     elif [ "$BACKEND" = "cursor" ]; then
-      write_cursor_exec_line "$model" "$read_only" "$session_id"
+      write_cursor_exec_line "$read_only" "$session_id"
     elif [ "$BACKEND" = "antigravity" ]; then
       write_antigravity_exec_line "$model" "$read_only" "$session_id"
     elif [ -n "$session_id" ]; then
@@ -1030,7 +1074,7 @@ write_copilot_exec_line() {
 }
 
 write_cursor_exec_line() {
-  local model="$1" read_only="$2" session_id="$3"
+  local read_only="$1" session_id="$2"
   # --trust always: a fresh worktree is a workspace Cursor has never seen.
   # Handoff owns the worktree protocol, so Cursor's own worktree flag is never
   # passed, and neither are its sandbox, MCP-approval, API-key, or
@@ -1038,12 +1082,13 @@ write_cursor_exec_line() {
   # ANTHROPIC_* or CLAUDE_CODE_* variables.
   local args="--output-format stream-json --trust"
   if [ -n "$session_id" ]; then
-    # A resumed session carries its model and workspace; cwd comes from the cd.
+    # A resumed session carries its workspace; cwd comes from the cd.
     args="$args --resume \"\$SESSION_ID\""
   else
     args="$args --workspace \"\$WORKDIR\""
-    [ -n "$model" ] && args="$args --model \"\$MODEL\""
   fi
+  # Without an explicit model, Cursor uses the CLI's saved selection.
+  args="$args --model \"\$MODEL\""
   if [ "$read_only" = "true" ]; then
     args="$args --mode plan"
   else
@@ -1085,15 +1130,75 @@ launch_job() {
   disown || true
 }
 
-# Reads a job log once and prints the last event type, the denial count, and
-# whether that count is known, one per line. Held as a string rather than a heredoc so it can run inside a
-# command substitution. Keep apostrophes out of the block, comments included:
-# bash 3.2 (macOS) mis-parses one in a quoted heredoc nested inside $(...).
-STATUS_SCAN_PY="$(cat <<'SCAN'
+# Keep apostrophes out of Python blocks captured with $(cat ...), comments
+# included: bash 3.2 (macOS) mis-parses them in nested quoted heredocs.
+CURSOR_CONTEXT_PY="$(cat <<'PY'
+import re
+
+def cursor_init_window(event):
+    # The init display name is the only event that reports the window. An
+    # empty string marks an init without a size, so callers still stop looking.
+    if not isinstance(event, dict) or event.get("type") != "system" or event.get("subtype") != "init":
+        return None
+    model = event.get("model")
+    tokens = model.split() if isinstance(model, str) else ()
+    return next((token for token in tokens if re.fullmatch(r"\d+(\.\d+)?[KM]", token)), "")
+
+def cursor_context_warning(size):
+    if size and size.endswith("M"):
+        return (f"context_window: {size} (Cursor Max Mode: cancel the job if it is running; "
+                "submit and resume now refuse this slug on this cursor build)")
+    return ""
+PY
+)"
+
+require_cursor_slug_not_held() {
+  local model="$1" scan hit
+  # The same slug can behave differently after an update. Check this build's
+  # prior jobs, streaming a matching log only until its init event.
+  scan="$CURSOR_CONTEXT_PY"$'\n'"$(cat <<'PY'
+import json, sys
+from pathlib import Path
+
+jobs, model, build = sys.argv[1:]
+for meta_path in Path(jobs).glob("*/meta"):
+    try:
+        with meta_path.open(encoding="utf-8") as meta_file:
+            meta = dict(line.rstrip("\n").split("=", 1) for line in meta_file if "=" in line)
+        if (meta.get("backend"), meta.get("model"), meta.get("codex_version")) != ("cursor", model, build):
+            continue
+        with meta_path.with_name("log.jsonl").open(encoding="utf-8", errors="replace") as log:
+            for line in log:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                size = cursor_init_window(event)
+                if size is not None:
+                    if size.endswith("M"):
+                        print(f"{meta_path.parent.name} ran at {size}")
+                        sys.exit(0)
+                    break
+    except FileNotFoundError:
+        continue
+PY
+)"
+  hit="$(python3 -c "$scan" "$REPO/$JOBS_SUBDIR" "$model" "$CODEX_VERSION")" \
+    || die "could not check the Max Mode hold for Cursor slug '$model' on build $CODEX_VERSION"
+  if [ -n "$hit" ]; then
+    die "Cursor slug '$model' is held on build $CODEX_VERSION: job $hit. The hold clears when the identity names another slug (handoff-config.py set) or the cursor build changes"
+  fi
+}
+
+# Reads a job log once and prints the last event type, the denial count,
+# whether that count is known, and the Cursor context warning, one per line.
+# Held as a string so it can run inside a command substitution.
+STATUS_SCAN_PY="$CURSOR_CONTEXT_PY"$'\n'"$(cat <<'SCAN'
 import json, sys
 
 path, backend = sys.argv[1], sys.argv[2]
 last, denied, result_seen = "", 0, False
+context_window = None
 with open(path, encoding="utf-8") as fh:
     for line in fh:
         line = line.strip()
@@ -1137,6 +1242,8 @@ with open(path, encoding="utf-8") as fh:
             if etype == "tool.execution_complete" and error.get("code") == "denied":
                 denied += 1
         elif backend == "cursor":
+            if context_window is None:
+                context_window = cursor_init_window(event)
             # Typed: a refused call completes with a `rejected` result object.
             call = event.get("tool_call")
             if etype == "tool_call" and event.get("subtype") == "completed" and isinstance(call, dict):
@@ -1150,6 +1257,7 @@ print(denied)
 # Antigravity reports denials only when a run ends, so before a result event the
 # count is unknown rather than zero. Every other backend reports as it goes.
 print("unknown" if backend == "antigravity" and not result_seen else "known")
+print(cursor_context_warning(context_window))
 SCAN
 )"
 
@@ -1179,11 +1287,11 @@ cmd_status() {
 
   BACKEND="$(meta_value backend)"
   BACKEND="${BACKEND:-codex}"
-  # One parsed pass over the log for both the last event type and the denial
-  # count. Counting denials by grep would miss valid JSON with whitespace after
-  # a colon and would match an unrelated `code` field anywhere on the line; the
+  # One parsed pass over the log for the last event type, the Cursor context
+  # window, and the denial count. Counting denials by grep would miss valid JSON
+  # with whitespace after a colon and would match an unrelated `code` field; the
   # denial shapes also differ per backend, which a pattern cannot tell apart.
-  local last_event="" denied=0 scan="" denial_known="known" third=""
+  local last_event="" denied=0 scan="" denial_known="known" third="" context_warning=""
   # Initialised outside the log guard: a terminal antigravity job with an empty
   # or missing log has no result event either, so its count is unknown too.
   [ "$BACKEND" != "antigravity" ] || denial_known="unknown"
@@ -1193,6 +1301,7 @@ cmd_status() {
     denied="$(printf '%s\n' "$scan" | sed -n 2p)"
     third="$(printf '%s\n' "$scan" | sed -n 3p)"
     [ -z "$third" ] || denial_known="$third"
+    context_warning="$(printf '%s\n' "$scan" | sed -n 4p)"
   fi
   echo "job: $JOB_ID"
   echo "state: $state"
@@ -1207,6 +1316,7 @@ cmd_status() {
   if [ "$denial_known" = "unknown" ] && [ "$state" != "RUNNING" ]; then
     echo "permission_denied: unknown (no result event; agy reports denials only when a run ends)"
   fi
+  [ -z "$context_warning" ] || printf '%s\n' "$context_warning"
   if [ "$BACKEND" = "antigravity" ]; then
     local asked observed
     asked="$(meta_value resumed_session)"
@@ -1245,7 +1355,9 @@ cmd_result() {
   # stderr.log and the id the round asked for are inputs of the antigravity branch
   # only: a print timeout leaves nothing but a stderr line, and a lost session is
   # the log init id differing from resumed_session. Both are empty elsewhere.
-  python3 - "$JOB/log.jsonl" "$JOB/session_id" "$AS_JSON" "$BACKEND" "$JOB/stderr.log" "$(meta_value resumed_session)" <<'PY'
+  {
+    printf '%s\n' "$CURSOR_CONTEXT_PY"
+    cat <<'PY'
 import json, sys
 
 # The backend is an input, never sniffed from the event shape: Copilot's
@@ -1262,6 +1374,7 @@ copilot_tools = {}
 # so None means unknown, never zero.
 agent_steps, step_usage, final_result, init_id = {}, {}, None, ""
 denied_known, context_lost = True, None
+context_window = None
 try:
     with open(log_path, encoding="utf-8") as fh:
         for line in fh:
@@ -1340,6 +1453,8 @@ try:
                     usage = event.get("usage") or usage
                 continue
             if backend == "cursor":
+                if context_window is None:
+                    context_window = cursor_init_window(event)
                 if etype == "thinking":
                     continue
                 if etype == "assistant":
@@ -1455,6 +1570,7 @@ if as_json:
         "errors": errors,
         # Measured only on an antigravity resume; null wherever it is not.
         "context_lost": context_lost,
+        "context_window": context_window or None,
     }, ensure_ascii=False))
 else:
     print(f"session_id: {session_id or 'unknown'}")
@@ -1476,6 +1592,9 @@ else:
               + (f" ({', '.join(sorted(set(denied)))})" if denied else ""))
     if context_lost:
         print("context_lost: true (round ran without its parent's context; resubmit with the full packet)")
+    warning = cursor_context_warning(context_window)
+    if warning:
+        print(warning)
     if denied:
         print("WARNING: the worker was blocked from actions it attempted, so it could not")
         print("verify its own work. Treat this job as failed whatever its exit code says,")
@@ -1483,6 +1602,7 @@ else:
     print("--- agent message ---")
     print(messages[-1] if messages else "(no agent_message found — check stderr.log)")
 PY
+  } | python3 - "$JOB/log.jsonl" "$JOB/session_id" "$AS_JSON" "$BACKEND" "$JOB/stderr.log" "$(meta_value resumed_session)"
 }
 
 cmd_cancel() {

@@ -504,8 +504,9 @@ class DelegateRoleTests(unittest.TestCase):
         self.assertEqual("--sync-session=off", self.parsed(result.stdout)["copilot_egress"])
         for backend in ("codex", "claude", "cursor", "antigravity"):
             with self.subTest(backend=backend):
+                model = ("--model", "fixture-model") if backend in ("cursor", "antigravity") else ()
                 result, _ = self.run_submit(
-                    None, "--backend", backend, *(["--model", "fixture-model"] if backend == "antigravity" else [])
+                    None, "--backend", backend, *model
                 )
                 self.assertEqual((0, ""), (result.returncode, result.stderr))
                 self.assertEqual("", self.parsed(result.stdout)["copilot_egress"])
@@ -538,8 +539,8 @@ class BackendLifecycle:
 
     BACKEND = "codex"
     EFFORT = "high"
-    # When set, submit_raw passes it as --model. Antigravity refuses an empty
-    # model (its resume passes the model again), so its shared submissions need one.
+    # When set, submit_raw passes it as --model for a role-less job. Cursor
+    # and antigravity require a model because their fix rounds pass it again.
     MODEL = None
     WORKDIR_MARKER = '-C "$WORKDIR"'
     # What this backend's worker runs under; codex is sandboxed by its own
@@ -609,7 +610,7 @@ class BackendLifecycle:
             self.BACKEND,
             "--effort",
             self.EFFORT,
-            *(["--model", self.MODEL] if self.MODEL else []),
+            *(["--model", self.MODEL] if self.MODEL and "--role" not in arguments else []),
             *arguments,
         )
 
@@ -637,11 +638,14 @@ class BackendLifecycle:
         write_fake(worker, prologue + "printf '%s\\n' \"$@\"\n")
         for value in values:
             with self.subTest(value=value):
-                job_id = self.submit("--model", value)
+                # Cursor restricts model arguments to slugs. Its session id
+                # still has to survive the same literal-argument checks.
+                model = values[0] if self.BACKEND == "cursor" else value
+                job_id = self.submit("--model", model)
                 job = self.job_dir(job_id)
                 self.assertTrue(self.await_exit(job))
                 self.assertFalse(marker.exists())
-                self.assertIn(value, (job / "log.jsonl").read_text().splitlines())
+                self.assertIn(model, (job / "log.jsonl").read_text().splitlines())
                 (job / "session_id").write_text(value)
                 result = self.resume(job_id)
                 self.assertEqual(0, result.returncode, result.stderr)
@@ -1007,6 +1011,7 @@ class BackendLifecycle:
                 "usage",
                 "errors",
                 "context_lost",
+                "context_window",
             },
             set(payload),
         )
@@ -1613,6 +1618,18 @@ class CopilotBinaryDiscoveryTests(unittest.TestCase):
 class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
     BACKEND = "cursor"
     EFFORT = "model"
+    MODEL = "gpt-5.4-mini-low"
+    BRACKET_MODEL = "claude-sonnet-5-5[context=1m,reasoning_effort=high]"
+    MAX_INIT = (
+        '{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/repo",'
+        '"session_id":"61256c30-58e4-4d25-abc6-cc60a1335f2d",'
+        '"model":"Claude Sonnet 5.5 1M High","permissionMode":"default"}'
+    )
+    SOL_INIT = (
+        '{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/repo",'
+        '"session_id":"050113b1-3397-4ead-b257-1927e995ed3c",'
+        '"model":"GPT-5.6 Sol 272K Medium","permissionMode":"default"}'
+    )
     # cursor-agent takes cwd from the shell and the workspace from --workspace.
     WORKDIR_MARKER = '--workspace "$WORKDIR"'
     PERMISSION_MODE = "force"
@@ -1667,21 +1684,54 @@ class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
             run_sh,
         )
         self.finish(job_id)
-        run_sh = self.exec_line(self.resume(job_id).stdout.strip())
+        round_id = self.resume(job_id).stdout.strip()
+        run_sh = self.exec_line(round_id)
         self.assertIn('cd "$WORKDIR"\n', run_sh)
         self.assertIn(
             '"$CODEX_BIN" -p "$PROMPT" --output-format stream-json --trust '
-            '--resume "$SESSION_ID" --force '  # risk-ok: Cursor CLI flag name
+            '--resume "$SESSION_ID" --model "$MODEL" --force '  # risk-ok: Cursor CLI flag name
             '>"$JOB/log.jsonl" 2>"$JOB/stderr.log" </dev/null',
             run_sh,
         )
-        self.assertNotIn("--model", run_sh)
+        self.assertEqual(self.MODEL, self.read_meta(round_id)["model"])
         self.assertNotIn("--workspace", run_sh)
         # R3.5: Handoff writes nothing into Cursor's own configuration.
         for text in (self.exec_line(job_id), run_sh):
             self.assertNotIn(".cursor", text)
             self.assertNotIn("CURSOR_CONFIG_DIR", text)
         self.assertFalse((self.repo / ".cursor").exists())
+
+    def test_resume_of_a_resume_uses_its_parent_slug(self):
+        slug = "claude-sonnet-5-5-high"
+        parent = self.submit("--model", slug)
+        self.finish(parent)
+        first = self.resume(parent)
+        self.assertEqual(0, first.returncode, first.stderr)
+        first_id = first.stdout.strip()
+        self.finish(first_id)
+        second = self.resume(first_id)
+        self.assertEqual(0, second.returncode, second.stderr)
+        second_id = second.stdout.strip()
+        self.assertEqual(slug, self.read_meta(second_id)["model"])
+        self.assertIn(f"MODEL={slug}\n", self.exec_line(second_id))
+        self.assertIn('--resume "$SESSION_ID" --model "$MODEL"', self.exec_line(second_id))
+
+    def test_resume_refuses_a_parent_without_a_checked_slug(self):
+        for model in ("", "inherit", "default", self.BRACKET_MODEL):
+            with self.subTest(model=model):
+                parent_id = self.submit()
+                parent = self.finish(parent_id)
+                meta = parent / "meta"
+                meta.write_text(
+                    meta.read_text(encoding="utf-8").replace(f"model={self.MODEL}\n", f"model={model}\n"),
+                    encoding="utf-8",
+                )
+                jobs = set(parent.parent.iterdir())
+                result = self.resume(parent_id)
+                self.assertNotEqual(0, result.returncode, result.stderr)
+                self.assertEqual(jobs, set(parent.parent.iterdir()))
+                for part in ("Cursor", "saved selection", "1M context", "resubmit with the full packet"):
+                    self.assertIn(part, result.stderr)
 
     def test_a_fix_round_whose_parent_binary_is_gone_resolves_again(self):
         """R2.1: resume reuses the parent's binary only while it is executable."""
@@ -1750,7 +1800,7 @@ class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
         self.assertNotIn("permission checks bypassed", result.stderr)
 
     def test_an_effort_other_than_model_is_refused(self):
-        result = self.bare_submit("--backend", "cursor", "--effort", "high")
+        result = self.bare_submit("--backend", "cursor", "--model", self.MODEL, "--effort", "high")
         self.assertNotEqual(0, result.returncode)
         self.assertIn("invalid --effort for cursor: high", result.stderr)
         self.assertIn("Cursor carries effort in the model id", result.stderr)
@@ -1763,9 +1813,152 @@ class CursorWorktreeTests(BackendLifecycle, unittest.TestCase):
         self.assertTrue(self.no_jobs())
 
     def test_a_role_less_job_gets_the_only_effort(self):
-        result = self.bare_submit("--backend", "cursor", "--dry-run")
+        result = self.bare_submit("--backend", "cursor", "--model", self.MODEL, "--dry-run")
         self.assertEqual((0, ""), (result.returncode, result.stderr))
         self.assertEqual("model", parse_pairs(result.stdout)["effort"])
+
+    def test_submit_refuses_an_omitted_or_empty_cursor_model(self):
+        for args in ((), ("--model", "")):
+            for mode in ((), ("--dry-run",)):
+                with self.subTest(args=args, mode=mode):
+                    result = self.bare_submit("--backend", "cursor", *args, *mode)
+                    self.assertNotEqual(0, result.returncode, result.stderr)
+                    self.assertTrue(self.no_jobs())
+                    for part in ("model is empty", "saved selection", "1M context", "handoff-config.py set"):
+                        self.assertIn(part, result.stderr)
+
+    def test_submit_refuses_a_bracket_model_from_args_or_role(self):
+        self.configure_posture("default")
+        config = self.repo / ".handoff" / "config.toml"
+        config.write_text(config.read_text().replace('model = "fixture"', f'model = "{self.BRACKET_MODEL}"'))
+        for args in (("--backend", "cursor", "--model", self.BRACKET_MODEL), ("--role", "fast_worker")):
+            for mode in ((), ("--dry-run",)):
+                with self.subTest(args=args, mode=mode):
+                    result = self.bare_submit(*args, *mode)
+                    self.assertNotEqual(0, result.returncode, result.stderr)
+                    self.assertTrue(self.no_jobs())
+                    for part in ("bracket form", "1M context (Max Mode)", "cursor-agent models", "handoff-config.py set"):
+                        self.assertIn(part, result.stderr)
+
+    def test_context_window_comes_from_the_first_size_in_cursor_init(self):
+        job_id = self.submit()
+        job = self.finish(job_id)
+        for init, size in (
+            (self.MAX_INIT, "1M"),
+            (self.MAX_INIT.replace("1M High", "2M High"), "2M"),
+            (self.MAX_INIT.replace("1M High", "1.5M High"), "1.5M"),
+            (self.MAX_INIT.replace("1M High", "300K High"), "300K"),
+            (self.MAX_INIT.replace("Sonnet 5.5 1M High", "Opus 5 300K High"), "300K"),
+            (self.SOL_INIT, "272K"),
+            (self.MAX_INIT.replace("1M High", "300K 1M High"), "300K"),
+            (self.MAX_INIT.replace("1M High", "x1M 300K, High"), None),
+            (None, None),
+        ):
+            with self.subTest(init=init):
+                lines = [line for line in (init, *self.LOG_LINES[1:]) if line]
+                (job / "log.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+                result = self.delegate("result", job_id, "--repo", str(self.repo), "--json")
+                self.assertEqual(0, result.returncode, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertIn("context_window", payload)
+                self.assertEqual(size, payload["context_window"])
+
+                status = self.delegate("status", job_id, "--repo", str(self.repo))
+                self.assertIn("state: DONE", status.stdout)
+                as_text = self.delegate("result", job_id, "--repo", str(self.repo))
+                expected = []
+                if size and size.endswith("M"):
+                    expected = [
+                        f"context_window: {size} (Cursor Max Mode: cancel the job if it is running; "
+                        "submit and resume now refuse this slug on this cursor build)"
+                    ]
+                for output in (status.stdout, as_text.stdout):
+                    self.assertEqual(expected, [
+                        line for line in output.splitlines() if line.startswith("context_window:")
+                    ])
+
+    def test_status_warns_about_max_mode_while_running(self):
+        job_id = self.submit()
+        job = self.finish(job_id)
+        (job / "log.jsonl").write_text(self.MAX_INIT + "\n", encoding="utf-8")
+        # A live PID is enough for status to report RUNNING without a real worker.
+        (job / "pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
+        (job / "exit_code").unlink()
+        try:
+            status = self.delegate("status", job_id, "--repo", str(self.repo))
+            self.assertIn("state: RUNNING", status.stdout)
+            self.assertIn(
+                "context_window: 1M (Cursor Max Mode: cancel the job if it is running; "
+                "submit and resume now refuse this slug on this cursor build)",
+                status.stdout.splitlines(),
+            )
+        finally:
+            (job / "pid").unlink()
+            (job / "exit_code").write_text("0\n", encoding="utf-8")
+
+    def test_max_mode_holds_submits_and_resumes_for_the_same_slug_and_build(self):
+        slug = "fixture"
+        held_id = self.configured_submit("default", "--label", "held")
+        sibling_id = self.submit("--model", slug, "--label", "sibling")
+        held = self.finish(held_id)
+        self.finish(sibling_id)
+        (held / "log.jsonl").write_text(self.MAX_INIT + "\n", encoding="utf-8")
+        build = self.read_meta(held_id)["codex_version"]
+        calls = [
+            ("submit", args + mode)
+            for args in (("--backend", "cursor", "--model", slug), ("--role", "fast_worker"))
+            for mode in ((), ("--dry-run",))
+        ] + [("resume", (parent,)) for parent in (held_id, sibling_id)]
+        for command, args in calls:
+            with self.subTest(command=command, args=args):
+                jobs = set(held.parent.iterdir())
+                result = (self.bare_submit if command == "submit" else self.resume)(*args)
+                self.assertNotEqual(0, result.returncode, result.stderr)
+                self.assertEqual(jobs, set(held.parent.iterdir()))
+                for part in (held_id, "1M", build, "another slug", "handoff-config.py set", "build changes"):
+                    self.assertIn(part, result.stderr)
+
+        other_slug = self.submit("--model", "another-slug")
+        self.assertEqual(build, self.read_meta(other_slug)["codex_version"])
+        write_fake(Path(self.env["HANDOFF_CURSOR_BIN"]), version_shim("another-build") + "exit 0\n")
+        new_build = self.submit("--model", slug)
+        self.assertEqual("another-build", self.read_meta(new_build)["codex_version"])
+
+    def test_max_mode_hold_ignores_other_backends_and_logs_without_max_mode(self):
+        for init in (
+            self.MAX_INIT.replace("1M", "300K"),
+            self.MAX_INIT.replace("1M", "300K 1M"),
+            self.MAX_INIT.replace('"subtype":"init"', '"subtype":"update"'),
+            None,
+        ):
+            with self.subTest(init=init):
+                job = self.finish(self.submit())
+                log = job / "log.jsonl"
+                if init is None:
+                    log.unlink()
+                else:
+                    log.write_text(init + "\n", encoding="utf-8")
+                accepted = self.submit_raw("--dry-run")
+                self.assertEqual((0, ""), (accepted.returncode, accepted.stderr))
+
+        job = self.finish(self.submit())
+        meta = job / "meta"
+        meta.write_text(meta.read_text().replace("backend=cursor\n", "backend=claude\n"))
+        (job / "log.jsonl").write_text(self.MAX_INIT + "\n", encoding="utf-8")
+        accepted = self.submit_raw("--dry-run")
+        self.assertEqual((0, ""), (accepted.returncode, accepted.stderr))
+        as_json = self.delegate("result", job.name, "--repo", str(self.repo), "--json")
+        self.assertEqual(0, as_json.returncode, as_json.stderr)
+        self.assertIsNone(json.loads(as_json.stdout)["context_window"])
+        for command in ("status", "result"):
+            output = self.delegate(command, job.name, "--repo", str(self.repo))
+            self.assertNotIn("context_window:", output.stdout)
+
+    def test_usage_describes_the_cursor_slug_and_context_contract(self):
+        result = self.delegate("--help")
+        self.assertEqual(0, result.returncode, result.stderr)
+        for part in ("plain slug", "saved", "context_window", "cursor build changes"):
+            self.assertIn(part, result.stdout)
 
     def test_auto_is_refused_at_submit(self):
         result = self.submit_raw("--model", "auto")
@@ -1891,7 +2084,7 @@ class CursorBinaryDiscoveryTests(unittest.TestCase):
     def submit(self, env: dict[str, str], *extra: str):
         return run_delegate(
             env, "submit", "--repo", str(self.repo), "--prompt-file", str(self.prompt),
-            "--backend", "cursor", "--effort", "model", *extra,
+            "--backend", "cursor", "--effort", "model", "--model", CursorWorktreeTests.MODEL, *extra,
         )
 
     def test_the_ide_launcher_earlier_on_path_is_never_the_worker(self):
@@ -2127,7 +2320,7 @@ class AntigravityWorktreeTests(BackendLifecycle, unittest.TestCase):
         result = self.bare_submit("--backend", "antigravity", "--model", self.MODEL, "--dry-run")
         self.assertEqual((0, ""), (result.returncode, result.stderr))
         self.assertEqual("model", parse_pairs(result.stdout)["effort"])
-        # Unlike cursor, no model means no job: its resume passes the model again.
+        # No model means no job: its resume passes the model again.
         for extra in (("--dry-run",), ()):
             with self.subTest(extra=extra):
                 result = self.bare_submit("--backend", "antigravity", *extra)
@@ -2696,7 +2889,8 @@ class AntigravityWorktreeTests(BackendLifecycle, unittest.TestCase):
         for backend, effort in (("codex", "high"), ("claude", "high"),
                                 ("copilot", "high"), ("cursor", "model")):
             with self.subTest(backend=backend):
-                other = self.bare_submit("--backend", backend, "--effort", effort)
+                model = ("--model", CursorWorktreeTests.MODEL) if backend == "cursor" else ()
+                other = self.bare_submit("--backend", backend, "--effort", effort, *model)
                 self.assertRegex(other.stdout.strip(), r"^job-", other.stderr)
                 self.finish_with(other.stdout.strip(), self.denied_log_lines())
                 payload = self.result_json(other.stdout.strip())
@@ -2711,7 +2905,8 @@ class AntigravityWorktreeTests(BackendLifecycle, unittest.TestCase):
             ("cursor", "model", CursorWorktreeTests.LOG_LINES),
         ):
             with self.subTest(backend=backend):
-                submitted = self.bare_submit("--backend", backend, "--effort", effort)
+                model = ("--model", CursorWorktreeTests.MODEL) if backend == "cursor" else ()
+                submitted = self.bare_submit("--backend", backend, "--effort", effort, *model)
                 self.assertRegex(submitted.stdout.strip(), r"^job-", submitted.stderr)
                 job_id = submitted.stdout.strip()
                 self.finish_with(job_id, lines)
