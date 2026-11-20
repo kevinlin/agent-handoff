@@ -15,11 +15,11 @@ Each CLI's behaviour comes from live probes, recorded in `docs/research/`:
 | CLI | Research doc | Probed on |
 | --- | --- | --- |
 | Copilot | `github-copilot-cli-specification.md`, `fetch-copilot-models.md` | GitHub Copilot CLI 1.0.83; the command line re-checked on 1.0.109 (4.0.1) |
-| Cursor | `cursor-cli-specification.md` | build `2026.09.28-64d2043`, fifteen runs plus the live end-to-end run |
+| Cursor | `cursor-cli-specification.md` | build `2026.09.28-64d2043`, fifteen runs plus the live end-to-end run; model selection and context window re-probed on `2026.11.19-f005e9d` (4.0.2) |
 | Antigravity | `antigravity-cli-specification.md` | `agy` 1.3.5, 55 evidence records plus three driver runs and the live end-to-end run |
 | all | `cross-agent-cli-permissin-mode.md` | the permission-posture proposal this design deviates from (*Deviations*) |
 
-Probe ids cite those documents: single letters (A, G, H1) are Cursor's section 11, and names (P3, RSAME, MUNKNOWN) are Antigravity's section 11. No decision here rests on a vendor's docs where a probe was possible. On `agy` the probes overruled its own documentation three times. The docs say workspace writes are auto-allowed in headless mode, but P0 was denied. The docs give a five-minute print timeout, where help says unlimited. And `--mode plan` sounds read-only, but RO2 wrote files.
+Probe ids cite those documents: single letters (A, G, H1) are Cursor's section 11, `CTX` names (CTXRESUME) are Cursor's section 13, and other names (P3, RSAME, MUNKNOWN) are Antigravity's section 11. No decision here rests on a vendor's docs where a probe was possible. On `agy` the probes overruled its own documentation three times. The docs say workspace writes are auto-allowed in headless mode, but P0 was denied. The docs give a five-minute print timeout, where help says unlimited. And `--mode plan` sounds read-only, but RO2 wrote files.
 
 ### Scope
 
@@ -117,7 +117,7 @@ Each failure names what it found and the override that fixes it.
 
 `model` means "set by the model id". The identity stores the whole catalogue id as `model`, and the effort value never reaches the command line. A role-less cursor or antigravity job that names no `--effort` gets `model` rather than the codex-shaped default `high`.
 
-- **Cursor has no effort flag.** Effort sits inside the slug (`claude-opus-5-5-high`) next to two other axes (`-thinking`, `-fast`). The spelling is irregular (`gpt-5.5-extra-high`), some slugs carry no effort (`composer-2.5`), and the bracket form the help advertises (`model[effort=low]`) was refused on both models tried (H1, H2).
+- **Cursor has no effort flag.** Effort sits inside the slug (`claude-opus-5-5-high`) next to two other axes (`-thinking`, `-fast`). The spelling is irregular (`gpt-5.5-extra-high`), and some slugs carry no effort (`composer-2.5`). The help also advertises a bracket form. `model[effort=low]` was refused on both models tried (H1, H2), but with a model's own parameter ids the form runs, and it can select the 1M context (CTXBRACKET). Handoff refuses it (*Cursor jobs name a plain slug*).
 - **`agy` has an `--effort` flag that cannot be a routing field.** The catalogue lists ids, some with the effort inside (`gemini-3.8-flash-low`) and some without (`claude-sonnet-4-6`), and no base names (MODELS). An id plus any `--effort` is refused before a session (MCONFLICT, MMAX). `claude-sonnet-4-6` refuses the flag outright (MCLAUDE) and runs fine without it (DRV_SONNET). The flag's enum is global while each model accepts its own subset: Flash has no `max` (MMAXBASE).
 
 Rejected alternatives:
@@ -129,15 +129,61 @@ The cost: these rows show effort `model` in `--status` and `roles_used`, while t
 
 ### `auto` and empty models are refused
 
-`model = "auto"` is refused at setup (`validate_backend_models`) and at submit on copilot, cursor, and antigravity. An identity is a deliberate triple, and `auto` hands the choice back to the vendor on every request, so the receipt would record what the vendor picked rather than what the repo configured. Antigravity also refuses an empty model: without `--model`, `agy` runs whatever model the CLI has selected at that moment, `init` does not name it (MDEFAULT, RMODEL), and a fix round has to pass the same model again (*Sessions and resume*). Each refusal names `handoff-config.py set` as the fix.
+`model = "auto"` is refused at setup (`validate_backend_models`) and at submit on copilot, cursor, and antigravity. An identity is a deliberate triple, and `auto` hands the choice back to the vendor on every request, so the receipt would record what the vendor picked rather than what the repo configured. Antigravity also refuses an empty model: without `--model`, `agy` runs whatever model the CLI has selected at that moment, `init` does not name it (MDEFAULT, RMODEL), and a fix round has to pass the same model again (*Sessions and resume*). Cursor refuses an empty model too, since 4.0.2. Without `--model`, `cursor-agent` runs its saved selection, and that can be a 1M context (CTXRESUME). Before 4.0.2 a role-less cursor job could omit the model. Each refusal names `handoff-config.py set` as the fix.
 
 ### Catalogue membership: at setup and smoke, not at submit
 
-A model outside the catalogue can reach a config three ways. The web wizard offers only catalogue entries, and `normalize_payload` refuses any other copilot, cursor, or antigravity model. The terminal wizard and `--role-model` accept a typed model and check only `auto`. And a config can be written by hand. Smoke closes the last two with a free membership check before its paid run (*Smoke*). Submit does not re-read the catalogue: that would add a network call that can fail before every launch.
+A model outside the catalogue can reach a config three ways. The web wizard offers only catalogue entries, and `normalize_payload` refuses any other copilot, cursor, or antigravity model. The terminal wizard and `--role-model` accept a typed model and check only that it is not `auto` or empty, and on cursor (since 4.0.2) that it is a plain slug. And a config can be written by hand. Smoke closes the last two with a free membership check before its paid run (*Smoke*). Submit does not re-read the catalogue: that would add a network call that can fail before every launch.
 
 The gap matters most on Cursor, which quietly resolves a base name outside the catalogue (`gpt-5.4-mini`) to a variant ("GPT-5.4 Mini Low", H0). `init`'s display name records what actually ran, and the transcript and cost receipt show it.
 
 No preset names a copilot, cursor, or antigravity identity; the presets use claude and codex only. Those three are chosen through custom mode or the web wizard.
+
+### Cursor jobs name a plain slug, and report their context window (4.0.2)
+
+Cursor's picker offers some models at two context sizes. Claude Sonnet 5.5 comes at 300K or 1M. Picking 1M sets Cursor's own `maxMode` flag, and that is what a Cursor user calls Max Mode. Cursor's pricing page gives Sonnet 5.5 the same per-token rate up to 1M on current plans. Legacy request-based plans bill Max Mode at the API rate plus 20%. Either way 1M spends usage much faster. Each request can carry up to 1M of history before Cursor compacts it, and even a reply-only run sent about 44k tokens at 1M against 24k at 300K (CTXBRACKET, CTXSLUG). A delegated job runs for many turns. Handoff's aim is that no cursor job runs at 1M. What it can enforce is narrower, and this section says which part is which.
+
+What build `2026.11.19-f005e9d` does (research section 13):
+
+- **Every plain slug probed ran at the model's default context.** Four slugs from three model families did, including slugs whose catalogue name says "1M" (CTXSLUG, CTXOPUS, CTXGPT, CTXOPUS5). Only `claude-sonnet-5-5-high` was also run against a saved 1M selection (CTXSAVED) and an empty config (CTXFRESH).
+- **Three things reach 1M.**
+  - A resume with no `--model` runs the CLI's saved selection, not the session's model (CTXRESUME). Handoff's cursor fix round passed no model before 4.0.2, so a user who had picked Sonnet 5.5 1M in an interactive session sent the next fix round to 1M. Every run saves its model (CTXSAVED, CTXFRESH), so a parallel cursor job on another identity would also have sent a fix round to that job's model. That case follows from the two probes and was not run.
+  - The bracket form with the model's own ids, `claude-sonnet-5-5[context=1m,reasoning_effort=high]` (CTXBRACKET).
+  - A job with no `--model`, which also runs the saved selection.
+- **`init.model` names the context the run used**, as in `Claude Sonnet 5.5 300K High` or `… 1M High`. No other event does.
+
+4.0.2 closes each path, reads the result back, and stops a slug that ran at 1M from running again:
+
+1. **A fix round passes the parent's model again** (*What a fix round carries over*). CTXRESUMEMODEL resumed with `--model`, kept its context, and ran at 300K. The recorded model goes through the same check as a submitted one (item 2). A parent submitted before 4.0.2 with a bracket selector in `meta` is refused, not replayed.
+2. **The model must be a plain catalogue slug**, matching `[A-Za-z0-9][A-Za-z0-9._-]*`, the pattern the catalogue reader already uses. `submit` and setup's `validate_backend_models` refuse any other cursor model, so the bracket form never reaches a job. The web wizard already offered catalogue slugs only. `write_cursor_exec_line` passes `--model` on every line and has no branch without one.
+3. **An empty model is refused at submit** (*`auto` and empty models are refused*). Setup already refused it.
+4. **`status` and `result` report the context** that `init.model` names, as `context_window` (*The output contract*). A size in millions prints a line. The monitor loop's `status` sees it on the first tick after `init`. `status --wait` reads the log when the job ends or the wait times out, so a short job can finish before anyone reads the line.
+5. **A slug that ran at a size in millions is held.** Before it writes a job, `submit` and `resume` look through this repo's cursor jobs. They look for one with the same slug and the same cursor build (`codex_version`) whose `init.model` named a size in millions. If one exists they refuse and name it. So once a Cursor build makes a slug select 1M, no fix round, retry, arbiter resubmit or later run in that repo spends at 1M on it again. The hold clears itself when the identity names another slug or Cursor's build changes. A build that still selects 1M is caught again by its first job.
+
+The driver's part, in `references/backends/cursor.md`, is short. It cancels a running job, records the anomaly with the jobId, the window and the build, and tells the user. It reviews a finished job's output as usual, because the usage is already spent and the window size does not make the output wrong.
+
+What this guarantees, and what it does not:
+
+- **Enforced.** Every cursor job Handoff launches, fresh or fix round, passes `--model` with a plain slug that `submit` or `resume` checked. So no Handoff job runs on the CLI's saved selection or on a bracket selector. A slug that ran at 1M on a build is not launched again on that build in the same repo.
+- **Measured, not enforced.** A plain slug selected the model's default context in every probe: four slugs, three families, one build. A base name outside the catalogue is also slug-shaped, and Cursor resolves it to a variant it picks (H0). Its context was not probed.
+- **Detected after launch.** The first job on a slug that a new build sends to 1M runs at 1M until the driver reads `context_window` and cancels it. A build whose `init` drops the size reads `null`, and then nothing warns and nothing is held.
+
+The catalogue is not filtered. A display name's "1M" does not predict the run: `Claude Opus 5.5 1M High` ran at 300K (CTXOPUS).
+
+Rejected alternatives:
+
+- **Pin the context with a bracket suffix** (`<slug>[context=300k]`). A slug with a bracket is refused (CTXSLUGBRACKET). The base-name form needs each model's parameter ids, which the CLI does not publish (`reasoning_effort` on Sonnet 5.5, `effort` on Opus 5.5, `reasoning` on GPT-5.6 Sol). A wrong id is refused like an unknown model (CTXOPUSBRACKET).
+- **A per-job `CURSOR_CONFIG_DIR`**, so that no saved selection reaches a job. That file also holds the user's global permission rules, and those deny rules are the only narrowing Cursor's force mode has (*Permission posture*). Seeding a copy would also be Handoff writing CLI configuration.
+- **Reading `maxMode` from `cli-config.json` after a job.** The file is shared by parallel jobs and by the user's own sessions. Its flag is also `true` for Opus 5.5 and GPT-5.6 Sol at their default contexts.
+- **Killing a 1M job automatically** when `init` arrives. That needs a filter on `run.sh`'s stdout.
+- **A hold kept in prose**, as a driver rule to submit nothing further on the identity. It conflicts with two rules: a failed arbiter job is resubmitted once, and review findings go back as a fix round. It also lasts into a resumed session only if the driver reads it back. A refusal in `submit` and `resume` covers every path.
+- **Rejecting a finished 1M job's output.** It would not recover the usage.
+
+Limits:
+
+- **Cursor's `maxMode` is not the context.** Opus 5.5, Opus 5 and GPT-5.6 Sol saved `maxMode: true` at their default contexts. Cursor's docs say they "require Max Mode on legacy request-based plans". On such a plan they bill at Max Mode rates whatever the context. Handoff's rule covers the context only.
+- **The hold is per repo and per build.** It reads this repo's `.handoff/jobs/`, so another repo's first job on that slug is caught by `context_window` and not by the hold.
+- **Every `-p` run saves its model into the user's `~/.cursor/cli-config.json`** (CTXSAVED, CTXFRESH). That is Cursor's write, not Handoff's. After a Handoff run, the user's next interactive `cursor-agent` starts on the last cursor job's model.
 
 ## Command lines
 
@@ -148,7 +194,7 @@ No preset names a copilot, cursor, or antigravity identity; the presets use clau
 | codex | `codex exec "$PROMPT" --json -C "$WORKDIR" -c 'model_reasoning_effort="<effort>"' -m "$MODEL"`, plus `--skip-git-repo-check` outside a git repo | `cd "$WORKDIR"`, then `codex exec resume <id> "$PROMPT" --json -c 'model_reasoning_effort="<effort>"'`: `exec resume` takes no `-C` or `-s`, so cwd comes from the shell and sandbox from `-c` |
 | claude | strip `ANTHROPIC_*` and `CLAUDE_CODE_*`, `cd "$WORKDIR"`, then `claude --print --output-format stream-json --verbose --permission-prompts none --permission-mode <mode> --effort <effort> --model "$MODEL" -- "$PROMPT"` | the same with `--resume "$SESSION_ID"` in place of `--model` |
 | copilot | `copilot -p "$PROMPT" -C "$WORKDIR" --output-format json --reasoning-effort <effort> --no-ask-user <sync-off> --no-auto-update --usage-output-file "$JOB/usage.json" --log-dir "$JOB/copilot-logs" --session-id <uuid> --model "$MODEL"`, where `<sync-off>` is `--sync-session=off`, or `--no-remote --no-remote-export` on a CLI older than 1.0.103 | `cd "$WORKDIR"`, then the same flags with `--resume "$SESSION_ID"` in place of `-C`, `--session-id`, and `--model` |
-| cursor | `cd "$WORKDIR"`, then `cursor-agent -p "$PROMPT" --output-format stream-json --trust --workspace "$WORKDIR" --model "$MODEL"` | `cd "$WORKDIR"`, then `--resume "$SESSION_ID"` in place of `--workspace` and `--model` |
+| cursor | `cd "$WORKDIR"`, then `cursor-agent -p "$PROMPT" --output-format stream-json --trust --workspace "$WORKDIR" --model "$MODEL"` | `cd "$WORKDIR"`, then `--resume "$SESSION_ID"` in place of `--workspace`; the model is passed again (4.0.2) |
 | antigravity | `cd "$WORKDIR"`, then `agy -p "$PROMPT" --output-format stream-json --model "$MODEL" --print-timeout 0s` | the same plus `--conversation "$SESSION_ID"`; the model is passed again |
 
 The posture flags (*Permission posture*) follow each line. A fix round always runs in the parent's working directory, the worktree when there is one, because `codex exec resume`, `claude --resume`, `copilot --resume`, `cursor-agent --resume`, and `agy --conversation` all take their cwd from the shell.
@@ -282,7 +328,9 @@ That document is a proposal, and it has no Antigravity rows. Each place the ship
 
 ### What a fix round carries over
 
-`resume` reads `backend`, `role`, `effort`, `worktree`, `permission_posture`, and `read_only` from the parent's `meta`, and the review-round caps apply on every backend (`docs/specs/design_agent-handoff.md`). On four backends the resumed session carries its model, so the round records `model=inherit` and passes none.
+`resume` reads `backend`, `role`, `effort`, `worktree`, `permission_posture`, and `read_only` from the parent's `meta`, and the review-round caps apply on every backend (`docs/specs/design_agent-handoff.md`). On codex, claude, and copilot the resumed session carries its model, so the round records `model=inherit` and passes none.
+
+`cursor-agent` does not carry its model over. A resume with no `--model` runs the CLI's saved selection, which any interactive session or other `-p` run may have changed since the parent ran. CTXRESUME ran a 300K parent's fix round at 1M that way, with the parent's context intact. Since 4.0.2 a cursor fix round passes `--model` with the parent's recorded slug, and that kept both the context and the 300K window (CTXRESUMEMODEL). The round records the real slug, as an antigravity round does. Resume refuses a parent that recorded no plain slug, and says to resubmit with the full packet. That covers `inherit`, which a cursor fix round from before 4.0.2 recorded, an empty model, and a bracket selector. Probe F (3.9.0) seemed to show the session carrying its model only because its parent had just saved that model.
 
 `agy` carries over neither model nor posture. `init.permission_mode` went from `always-proceed` back to `request-review` (RKILL), an accept-edits parent's child was denied a write (MODERESUME), and an unpinned resume reported the CLI's current selection rather than the parent's model (RMODEL, REFFORT). So an antigravity fix round passes `--model` and the posture flag again. The model comes from the parent's `meta`, and the round records the real id, never `inherit`, so a resume of a resume reads it from its own parent without walking the chain. A parent that recorded no model is refused.
 
@@ -340,6 +388,7 @@ The shapes below exist on every backend, so a consumer never branches on vendor.
 - **Denials.** `status` reads the last event and the denial count in one parsed pass. A non-zero count prints `permission_denied: <n> (worker blocked; its self-report is not evidence)`. Antigravity reports denials only in the `denied_actions` list on its terminal `result`, so before that event the count is unknown, never zero. A running job prints no denial line, as a clean job does, because `status` is polled. A finished job with no `result` prints `permission_denied: unknown (no result event; agy reports denials only when a run ends)`, and `result --json` gives `null`.
 - **Errors.** Objects with `status_code`, `error_type`, and `message`. Copilot's come from `session.error`. An antigravity `result` with status `ERROR` adds `{"status_code": null, "error_type": "result_error", "message": <result.error>}`. A stderr line containing `print timeout after` adds `error_type: "print_timeout"`, because a timed-out run can exit 0 with status `SUCCESS` and nothing else shows it. The pinned timeout should make that unreachable; if it fires, the driver treats the job as failed and resubmits.
 - **`context_lost`.** Present on every backend: `true` or `false` on an antigravity resume, `null` wherever it is not measured.
+- **`context_window`.** Present on every backend. On cursor it is the size token in the `system/init` event's `model` display name, such as `"300K"`, `"272K"` or `"1M"`: the first space-separated token matching `\d+(\.\d+)?[KM]`. It is `null` when the log has no `init` or its name carries no size, and `null` on every other backend. A size ending in `M` makes `status` and text `result` print `context_window: <size> (Cursor Max Mode: cancel the job if it is running; submit and resume now refuse this slug on this cursor build)`, with the parsed size, such as `1M`. A `K` size or `null` prints nothing, because `status` is polled.
 
 ## Setup: model catalogues, CLI tiles, and smoke
 
@@ -456,6 +505,10 @@ These rows also appear in the flow-wide table in `docs/specs/design_agent-handof
 | A plan-mode antigravity job's writes | `agy`'s headless auto-deny | a user allow rule might approve one; the driver checks the tree and, on a change, rejects the output, saves it to `.handoff/rejected/<task-id>.patch`, restores the paths, and records `read-only write` |
 | An antigravity fix round that lost its session | `status` and `result` compare `init` with `resumed_session` | warns; the driver resubmits |
 | A cursor fix round that lost its session | nothing; the ids match | the round runs without its parent's context; the driver spots it from the output |
+| A cursor job never runs on the CLI's saved selection | script (every cursor line passes `--model`; submit refuses an empty model; resume refuses a parent with none, or with a recorded model that is not a plain slug) | none available |
+| A cursor slug that ran at a size in millions is not launched again on the same build | script (`submit` and `resume` read this repo's cursor jobs) | another repo's first job on that slug runs until the driver cancels it |
+| A cursor model is a plain catalogue slug, never the bracket form | script (`submit`, `validate_backend_models`) and the wizard's catalogue | none available |
+| A cursor job runs at the model's default context, not 1M | measured for plain slugs, not enforced; `status` and `result` read `init.model` | the first job on a slug a new build sends to 1M runs until the next `status` and the driver cancels it, or until it ends or the wait times out under `status --wait`; a build whose `init` drops the size reads `null`, and nothing warns or holds |
 | A run cut short by a print timeout | the pinned `0s`, then the `print_timeout` error | output is partial; the driver treats the job as failed and resubmits |
 
 ## Probe coverage for Cursor and Antigravity
@@ -467,7 +520,7 @@ The two newest backends were mapped onto each abstraction Handoff needs before a
 | Non-interactive submit | `-p`: probed | `-p`, stdin `/dev/null`: probed |
 | Event stream | `stream-json`, `type` discriminator: probed | `stream-json`, `event` discriminator: probed |
 | Session id | `session_id` from `system/init`: probed | `init`'s `conversation_id`, line one: probed |
-| Fix round on the same session | `--resume`, cwd from the shell: probed, context intact | `--conversation` with model and posture again: probed, context intact |
+| Fix round on the same session | `--resume` with the model again, cwd from the shell: probed, context intact (CTXRESUMEMODEL) | `--conversation` with model and posture again: probed, context intact |
 | Resume after a crash | kill during the first tool call: probed; a kill between `init` and the first tool call is open | SIGKILL during the first tool call: probed; the same gap is open |
 | Resume of an id the CLI never saw | exit 0, new empty session under the same id, no error: probed in the live run | warning, exit 0, new id: probed, and detected |
 | Working directory | `cd` plus `--workspace`; `cd` on resume: probed | the shell's, recorded in `init.cwd`: probed fresh; a same-directory resume confirmed in the live run; RCWD2 unexplained |
@@ -515,7 +568,7 @@ Handoff reads `--help` at submit for the one flag whose spelling changed. Every 
 - the denial count, including an antigravity denial whose tool step ended `DONE` (P0's shape) and two actions in one `result`, plus the no-fall-through checks;
 - agent-message selection, and per-invocation usage on a resume fixture whose `result.usage` is cumulative.
 
-**A live end-to-end run on the real CLI** comes with each new backend, and with each fix to a backend's command line (4.0.1 on copilot). It runs in a scratch repo through an installed copy of the skill, and records the helper paths and the installed revision, which `install.sh` compares with the source. It confirms:
+**A live end-to-end run on the real CLI** comes with each new backend, and with each fix to a backend's command line (4.0.1 on copilot, 4.0.2 on cursor). It runs in a scratch repo through an installed copy of the skill, and records the helper paths and the installed revision, which `install.sh` compares with the source. It confirms:
 
 - one expected edit on disk;
 - one named repo check that actually ran, with its output in `log.jsonl`;
@@ -525,13 +578,14 @@ Handoff reads `--help` at submit for the one flag whose spelling changed. Every 
 - a `--read-only` job, asked to write a file, that leaves the tree unchanged;
 - a receipt and a cost receipt that count the job.
 
-The results are in each research doc's section 12. Both runs found things the probes and fakes had missed. On Cursor: the silent resume of an unknown id, a mistyped `workingDirectory` surfacing as `spawn /bin/zsh ENOENT`, `askQuestionToolCall` counted as a denial under plan mode, and the commit trailer on worktree commits. On `agy`: plan mode refuses every shell command. The 4.0.1 copilot run found three: `apply_patch`'s string arguments, which crashed `result`; `usage.json` cumulative over a resume; and the Copilot co-author trailer.
+The results are in each research doc's section 12. Both runs found things the probes and fakes had missed. On Cursor: the silent resume of an unknown id, a mistyped `workingDirectory` surfacing as `spawn /bin/zsh ENOENT`, `askQuestionToolCall` counted as a denial under plan mode, and the commit trailer on worktree commits. On `agy`: plan mode refuses every shell command. The 4.0.1 copilot run found three: `apply_patch`'s string arguments, which crashed `result`; `usage.json` cumulative over a resume; and the Copilot co-author trailer. The 4.0.2 cursor run (research section 13.1) reset the saved selection to 1M before each launch. It found that `cursor-agent -p` starts a detached `worker-server` that `cancel` does not reach.
 
 ## Not doing
 
 - Writing Handoff-owned permission rules into any CLI's settings: `.cursor/cli.json`, `CURSOR_CONFIG_DIR`, `agy`'s `permissions.allow` or `trustedWorkspaces`.
 - `--sandbox` in either direction on Cursor; `--sandbox`, `--mode auto`, or `--mode accept-edits` as an Antigravity posture. Each needs its own probe first.
-- `create-chat` pre-assignment and the bracket effort form on Cursor; the `--effort` flag or composing a base name with an effort on `agy`.
+- `create-chat` pre-assignment on Cursor, and the bracket form, which submit and setup refuse; the `--effort` flag or composing a base name with an effort on `agy`.
+- A per-job `CURSOR_CONFIG_DIR`, or any other way of keeping a cursor job from saving its model into the user's `cli-config.json`.
 - A catalogue check at submit, and a `--version` identity check for Cursor.
 - A Copilot, Cursor, or Antigravity preset.
 - A cost figure for any backend that reports none.
@@ -550,7 +604,9 @@ Cursor:
 - the shape of a mid-run API failure;
 - a `-p` run while logged out (only the `models` error is probed);
 - running without `--trust`;
-- a kill between `init` and the first tool call.
+- a kill between `init` and the first tool call;
+- whether the Cursor IDE's model picker writes `~/.cursor/cli-config.json`, which would let an IDE choice of 1M reach a cursor job that passes no model. `ide_state.json` holds no model keys. Since 4.0.2 no Handoff cursor job passes no model;
+- whether a sticky `maxMode: true` in `cli-config.json` changes how a default-context run is billed on a legacy request-based plan.
 
 Antigravity:
 
@@ -570,6 +626,9 @@ Antigravity:
 - **A cursor fix round can lose its session silently.** Nothing in the logs distinguishes it; the driver has to notice from the output.
 - **A rejected model fails as a job, after the job directory exists.** The user learns about it from the monitor's anomaly path, not from `submit`. Catalogues move: Cursor's had 246 inconsistently named entries, several per model family; Antigravity's held six account-dependent ids. A configured model can disappear between runs.
 - **Base names resolve silently on Cursor.** The web wizard refuses them, smoke checks membership for every other path, and `init` records the model that ran. A config that skips smoke reaches its first job unchecked, as a hand-written Copilot config does.
+- **What a Cursor slug selects can change in a CLI update.** Cursor updates itself, and its changelog shows headless model handling changing between builds ("Headless keeps Max-mode variants", v2026.08.11). Handoff relies on a slug selecting the default context. `context_window` and the hold catch a build that breaks that, but only after its first job on the slug has started.
+- **A cursor job leaves a detached `worker-server` running.** `cursor-agent -p` starts one with launchd as its parent, so `cancel` does not reach it. In the 4.0.2 live run it was still running five minutes after its job ended. It is Cursor's process, and Handoff does not manage it.
+- **Cursor jobs rewrite the user's saved model selection.** Each one saves its slug into `~/.cursor/cli-config.json`, so the user's next interactive `cursor-agent` opens on it. Handoff no longer reads that selection.
 - **The Cursor sandbox finding rests on one machine.** It cannot be told whether force mode bypasses Cursor's sandbox or the sandbox is broken there. If a later build runs shells under `--sandbox enabled`, a sandbox-based `default` becomes possible, as its own change with its own probe.
 - **Cursor's allowlist approves things it was not told to.** Probe A's `git commit` ran without an allow rule. Irrelevant under force mode, but the user's allowlist is not a complete description of what Cursor permits.
 - **Commits carry `Co-authored-by: Cursor <cursoragent@cursor.com>`** when the user's Cursor attribution setting is on, including e2e worker commits on worktree branches (live run). Copilot 1.0.109 commits carry `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` (COAUTHOR). No attribution trailer was observed on `agy` commits.
@@ -592,6 +651,7 @@ Antigravity:
 - **A latest-version source for `agy`**, and with it a `CLI_RELEASES` entry.
 - **Per-invocation Copilot usage on fix rounds**: subtract the resumed job's own `usage.json` when both files carry the same `sessionStartTime`, once the release that made the file cumulative is known.
 - **`apply_patch` as a file change in the transcript viewer**, from the completion event's `fileEdits`. It renders as a generic tool row today.
+- **A cursor 1M window on the session page.** Its summary can say "Clean run" for a 1M job that exited 0 with an empty `stderr.log`. The receipt's `anomalies` line carries it when the driver records it, but the page's own summary does not read `init.model`.
 
 ## History
 
@@ -605,6 +665,7 @@ Antigravity:
 | 3.9.3 | CLI install and update prompts | — |
 | 3.10.0 | `antigravity`, receipt v8 | `plan_antigravity-cli-backend.md` |
 | 4.0.1 | copilot sync opt-out read from `--help`; `--reasoning-effort` | — |
+| 4.0.2 | cursor jobs always name a plain slug: fix rounds pass the model, the bracket form and an empty model refused, `context_window` reported, a slug that ran at 1M held per build | — |
 
 This document consolidates, as of 2026-10-15, what were separate requirements and design docs for Cursor and Antigravity plus the permission-posture, Copilot-catalogue, Antigravity-catalogue, and CLI-prompt sections of `design_agent-identities-and-config.md`. The two plans cite requirement ids (R1.1 …) and decision numbers from the originals, which remain in git history: `git show bcd54de:docs/specs/requirements_cursor-cli-backend.md`, and likewise `design_cursor-cli-backend.md`, `requirements_antigravity-cli-backend.md`, and `design_antigravity-cli-backend.md`.
 

@@ -443,7 +443,10 @@ The honest summary, because a design that claims uniform enforcement is lying ab
 | Effort enum per backend | script (refused) | none available |
 | Copilot model and effort pair | script + catalogue (the wizard refuses a model its served catalogue does not list, and an effort that model does not accept) | a config written by hand or by the terminal `--role-model` path reaches its first job unchecked; the smoke test and `/agent-handoff tryout` are where it surfaces |
 | Cursor effort must be `model` | script (`validate_effort`, `validate_backend_efforts`) | none available |
-| `auto` on cursor | script, at submit and setup | none available |
+| Empty, `auto`, or bracket-form model on cursor | script, at submit and setup; resume refuses a parent that recorded no plain slug | none available |
+| Every cursor job, fix rounds included, passes `--model` | script (`write_cursor_exec_line`) | none available |
+| A cursor job at Cursor's 1M context (Max Mode) | measured for plain slugs, not enforced; `status` and `result` report `context_window` | the first job on that slug and build runs at 1M until the driver reads the line and cancels it |
+| A cursor slug that ran at a size in millions, launched again on the same build | script (`submit` and `resume` read this repo's cursor jobs) | none available in this repo; another repo's first job is caught by `context_window` only |
 | Binary is `cursor-agent`, never the IDE | script (`resolve_worker_bin`, `cli_available`) | none available |
 | Cursor posture narrower than `--force` | nothing; only the user's Cursor deny rules | a worker reads outside the repo, reaches the network, and commits | <!-- risk-ok: Cursor CLI flag name -->
 | A base name resolved to an unchosen variant | wizard offers catalogue slugs only | a hand-written config runs whatever Cursor picks; `init` records it |

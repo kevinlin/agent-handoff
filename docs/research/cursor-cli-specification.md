@@ -162,7 +162,7 @@ Cannot use this model: no-such-model-xyz. Available models: auto, gpt-5.3-codex-
 
 **[probed]** `session_id` is on every event, starting with `system/init` on line one. A job that dies after init has its id in the log.
 
-**[probed] Resume keeps context.** `cursor-agent -p "<question>" --output-format stream-json --trust --resume <id>`, run from the repo with no `--model` and no `--workspace`, answered from the parent's context (probe F returned `probe-edit`). The `init` event showed the same model and session id.
+**[probed] Resume keeps context.** `cursor-agent -p "<question>" --output-format stream-json --trust --resume <id>`, run from the repo with no `--model` and no `--workspace`, answered from the parent's context (probe F returned `probe-edit`). The `init` event showed the same model and session id. Section 13 corrects the model half: a resume with no `--model` runs the CLI's saved selection, which here was the parent's own model.
 
 **[probed] A session killed mid-run resumes.** Probe G was killed while its first tool call was running (exit 137, no `result`). Resuming its id recovered `KILL-TOKEN-4417` from the killed turn.
 
@@ -193,7 +193,7 @@ The spelling is irregular (`extra-high` against `xhigh`). Which effort a family 
 
 **[help]** "Parameterized models also accept quoted overrides, e.g. `--model 'claude-opus-4-8[context=1m,effort=high,fast=false]'`."
 
-**[probed] The bracket form was refused** on `gpt-5.4-mini[effort=low]` and `claude-sonnet-5-5[effort=low]`, before any session, with the same stderr as an unknown model. The CLI does not say which models are "parameterized" **[open]**, and the help's own example, `claude-opus-4-8`, was not tried.
+**[probed] The bracket form was refused** on `gpt-5.4-mini[effort=low]` and `claude-sonnet-5-5[effort=low]`, before any session, with the same stderr as an unknown model. The CLI does not say which models are "parameterized" **[open]**, and the help's own example, `claude-opus-4-8`, was not tried. On build `2026.11.19-f005e9d`, `claude-sonnet-5-5[effort=low]` is still refused, and the model's own parameter ids run (section 13). Whether the right ids would have run on this build was not tried.
 
 **[probed] A base name outside the catalogue is accepted and resolved silently.** `--model gpt-5.4-mini` is not in the list, yet it ran, and `init` named it "GPT-5.4 Mini Low". Only the `init` display name shows which variant ran.
 
@@ -290,6 +290,66 @@ Recorded by Task 8 of `docs/specs/plan_cursor-cli-backend.md`, driving build `20
 - **[probed] `askQuestionToolCall` is rejected under `-p --mode plan`.** A read-only job asked to write a file tried to ask the user a question; the call completed with a `rejected` result, and Handoff counted it as one denial. Nothing was written.
 - **[probed] The commit trailer appears on worktree commits.** A worker commit on a Handoff worktree branch carried `Co-authored-by: Cursor <cursoragent@cursor.com>`.
 - **[open] A `-p` run while logged out, and a mid-run API failure.** Not provoked: neither could be caused without logging the user out or exhausting a quota.
+
+## 13. Context window and model selection (build `2026.11.19-f005e9d`, 2026-11-20)
+
+Probed for 4.0.2 after the user asked whether Handoff jobs run Claude Sonnet 5.5 at 300K or at 1M. Cursor's picker offers both. 1M is what Cursor calls Max Mode, and it uses up the account's usage far faster. Every run below was `-p "Reply with exactly: ok" --output-format stream-json --trust --mode ask` (the resume probes asked for a code word instead), on a Pro account, from a scratch repo. Each ran with `CURSOR_CONFIG_DIR` pointed at its own scratch directory: an edited copy of the user's `cli-config.json`, or an empty one. The user's own file had the same SHA-256 before and after. Logs were kept in the session scratchpad and are not committed.
+
+**[probed] `init.model` names the context the run used.** It is the only place a run says so: `"Claude Sonnet 5.5 300K High"` or `"Claude Sonnet 5.5 1M High"`. No other event carries a context or Max Mode field.
+
+**[probed] The catalogue's display names do not predict the context.** `cursor-agent models` lists `claude-opus-5-5-high - Claude Opus 5.5 1M High`, `gpt-5.6-sol-medium - GPT-5.6 Sol 1M` and `claude-opus-5-thinking-high - Claude Opus 5 1M Thinking`, yet each ran at the model's default context (CTXOPUS, CTXGPT, CTXOPUS5). Sonnet 5.5 and Haiku 5.5 print an empty slot there, a double space: `Claude Sonnet 5.5  High`.
+
+**[probed] Every plain slug tried ran at the model's default context.** Four slugs from three model families did (CTXSLUG, CTXOPUS, CTXGPT, CTXOPUS5). `claude-sonnet-5-5-high` also ran under a saved 1m selection and an empty config (CTXSAVED, CTXFRESH), and the saved selection did not reach a run that named `--model`. The other three slugs ran on empty configs only.
+
+**[probed] `about` reads the saved selection and ignores `--model`.** On this build `CURSOR_CONFIG_DIR=<dir> cursor-agent about` printed `Model  Claude Sonnet 5.5 300K High` for a saved 300k selection, `Model  Claude Sonnet 5.5 1M High` for a saved 1m selection, and `Model  Auto` for an empty config, with or without `--model claude-sonnet-5-5-high`. So `about` shows what a run without `--model` would use, and nothing about a run that names one.
+
+**[probed] The bracket form works when given the model's own parameter ids, and can select 1M.** `claude-sonnet-5-5[context=1m,reasoning_effort=high]` ran as `Claude Sonnet 5.5 1M High` (CTXBRACKET). H1 and H2 in section 11 were refused because `effort` is not the id those models use. The ids differ by model, and the CLI lists none of them. Refusals for a bad id, a bad value (`context=2m`) or a slug with a bracket (`claude-sonnet-5-5-high[context=300k]`) all print the generic `Cannot use this model` line. The ids below are read from what the CLI saved after each run:
+
+| Model | Parameter ids saved |
+|---|---|
+| `claude-sonnet-5-5` | `context`, `reasoning_effort` |
+| `claude-opus-5-5` | `context`, `effort`, `fast` |
+| `claude-opus-5` | `thinking`, `context`, `effort`, `fast` |
+| `gpt-5.6-sol` | `context`, `reasoning`, `fast` |
+| `gpt-5.4-mini` | `reasoning` |
+
+**[probed] A resume without `--model` runs the saved selection, not the session's model.** CTXRESUME: a parent ran at 300K and was told a code word. The saved selection was then edited to Sonnet 5.5 1M, as a user picking it in interactive mode would. `--resume <id>` with no `--model` ran as `Claude Sonnet 5.5 1M High` and still recalled the code word. CTXRESUMEMODEL: the same resume with `--model claude-sonnet-5-5-high` ran at 300K and also recalled it. Probe F in section 11 showed "the same model" only because its parent had just saved that model.
+
+**[probed] Every `-p` run saves its model into `cli-config.json`.** It writes `model`, `selectedModel`, `modelParameters.<model>`, and on an empty config also `maxMode` and `hasChangedDefaultModel` (CTXSAVED, CTXFRESH). The next interactive session, and the next run without `--model`, start from it. A run never cleared a `maxMode: true` already in the file.
+
+**[probed] Cursor's own `maxMode` flag is not the context.** After the Sonnet 5.5 300K run on an empty config it was `false`. After the Sonnet 5.5 1M run it was `true`, along with `maxModeAutoEnabled`. After the Opus 5.5, Opus 5 and GPT-5.6 Sol runs it was `true` at their default contexts. Cursor's model docs say those models "require Max Mode on legacy request-based plans".
+
+**[docs]** Cursor's pricing page: Max Mode "extends a model's context window beyond the default limit and is billed at the model's API rate plus 20%", on legacy request-based plans only. On other plans Sonnet 5.5 goes "up to 1M tokens with extended context at the same per-token rates". The CLI changelog for v2026.08.11 says a headless `--model` selection that requires Max Mode now sends it, "so max-context variants are no longer clamped down".
+
+**[probed] A 1M run sends more tokens per request.** The same reply-only prompt cost about 44k input tokens at 1M (CTXBRACKET: 8,976 cache read plus 35,419 cache write) against about 24k at 300K (CTXSLUG, CTXFRESH).
+
+**[open]** Whether the Cursor IDE's model picker writes `~/.cursor/cli-config.json`: `ide_state.json` holds no model keys. And whether a sticky `maxMode: true` changes how a default-context run is billed on a legacy request-based plan.
+
+| # | Config dir | `--model` | Exit | `init.model` |
+|---|---|---|---|---|
+| CTXSLUG | copy, saved Sonnet 5.5 300k | `claude-sonnet-5-5-high` | 0 | Claude Sonnet 5.5 300K High |
+| CTXSAVED | copy, saved Sonnet 5.5 1m | `claude-sonnet-5-5-high` | 0 | Claude Sonnet 5.5 300K High; saved selection rewritten to 300k |
+| CTXFRESH | empty | `claude-sonnet-5-5-high` | 0 | Claude Sonnet 5.5 300K High |
+| CTXBRACKET | empty | `claude-sonnet-5-5[context=1m,reasoning_effort=high]` | 0 | Claude Sonnet 5.5 1M High |
+| CTXSLUGBRACKET | empty | `claude-sonnet-5-5-high[context=300k]` | 1 | refused before session |
+| CTXOPUS | empty | `claude-opus-5-5-high` | 0 | Claude Opus 5.5 300K High |
+| CTXOPUSBRACKET | empty | `claude-opus-5-5[context=300k,reasoning_effort=high]`, and the slug with `[context=300k]` | 1 | both refused before session |
+| CTXGPT | empty | `gpt-5.6-sol-medium` | 0 | GPT-5.6 Sol 272K Medium |
+| CTXOPUS5 | empty | `claude-opus-5-thinking-high` | 0 | Claude Opus 5 300K High |
+| CTXRESUME | parent at 300K, then saved selection set to 1m | none, `--resume <parent>` | 0 | Claude Sonnet 5.5 1M High; recalled the code word |
+| CTXRESUMEMODEL | same, saved selection set to 1m again | `claude-sonnet-5-5-high`, `--resume <parent>` | 0 | Claude Sonnet 5.5 300K High; recalled the code word |
+
+### 13.1 Handoff live run (4.0.2)
+
+The 4.0.2 tree ran through the installed skill (a symlink to the working tree at `ba43027` plus the uncommitted change) on build `2026.11.19-f005e9d`, from a scratch repo. `CURSOR_CONFIG_DIR` pointed at a copy of the user's config. Before each launch its saved selection was set to Sonnet 5.5 1M, and that was confirmed twice: by reading `selectedModel` and `modelParameters.claude-sonnet-5-5` (both `context=1m`), and by `about` printing `Claude Sonnet 5.5 1M High`.
+
+- **[probed] A fresh job ran at 300K.** `submit --backend cursor --model claude-sonnet-5-5-high` wrote `--workspace "$WORKDIR" --model "$MODEL"` into `run.sh`. The job edited `notes.txt` and ran the repo check, whose `CHECK_OK` is in its log. `init.model` read `Claude Sonnet 5.5 300K High`, and `result --json` gave `context_window: "300K"`.
+- **[probed] Its fix round ran at 300K and kept its context.** After the selection was set back to 1M, `resume` wrote `--resume "$SESSION_ID" --model "$MODEL"` and recorded `model=claude-sonnet-5-5-high` in `meta`. `init.model` read 300K, and the round answered with the parent's code word.
+- **[probed] Refusals came before any job directory.** A bracket model, an omitted model, and a resume of a parent whose `meta` recorded `claude-sonnet-5-5[context=1m,reasoning_effort=high]` each exited 1 and named the fix.
+- **[probed] A real 1M job was reported while running, and then held.** A wrapper used as `HANDOFF_CURSOR_BIN` swapped the slug for the bracket selector and asked the worker to run `sleep 45`. The first `status` poll after `init` printed `state: RUNNING` and the `context_window: 1M` line, and `cancel` ended the job. After that, a submit of `claude-sonnet-5-5-high` on the real binary, a resume of the 1M job, and a resume of the earlier 300K fix round on the same slug were all refused, each naming the 1M job and the build. A dry-run on `claude-opus-5-5-high` was accepted.
+- **[probed] The real CTXBRACKET log, mounted in a scratch job of a second repo,** gave the `context_window: 1M` line in `status` and in text `result`, and `"1M"` in `result --json`.
+- **[probed] `cursor-agent -p` starts a detached `worker-server`.** A `node … index.js worker-server` process started three seconds after the first live job, with launchd as its parent, so it is outside the job's process group and `cancel` does not reach it. It carried the job's `CURSOR_CONFIG_DIR` and was still running more than five minutes later, when the driver stopped it.
+- The user's own `~/.cursor/cli-config.json` had the same SHA-256 before and after.
 
 ## References
 
