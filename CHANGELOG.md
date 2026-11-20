@@ -1,5 +1,35 @@
 # Changelog
 
+## v4.0.2 (2026-11-20)
+
+### Cursor jobs stay out of the 1M context
+
+- fix: a cursor fix round could run in Cursor's 1M context (Max Mode), which spends usage far faster than the default 300K. The round passed `--resume` with no `--model`. On build 2026.11.19-f005e9d that runs the CLI's saved selection, not the session's model. A user who had picked Sonnet 5.5 1M in an interactive `cursor-agent` session sent the next fix round to 1M, with the parent's context intact. A fix round now passes `--model` with the parent's slug and records the slug in `meta`.
+- fix: a cursor job must name a plain catalogue slug. Submit and setup refuse an empty model, because a job without one also runs the saved selection. They also refuse the bracket form, such as `claude-sonnet-5-5[context=1m,reasoning_effort=high]`, which runs at 1M. Resume refuses a parent that recorded no plain slug. An older fix round recorded `model=inherit`, and an older `meta` can hold a bracket selector, so neither is replayed. The refusal says to resubmit with the full packet.
+- feat: `status` and `result` report the context each cursor job ran at, read from the size in `init.model`. `result --json` gains `context_window`: `"300K"`, `"1M"`, or `null`, and `null` on every other backend. A size in millions prints a `context_window:` line, including while the job is still running.
+- feat: a slug that ran at a size in millions is held. `submit` and `resume` refuse it on the same cursor build in the same repo, and name the job. So a fix round, a retry or an arbiter resubmit cannot spend at 1M on it again. The hold clears when the identity names another slug or Cursor's build changes.
+- docs: `references/backends/cursor.md` gives the driver's response to a `context_window: 1M` line. The driver cancels the job if it is running, records the anomaly with the build, and tells the user. A finished job's output is reviewed as usual. The file also places the user's global deny rules in `~/.cursor/cli-config.json`. `docs/specs/design_cli-backends.md` gains *Cursor jobs name a plain slug, and report their context window*, which separates what is enforced from what was only measured. The Cursor research doc gains section 13, with the probes and the live run.
+- Config schema stays `2`. Receipt schema stays `8`.
+
+### What was run
+
+- 13 reply-only probes on build 2026.11.19-f005e9d, each with its own `CURSOR_CONFIG_DIR`. Four plain slugs from three model families ran at their default context. Two of them carry "1M" in their catalogue name: Opus 5.5 ran at 300K and GPT-5.6 Sol at 272K. The Sonnet 5.5 slug ran at 300K under a saved 1M selection. A resume without `--model` ran at 1M once the saved selection said 1M, and at 300K with `--model`. The bracket form with Sonnet 5.5's own parameter ids ran at 1M.
+- A live run through the installed skill, with the saved selection reset to Sonnet 5.5 1M before each launch:
+  - A fresh job and its fix round both ran at 300K, and the round recalled the parent's code word.
+  - The bracket model, an omitted model, and a resume of a parent whose `meta` held the bracket selector were refused.
+  - A real 1M job, launched through a wrapper binary that swapped in the bracket selector, printed the `context_window: 1M` line while it ran. The driver cancelled it. Its slug was then refused on a submit and on two resumes.
+- Unit suite: 1253 tests pass. `check-skill-repo.sh` reports fail=0, the viewer tests pass 56 of 56, and the 64 test prompts pass.
+- A `deep_reasoner` spec review ran two rounds. Round one raised four blocking and three advisory findings. Round two withdrew one, kept three and added one blocking. Every blocking finding was accepted. The hold started as a driver rule. The review showed that the rule would conflict with the arbiter's retry and with fix rounds, so the hold moved into `submit` and `resume`. One advisory finding was declined, the session page's summary (below).
+- The user's own `~/.cursor/cli-config.json` had the same SHA-256 before and after.
+
+### Found and left alone
+
+- Every `cursor-agent -p` run saves its model into the user's `~/.cursor/cli-config.json`, so the next interactive session opens on the last Handoff job's model. A per-job `CURSOR_CONFIG_DIR` would stop that, but it would also drop the user's global deny rules.
+- Cursor's own `maxMode` flag is true for Opus 5.5, Opus 5 and GPT-5.6 Sol at their default context. Cursor's docs say those models require Max Mode on legacy request-based plans, where it bills at the API rate plus 20%. 4.0.2 covers the context window only.
+- The session page can still say "Clean run" for a 1M job that exited 0.
+- `cursor-agent -p` starts a detached `worker-server` that outlives its job, and `cancel` does not reach it.
+- Whether the Cursor IDE's model picker writes the CLI's saved selection is not known. No Handoff cursor job runs on that selection any more.
+
 ## v4.0.1 (2026-11-13)
 
 ### Copilot jobs start again on Copilot CLI 1.0.103 and later

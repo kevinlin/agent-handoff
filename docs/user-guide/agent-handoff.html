@@ -193,7 +193,7 @@
 <header>
   <h1>Agent Handoff — user guide</h1>
   <p class="lede">Agent Handoff (Handoff) is a Claude Code skill that divides coding work between a driver and worker agents. Claude Code is the driver: it plans the work, divides it into tasks, and accepts or rejects the result. Each delegated task runs as a background job on one of five worker CLIs: Codex, Claude Code, GitHub Copilot, Cursor, or Antigravity. The config of each identity selects its worker, and each worker pays from its own account. The driver uses less of its quota and its context window. It still reads the full diff against acceptance criteria that it wrote before the work started. For a row that has no diff, such as a render, it reads the evidence of the row instead.</p>
-  <p class="meta">user guide · kevinlin/agent-handoff @ v4.0.1 · updated 2026-11-13</p>
+  <p class="meta">user guide · kevinlin/agent-handoff @ v4.0.2 · updated 2026-11-20</p>
 </header>
 
 <h2 id="overview">How a run works</h2>
@@ -284,7 +284,7 @@
   <li>There is no Handoff config. The error tells you to run <code>/agent-handoff config</code>. Handoff never uses a default model.</li>
   <li>A per-job <code>--backend</code> does not agree with the named identity. The error shows the config command that makes the change correct.</li>
   <li>The CLI does not accept the effort value. Each vendor has its own values: <code>ultra</code> is Codex only, <code>none</code> is Copilot only, and Claude takes <code>low</code> to <code>max</code>. Cursor and Antigravity take only <code>model</code>, because the model name includes the effort.</li>
-  <li>The model is <code>auto</code> on Copilot, Cursor, or Antigravity. With <code>auto</code>, the receipt would record the vendor’s choice, not yours. Antigravity also refuses an empty model, because each fix round must send the model again.</li>
+  <li>The model is <code>auto</code> on Copilot, Cursor, or Antigravity. With <code>auto</code>, the receipt would record the vendor’s choice, not yours. Cursor and Antigravity also refuse an empty model, because each fix round must send the model again. Cursor also refuses a model with a bracket part, such as <code>claude-sonnet-5-5[context=1m]</code>, because it can select Cursor’s 1M context.</li>
 </ul>
 
 <div class="callout claude">
@@ -335,7 +335,7 @@
 
 <p>After apply, the smoke test sends one small real request for each Copilot, Cursor, and Antigravity identity. This costs one premium request on Copilot, about 16k input tokens on a small Cursor model, or about 12k on Antigravity’s Flash. If your account cannot use a model, the CLI refuses it before a session starts, at no cost. The CLI’s message tells you what to change.</p>
 
-<p>Know two Cursor facts before you select it. If a model name shows <code>(NO ZDR)</code>, that model has no zero data retention, and a delegated job sends it your repository content. If your Cursor attribution setting is on, worker commits get a <code>Co-authored-by: Cursor</code> trailer, also in e2e worktree commits. Handoff reports this setting and does not change it.</p>
+<p>Know these Cursor facts before you select it. Handoff names the model on every Cursor job, fix rounds included. On the tested Cursor build, each job then ran at the model’s default context, such as 300K on Claude Sonnet 5.5, and not at Cursor’s 1M Max Mode. Max Mode uses up your Cursor usage much faster. Each job saves its model as Cursor’s selected model, so your next interactive <code>cursor-agent</code> session opens on it. If a model name shows <code>(NO ZDR)</code>, that model has no zero data retention, and a delegated job sends it your repository content. If your Cursor attribution setting is on, worker commits get a <code>Co-authored-by: Cursor</code> trailer, also in e2e worktree commits. Handoff reports this setting and does not change it.</p>
 
 <p>The page has one box for each optional identity. A box starts checked when your config already has that identity. If your config is from before v4.0.0 and has the two old e2e sections, setup replaces them with <code>e2e_tester</code>, filled from the old identity that wrote the tests. The preview shows the change, and a rollback restores the old file.</p>
 
@@ -470,6 +470,7 @@ implementation_max_rounds = 3</code></pre>
   <tr><th>Backend</th><th>Sign</th><th>What it means, and what the driver does</th></tr>
   <tr><td>Copilot</td><td>A failed job with an empty stderr</td><td>The API error is only an event in the log. The driver always reads the log</td></tr>
   <tr><td>Cursor</td><td>An empty log at launch</td><td>Cursor rejected the model. <code>stderr.log</code> lists the models that Cursor accepts</td></tr>
+  <tr><td>Cursor</td><td><code>status</code> prints <code>context_window: 1M</code></td><td>The job ran at Cursor’s 1M context, so a Cursor update changed what the model selects. The driver cancels a running job and tells you. Handoff then refuses that model on that Cursor build, so pick another model or backend</td></tr>
   <tr><td>Cursor</td><td>A fix round does not know its parent’s work</td><td>Cursor did not save the session, and it started a new, empty one with the same id. It gives no warning. The driver sends the full packet again</td></tr>
   <tr><td>Antigravity</td><td>One error event at launch</td><td>Antigravity rejected the model. <code>stderr.log</code> shows the message and the available models</td></tr>
   <tr><td>Antigravity</td><td><code>status</code> reports that the context is lost</td><td>Antigravity did not find the old conversation and started a new one. The driver sends the full packet again</td></tr>
