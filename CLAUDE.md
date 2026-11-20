@@ -14,6 +14,7 @@ Consequence: prose files (`SKILL.md`, `README.md`, `references/*.md`) are **prod
 python3 -m unittest discover -s tests          # unit suite
 python3 -m unittest tests.test_handoff_config  # one module
 python3 -m unittest tests.test_handoff_config.ClassName.test_name  # one test
+node --test tests/test_transcript_viewer.mjs   # transcript viewer (JS) tests
 
 bash scripts/check-skill-repo.sh .             # publish-readiness gate (required files, triggers, skill-surface budgets and reachability, secret scan)
 python3 scripts/run-test-prompts.py            # static validation of test-prompts.json
@@ -27,7 +28,7 @@ SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown
 git diff --exit-code -- examples/showcase-cost-ledger.json
 ```
 
-Receipt roundtrip:
+Receipt roundtrip (`--start --repo .` resets the current run's start stamp; during a live handoff run, point `--repo` at a scratch repo instead):
 
 ```bash
 python3 scripts/make-receipt.py --start --repo .          # stamps .handoff/session-start
@@ -43,7 +44,9 @@ E2E verdict check:
 python3 scripts/validate-verdict.py .handoff/e2e/<jobId>/verdict.json
 ```
 
-`.github/workflows/checks.yml` runs all of the above; run it locally before pushing.
+`.github/workflows/checks.yml` runs all of the above except the verdict check, plus a syntax step (`bash -n` on the shell scripts, `python3 -m py_compile` on every script); run it locally before pushing.
+
+Evals: `bash evals/run-evals.sh` (suite in `evals/eval.yaml`, cases in `evals/cases/`). It strips `ANTHROPIC_*`/`CLAUDE_CODE_*` because it starts nested `claude` sessions, and it measures the installed skill at `~/.claude/skills/agent-handoff`, so that path must point at (or be a fresh copy of) this working tree.
 
 ## Architecture
 
