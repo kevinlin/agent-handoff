@@ -29,9 +29,16 @@ jobs:
       - name: Receipt contract
         run: |
           python3 scripts/run-test-prompts.py
-          python3 scripts/make-receipt.py --start --repo .
-          python3 scripts/make-receipt.py --repo . --phase review --claude-session ci-test \
-            --checks "ci roundtrip" --codex-jobs 0 \
+          # A scratch repo: --start would reset this repo's own run marker, and
+          # the generator refuses a receipt whose window holds no job.
+          repo="$(mktemp -d)"
+          python3 scripts/make-receipt.py --start --repo "$repo"
+          job="$repo/.handoff/jobs/job-ci-roundtrip"
+          mkdir -p "$job"
+          printf 'backend=codex\nsubmitted_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$job/meta"
+          echo 0 > "$job/exit_code"
+          python3 scripts/make-receipt.py --repo "$repo" --phase review --claude-session ci-test \
+            --checks "ci roundtrip" --codex-jobs 1 \
             --scope project --config-source project --roles-used '[]' --no-save \
             | python3 scripts/validate-receipt.py -
 

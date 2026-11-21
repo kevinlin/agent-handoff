@@ -245,6 +245,17 @@ class ValidateReceiptTests(unittest.TestCase):
                 self.assert_one_failure(f"{field} must be", **{field: "job-a-t1"})
                 self.assert_one_failure(f"{field} must be", **{field: "job-a-t1=soon"})
 
+    def test_an_all_zero_schema_8_block_still_validates(self):
+        # The validator doesn't change: a receipt stored before generation
+        # started refusing a zero-job run must keep validating.
+        self.assertEqual([], validate_receipt.validate(fields(
+            codex_jobs="0", codex_job_durations="none",
+            cc_jobs="0", cc_job_durations="none",
+            copilot_jobs="0", copilot_job_durations="none",
+            cursor_jobs="0", cursor_job_durations="none",
+            antigravity_jobs="0", antigravity_job_durations="none",
+        )))
+
     def test_block_is_extracted_from_surrounding_markdown(self):
         text = "# notes\n\n[Handoff session receipt]\n" + "\n".join(
             f"{key}: {value}" for key, value in fields().items()
@@ -299,8 +310,12 @@ class MakeReceiptTests(unittest.TestCase):
         return validate_receipt.extract_block(made.stdout)
 
     def test_generated_receipt_validates(self):
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc)
+        self.write_job(repo, "job-a", started, None)
         made = self.run_make(
-            *RECEIPT_ARGS, "--started-at", stamp(datetime.now(timezone.utc)), "--no-save",
+            "--repo", str(repo), *RECEIPT_ARGS, "--codex-jobs", "1",
+            "--started-at", stamp(started), "--no-save",
         )
         self.assertEqual(0, made.returncode, made.stderr)
         checked = subprocess.run(
@@ -312,9 +327,11 @@ class MakeReceiptTests(unittest.TestCase):
     def test_wrap_up_saves_the_receipt_without_being_asked(self):
         repo = self.temp_repo()
         ended = datetime.now(timezone.utc)
+        started = ended - timedelta(minutes=5)
+        self.write_job(repo, "job-a", started + timedelta(minutes=1), started + timedelta(minutes=2))
         made = self.run_make(
-            "--repo", str(repo), *RECEIPT_ARGS,
-            "--started-at", stamp(ended - timedelta(minutes=5)),
+            "--repo", str(repo), *RECEIPT_ARGS, "--codex-jobs", "1",
+            "--started-at", stamp(started),
             "--ended-at", stamp(ended),
         )
         self.assertEqual(0, made.returncode, made.stderr)
@@ -330,11 +347,18 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertEqual(0, checked.returncode, checked.stdout)
 
     def make_with_session(self, repo: Path, *flag, session_env: str | None = None, save: bool = False):
-        """Run the generator with the session left to `flag` and the environment."""
+        """Run the generator with the session left to `flag` and the environment.
+
+        Writes one in-window job with a matching count, so the new no-job
+        guard cannot decide a caller's outcome; a session-resolution refusal
+        fires before that window is even measured, so it is unaffected either way.
+        """
+        started = datetime.now(timezone.utc)
+        self.write_job(repo, "job-a", started, None)
         extra = () if save else ("--no-save",)
         return self.run_make(
-            "--repo", str(repo), *NO_SESSION_ARGS, *flag,
-            "--started-at", stamp(datetime.now(timezone.utc)), *extra,
+            "--repo", str(repo), *NO_SESSION_ARGS, "--codex-jobs", "1", *flag,
+            "--started-at", stamp(started), *extra,
             session_env=session_env,
         )
 
@@ -392,9 +416,11 @@ class MakeReceiptTests(unittest.TestCase):
     def test_the_save_lands_in_the_session_folder_named_for_the_stamp(self):
         repo = self.temp_repo()
         ended = datetime.now(timezone.utc)
+        started = ended - timedelta(minutes=5)
+        self.write_job(repo, "job-a", started + timedelta(minutes=1), started + timedelta(minutes=2))
         made = self.run_make(
-            "--repo", str(repo), *NO_SESSION_ARGS,
-            "--started-at", stamp(ended - timedelta(minutes=5)), "--ended-at", stamp(ended),
+            "--repo", str(repo), *NO_SESSION_ARGS, "--codex-jobs", "1",
+            "--started-at", stamp(started), "--ended-at", stamp(ended),
             session_env="env-session-1",
         )
         self.assertEqual(0, made.returncode, made.stderr)
@@ -406,10 +432,18 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertEqual([], list((repo / ".handoff").glob("receipts*")))
 
     def run_ended(self, repo: Path, ended: datetime, *session_args, session_env: str | None = None):
-        """A save whose receipt ends at `ended`, five minutes after it started."""
+        """A save whose receipt ends at `ended`, five minutes after it started.
+
+        Writes one in-window job with a matching count for this call's own
+        window, named for `ended` so repeat calls on the same repo each get
+        their own job and neither call's window picks up the other's.
+        """
+        started = ended - timedelta(minutes=5)
+        self.write_job(repo, f"job-{ended:%Y%m%dT%H%M%S}",
+                       started + timedelta(minutes=1), started + timedelta(minutes=2))
         return self.run_make(
-            "--repo", str(repo), *NO_SESSION_ARGS, *session_args,
-            "--started-at", stamp(ended - timedelta(minutes=5)), "--ended-at", stamp(ended),
+            "--repo", str(repo), *NO_SESSION_ARGS, "--codex-jobs", "1", *session_args,
+            "--started-at", stamp(started), "--ended-at", stamp(ended),
             session_env=session_env)
 
     def test_a_new_session_folder_takes_the_date_the_receipt_ended_on(self):
@@ -457,7 +491,7 @@ class MakeReceiptTests(unittest.TestCase):
                     )
                     self.assertEqual(1, made.returncode, made.stderr)
                     self.assertEqual("", made.stdout)
-                    self.assertIn("FAIL", made.stderr)
+                    self.assertIn(f"FAIL not a usable session id: {unsafe!r}", made.stderr)
                     self.assertFalse((repo / ".handoff" / "sessions").exists())
                     self.assertFalse((repo / ".handoff" / "x").exists())
                     self.assertFalse((repo / "x").exists())
@@ -469,25 +503,33 @@ class MakeReceiptTests(unittest.TestCase):
                 outside = repo / "outside"
                 outside.mkdir()
                 ended = datetime.now(timezone.utc)
+                started = ended - timedelta(minutes=5)
+                # An in-window job with a matching count, so the new no-job
+                # guard cannot decide this test's outcome either.
+                self.write_job(repo, "job-a", started + timedelta(minutes=1), started + timedelta(minutes=2))
                 sessions = repo / ".handoff" / "sessions"
                 sessions.mkdir(parents=True)
                 if kind == "sessions":
                     sessions.rmdir()
                     sessions.symlink_to(outside, target_is_directory=True)
+                    broken = repo.resolve() / ".handoff" / "sessions"
                 elif kind == "session-folder":
                     (sessions / f"{ended:%Y%m%d}_abc123").symlink_to(outside, target_is_directory=True)
+                    broken = repo.resolve() / ".handoff" / "sessions" / f"{ended:%Y%m%d}_abc123"
                 else:
                     (sessions / f"{ended:%Y%m%d}_abc123").mkdir()
                     (sessions / f"{ended:%Y%m%d}_abc123"
                      / f"receipt-{ended.strftime('%Y%m%dT%H%M%SZ')}.md"
                      ).symlink_to(outside / "elsewhere.md")
+                    broken = (repo.resolve() / ".handoff" / "sessions" / f"{ended:%Y%m%d}_abc123"
+                              / f"receipt-{ended.strftime('%Y%m%dT%H%M%SZ')}.md")
                 made = self.run_make(
-                    "--repo", str(repo), *RECEIPT_ARGS,
-                    "--started-at", stamp(ended - timedelta(minutes=5)), "--ended-at", stamp(ended),
+                    "--repo", str(repo), *RECEIPT_ARGS, "--codex-jobs", "1",
+                    "--started-at", stamp(started), "--ended-at", stamp(ended),
                 )
                 self.assertEqual(1, made.returncode, made.stderr)
                 self.assertEqual("", made.stdout)
-                self.assertIn("FAIL", made.stderr)
+                self.assertIn(f"FAIL refusing a symlink in the evidence path: {broken}", made.stderr)
                 self.assertEqual([], list(outside.iterdir()))
 
     def test_a_legacy_folder_adds_a_migration_note_after_a_save(self):
@@ -504,10 +546,14 @@ class MakeReceiptTests(unittest.TestCase):
     def test_no_note_without_a_legacy_folder_or_without_a_save(self):
         repo = self.temp_repo()
         made = self.make_with_session(repo, "--claude-session", "abc123", save=True)
+        self.assertEqual(0, made.returncode, made.stderr)
+        self.assertIn("[Handoff session receipt]", made.stdout)
         self.assertNotIn("note:", made.stderr)
         legacy = self.temp_repo()
         (legacy / ".handoff" / "transcripts").mkdir(parents=True)
         made = self.make_with_session(legacy, "--claude-session", "abc123")
+        self.assertEqual(0, made.returncode, made.stderr)
+        self.assertIn("[Handoff session receipt]", made.stdout)
         self.assertNotIn("note:", made.stderr)
 
     def test_start_needs_no_session_id(self):
@@ -523,13 +569,15 @@ class MakeReceiptTests(unittest.TestCase):
 
     def test_a_multiline_field_is_refused_before_anything_is_written(self):
         repo = self.temp_repo()
+        started = datetime.now(timezone.utc)
+        self.write_job(repo, "job-a", started, None)
         made = self.run_make(
             "--repo", str(repo),
             "--phase", "review", "--claude-session", "abc123",
             "--checks", "pytest\nnpm test",
-            "--codex-jobs", "0", "--cc-jobs", "0", "--copilot-jobs", "0",
+            "--codex-jobs", "1", "--cc-jobs", "0", "--copilot-jobs", "0",
             "--scope", "project", "--config-source", "project", "--roles-used", "[]",
-            "--started-at", stamp(datetime.now(timezone.utc)),
+            "--started-at", stamp(started),
         )
         self.assertEqual(1, made.returncode)
         self.assertIn("checks contains a newline", made.stderr)
@@ -538,9 +586,11 @@ class MakeReceiptTests(unittest.TestCase):
 
     def test_no_save_leaves_nothing_on_disk(self):
         repo = self.temp_repo()
+        started = datetime.now(timezone.utc)
+        self.write_job(repo, "job-a", started, None)
         made = self.run_make(
-            "--repo", str(repo), *RECEIPT_ARGS,
-            "--started-at", stamp(datetime.now(timezone.utc)), "--no-save",
+            "--repo", str(repo), *RECEIPT_ARGS, "--codex-jobs", "1",
+            "--started-at", stamp(started), "--no-save",
         )
         self.assertEqual(0, made.returncode, made.stderr)
         self.assertIn("[Handoff session receipt]", made.stdout)
@@ -548,13 +598,14 @@ class MakeReceiptTests(unittest.TestCase):
 
     def test_invalid_arguments_refuse_to_emit_a_receipt(self):
         made = self.run_make(
+            "--repo", str(self.temp_repo()),
             "--phase", "vibes", "--claude-session", "abc123",
             "--checks", "unittest", "--codex-jobs", "1",
             "--started-at", stamp(datetime.now(timezone.utc)),
         )
         self.assertEqual(1, made.returncode)
         self.assertNotIn("[Handoff session receipt]", made.stdout)
-        self.assertIn("FAIL", made.stderr)
+        self.assertIn("FAIL phase must be one of", made.stderr)
 
     def test_start_marker_is_what_the_receipt_measures(self):
         repo = self.temp_repo()
@@ -562,12 +613,15 @@ class MakeReceiptTests(unittest.TestCase):
         self.assertEqual(0, started.returncode, started.stderr)
         marker = repo / ".handoff" / "session-start"
         self.assertTrue(marker.is_file())
+        # One job, submitted after the marker: it falls inside both windows
+        # measured below, the narrow one and the 74-minute-wide one.
+        self.write_job(repo, "job-a", datetime.now(timezone.utc), None)
 
         # The subprocess reads the clock after the marker is stamped; allow a slow runner a few seconds.
-        self.assertRegex(self.make_receipt_fields(repo)["duration"], r"^0min 0[0-4]sec$")
+        self.assertRegex(self.make_receipt_fields(repo, "--codex-jobs", "1")["duration"], r"^0min 0[0-4]sec$")
 
         marker.write_text(stamp(datetime.now(timezone.utc) - timedelta(minutes=74)) + "\n")
-        self.assertRegex(self.make_receipt_fields(repo)["duration"], r"^74min 0[0-4]sec$")
+        self.assertRegex(self.make_receipt_fields(repo, "--codex-jobs", "1")["duration"], r"^74min 0[0-4]sec$")
 
     def test_missing_start_marker_refuses_to_emit_a_receipt(self):
         made = self.run_make("--repo", str(self.temp_repo()), *RECEIPT_ARGS)
@@ -675,8 +729,9 @@ class MakeReceiptTests(unittest.TestCase):
         repo = self.temp_repo()
         started = datetime.now(timezone.utc) - timedelta(hours=9)
         ended = started + timedelta(minutes=74)
+        self.write_job(repo, "job-a", started + timedelta(minutes=1), started + timedelta(minutes=2))
         emitted = self.make_receipt_fields(
-            repo, "--started-at", stamp(started), "--ended-at", stamp(ended))
+            repo, "--started-at", stamp(started), "--ended-at", stamp(ended), "--codex-jobs", "1")
         self.assertEqual("74min 00sec", emitted["duration"])
 
     def test_ended_at_in_the_future_refuses_to_emit(self):
@@ -735,6 +790,60 @@ class MakeReceiptTests(unittest.TestCase):
             "job-first=6min 00sec; job-after=2min 00sec",
             emitted["codex_job_durations"],
         )
+
+    def test_zero_jobs_in_the_window_is_refused(self):
+        for extra in ((), ("--no-save",)):
+            with self.subTest(extra=extra):
+                repo = self.temp_repo()
+                made = self.run_make(
+                    "--repo", str(repo), *RECEIPT_ARGS,
+                    "--started-at", stamp(datetime.now(timezone.utc)), *extra,
+                )
+                self.assertEqual(1, made.returncode, made.stderr)
+                self.assertEqual("", made.stdout)
+                self.assertIn("no delegated job was submitted between", made.stderr)
+                self.assertIn("a run that delegated nothing gets no receipt", made.stderr)
+                self.assertFalse((repo / ".handoff" / "sessions").exists())
+
+    def test_a_job_only_before_the_start_does_not_count_and_is_refused(self):
+        repo = self.temp_repo()
+        started = datetime.now(timezone.utc) - timedelta(hours=1)
+        self.write_job(repo, "job-too-early", started - timedelta(minutes=10),
+                       started - timedelta(minutes=5))
+        made = self.run_make(
+            "--repo", str(repo), *RECEIPT_ARGS, "--started-at", stamp(started),
+        )
+        self.assertEqual(1, made.returncode, made.stderr)
+        self.assertEqual("", made.stdout)
+        self.assertIn("no delegated job was submitted between", made.stderr)
+        self.assertIn("a run that delegated nothing gets no receipt", made.stderr)
+        self.assertFalse((repo / ".handoff" / "sessions").exists())
+
+    def test_one_job_alone_suffices_for_each_backend(self):
+        """R: a repo holding only one backend's job, with only that backend's
+        count set to 1, is enough to pass the no-job guard and save."""
+        count_flag = {"codex": "--codex-jobs", "claude": "--cc-jobs", "copilot": "--copilot-jobs",
+                      "cursor": "--cursor-jobs", "antigravity": "--antigravity-jobs"}
+        count_field = {"codex": "codex_jobs", "claude": "cc_jobs", "copilot": "copilot_jobs",
+                       "cursor": "cursor_jobs", "antigravity": "antigravity_jobs"}
+        for backend in ("codex", "claude", "copilot", "cursor", "antigravity"):
+            with self.subTest(backend=backend):
+                repo = self.temp_repo()
+                started = datetime.now(timezone.utc) - timedelta(minutes=10)
+                self.write_job(repo, f"job-{backend}", started + timedelta(minutes=1),
+                               started + timedelta(minutes=2), backend=backend)
+                made = self.run_make(
+                    "--repo", str(repo), *RECEIPT_ARGS, count_flag[backend], "1",
+                    "--started-at", stamp(started),
+                )
+                self.assertEqual(0, made.returncode, made.stderr)
+                emitted = validate_receipt.extract_block(made.stdout)
+                self.assertEqual("1", emitted[count_field[backend]])
+                for other, field in count_field.items():
+                    if other != backend:
+                        self.assertEqual("none", emitted[field.replace("_jobs", "_job_durations")])
+                saved = sorted((repo / ".handoff" / "sessions").glob("*/receipt-*.md"))
+                self.assertEqual(1, len(saved), saved)
 
 
 if __name__ == "__main__":

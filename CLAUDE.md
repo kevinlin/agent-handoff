@@ -28,12 +28,16 @@ SOURCE_DATE_EPOCH=1782921600 python3 scripts/showcase-cost-ledger.py --markdown
 git diff --exit-code -- examples/showcase-cost-ledger.json
 ```
 
-Receipt roundtrip (`--start --repo .` resets the current run's start stamp; during a live handoff run, point `--repo` at a scratch repo instead):
+Receipt roundtrip, in a scratch repo holding one fixture job (the generator refuses a window with no job, and `--start --repo .` would reset this repo's own run):
 
 ```bash
-python3 scripts/make-receipt.py --start --repo .          # stamps .handoff/session-start
-python3 scripts/make-receipt.py --repo . --phase review --claude-session x \
-  --checks "ci" --codex-jobs 0 --cc-jobs 0 --copilot-jobs 0 \
+repo="$(mktemp -d)"
+python3 scripts/make-receipt.py --start --repo "$repo"    # stamps .handoff/session-start
+job="$repo/.handoff/jobs/job-ci-roundtrip"; mkdir -p "$job"
+printf 'backend=codex\nsubmitted_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$job/meta"
+echo 0 > "$job/exit_code"
+python3 scripts/make-receipt.py --repo "$repo" --phase review --claude-session x \
+  --checks "ci" --codex-jobs 1 \
   --scope project --config-source project --roles-used '[]' --no-save \
   | python3 scripts/validate-receipt.py -
 ```
@@ -52,7 +56,7 @@ Evals: `bash evals/run-evals.sh` (suite in `evals/eval.yaml`, cases in `evals/ca
 
 **One flow.** `SKILL.md` is the router; `references/delegation-flow.md` is the flow it loads — six phases (preflight, plan and split, delegate, monitor, full review, wrap up) — the arbiter protocols sit in `references/arbitration.md`, and the rules for a row whose result is not a text diff (evidence review, long commands, paid calls) sit in `references/artefact-rows.md`, which loads only when a run has such a row. `docs/skill-structure.md` has the layer map. Claude Code drives; a worker CLI executes delegated work on the identity's configured backend — `codex`, a second `claude`, `copilot`, `cursor`, or `antigravity` — each on its own meter.
 
-The run terminates in a **Handoff Session Receipt** (schema v8, `assets/receipt-schema.json`). It carries five job counts, one per backend — `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs`, `antigravity_jobs` — with matching `*_job_durations`; a copilot, cursor, or antigravity job is never folded into another count. Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. `claude_session` comes from `CLAUDE_CODE_SESSION_ID`, and all of a session's evidence lives in `.handoff/sessions/<date>_<claude_session>/`, with the run stamp in each file name because one session can hold several runs. The date only sorts the listing: the session id is the key, and a folder keeps the date it was created with. `handoff_runtime.py` owns those paths (`session_path`, `transcript_path`), so no caller derives one itself. `scripts/migrate-sessions.py` moves a pre-3.11 repo. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
+A run that delegated at least one job terminates in a **Handoff Session Receipt** (schema v8, `assets/receipt-schema.json`); `make-receipt.py` refuses one for a window that holds no job. It carries five job counts, one per backend — `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs`, `antigravity_jobs` — with matching `*_job_durations`; a copilot, cursor, or antigravity job is never folded into another count. Receipt fields must be generated, never hand-typed: `make-receipt.py` refuses invalid output; `validate-receipt.py` re-checks written receipts. `claude_session` comes from `CLAUDE_CODE_SESSION_ID`, and all of a session's evidence lives in `.handoff/sessions/<date>_<claude_session>/`, with the run stamp in each file name because one session can hold several runs. The date only sorts the listing: the session id is the key, and a folder keeps the date it was created with. `handoff_runtime.py` owns those paths (`session_path`, `transcript_path`), so no caller derives one itself. `scripts/migrate-sessions.py` moves a pre-3.11 repo. In `roles_used`, an entry's `host` is the CLI that executed the role — unrelated to the skill's own host.
 
 **Identity layer.** Five identities, each a `backend + model + effort` triple, freely mixed across five vendors (`claude`, `codex`, `copilot`, `cursor`, `antigravity`). Three core — `deep_reasoner`, `fast_worker`, `arbiter` — plus two optional: `e2e_tester`, written when setup runs `--with-e2e`, and `operator`, written with `--with-operator`. A config carrying just the core three is complete. `e2e_specifier` and `e2e_verifier` were retired in 4.0.0: their sections load as unowned bytes, every command prints a notice, and setup apply migrates them into `e2e_tester`. Values live *only* in `.handoff/config.toml` (project) or `~/.config/handoff/config.toml` (global), never in prompts or docs. Resolution order: session override → project → global → built-in defaults, merged per field. Schema in `docs/specs/design_agent-identities-and-config.md`.
 

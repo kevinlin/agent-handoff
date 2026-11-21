@@ -20,7 +20,7 @@ It renders the job's `log.jsonl` as one HTML page and opens it. With no selector
 python3 "$HANDOFF_DIR/scripts/render-cost-receipt.py" [<receipt-file>] --repo "$REPO"
 ```
 
-With no argument, or `last`, it reads the newest saved receipt under `.handoff/sessions/` and writes a Markdown page and an HTML page beside it, in that session's folder.
+With no argument, or `last`, it reads the newest saved receipt under `.handoff/sessions/` and writes a Markdown page and an HTML page beside it, in that session's folder. A run that delegated no job saved no receipt, so after one the newest receipt belongs to an earlier run. Say so rather than presenting that run's figures as this one's.
 
 Every number on it is measured, and each backend reports in its own unit:
 
@@ -41,7 +41,7 @@ The summary figures overlap by design, so never add them. No counter on this pag
 python3 "$HANDOFF_DIR/scripts/handoff-session-ui.py" [<receipt-file>] --repo "$REPO"
 ```
 
-With no argument it takes the newest saved receipt. It serves one page on `127.0.0.1` behind a per-run token: a timeline overview, the transcripts, the cost receipt, session facts and denials. `--port` picks the port, and `--no-open` prints the URL instead of opening it. The server runs until Ctrl-C, so keep the terminal open. It writes only cached transcript and cost-receipt pages, under `.handoff/`.
+With no argument it takes the newest saved receipt, which after a run that delegated no job is an earlier run's. It serves one page on `127.0.0.1` behind a per-run token: a timeline overview, the transcripts, the cost receipt, session facts and denials. `--port` picks the port, and `--no-open` prints the URL instead of opening it. The server runs until Ctrl-C, so keep the terminal open. It writes only cached transcript and cost-receipt pages, under `.handoff/`.
 
 The overview is a hand-authored SVG timeline, a narrative illustration whose prose nothing verifies. The other tabs are the measured record. Drawing the SVG needs a model, so the script cannot do it. Act on what it reports:
 

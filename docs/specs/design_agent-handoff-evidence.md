@@ -259,6 +259,18 @@ From v3.8.1 the write is the default and `--no-save` is the opt-out, kept for th
 
 The guard moves from prose into the script, the direction the rest of this document argues for. What stays prompt-shaped is one step earlier: nothing makes the driver reach Phase 5 and run the generator. The flag is no longer a way to lose the evidence; skipping wrap up still is.
 
+### A run that delegated nothing gets no receipt
+
+The receipt indexes jobs. A run with none in its window has five counts of `0` and five lists of `none`. All that is left is a wall-clock duration and the fields the driver typed: phase, checks, anomalies and roles. That is a summary under a receipt header. It also hands the cost receipt and the session page a run with nothing on it to read. From v4.0.3 `make-receipt.py` refuses it.
+
+The test is measured. After `job_durations()` scans the window, a total of zero across all five backends is added to the same failure list as the field checks. The generator then prints nothing, writes nothing and exits 1, with or without `--no-save`. The declared `--*-jobs` counts do not decide it, because they must already equal the measured ones. A `running` job counts. No flag skips the refusal.
+
+Two kinds of run reach it. A run that submitted nothing has no receipt, and the report says so. A run that did submit jobs and is still refused has a wrong window or a missing `meta`. The driver checks the marker and the job directories against the goal file's jobIds. It regenerates with `--started-at` when they support a corrected window, and otherwise reports that the receipt failed and names the missing evidence. The refusal message gives the window remedy; Phase 5 of the flow adds the missing `meta`.
+
+A job is a directory under `.handoff/jobs/`. Setup's smoke check runs outside the job runner: either a dry-run `submit`, which writes no directory, or a direct call to the CLI. So setup no longer stamps `.handoff/session-start` or closes with a receipt. The stamp existed only for that receipt, and running setup in the middle of a run reset that run's start. A tryout submits one job per core identity, so it keeps its receipt unless every `submit` was refused before a job existed. The spec review and an arbiter job count, so a plan the arbiter rejects before Phase 2 still gets its `planning` receipt.
+
+The validator and schema 8 do not change. A zero-job block is well-formed; the generator just stops writing one. A stored zero-job receipt still validates, and the cost receipt and the session page still read it. With no receipt named, both readers take the newest saved one. After a run that delegated nothing, that receipt belongs to an earlier run, and `references/session-evidence.md` tells the driver to say so.
+
 ### The session id is read, not recalled
 
 `claude_session` used to be typed by the driver. The runtime prose said "`claude_session` is the current session" and gave the driver no way to learn it. Drivers that recorded it correctly had copied it out of the scratchpad path in their system prompt. Drivers without that path passed `--claude-session none`. In local data that was 7 receipts of 53, every one from a run Claude Code drove. Each lost its driver row in the cost receipt, and under the session folder each would have lost its folder too.
@@ -383,6 +395,7 @@ Both pages sit on one `light-dark()` token set. The cost receipt carries the v2.
 | A jobId cannot escape the jobs directory | path-segment check before any open | a receipt reading arbitrary files |
 | Counts and duration lists agree | cost reader cross-check | a receipt describing more than it indexes |
 | The run's receipt reaches disk | `make-receipt.py` writes unless `--no-save` | a run whose cost receipt and session page have no input |
+| A receipt indexes at least one job | `make-receipt.py` refuses when no job was submitted inside the window | a receipt carrying only a duration and typed fields |
 | A receipt names the session that drove it | `make-receipt.py` reads `CLAUDE_CODE_SESSION_ID`, and refuses `none` while it is set | a Claude Code run filed under `none`, with no driver row |
 | One session has one folder | every writer looks the folder up by session id before it names a new one | a session split across two dated folders when it runs past midnight |
 | A session id cannot leave `.handoff/sessions/` | one path helper, used by every writer, checks the raw id's grammar and refuses a symlinked component | a receipt or an environment value choosing where a page is written |

@@ -116,7 +116,7 @@ Monitor from evidence, never from chat text: the job's `status`, the tail of its
 ## Phase 5: Wrap up
 
 - Mark accepted rows `done` in `.handoff/goal.md`. Leave rows in `rejected` or `arbitration` as they are: dependency holds and the user's decision on resume read them. Stop any `/loop` still running.
-- Generate the Handoff Session Receipt (`references/session-receipt.md`).
+- Generate the Handoff Session Receipt (`references/session-receipt.md`) when the run submitted at least one job. The spec review and an arbiter job count. A run that submitted none has no receipt, and the report says so. If the run did submit jobs and the generator still refuses, compare `.handoff/session-start` and each job's `meta` with the jobIds in the goal file. Regenerate with `--started-at` when the `meta` files support a corrected window. Otherwise report that the receipt failed, and name the missing evidence.
 - Run the wrap-up memory step (`references/wrap-up-memory.md`).
 - Report to the user. The "Reporting back" list in `references/session-receipt.md` says what the report holds.
 

@@ -1,8 +1,8 @@
 ---
 name: agent-handoff
-version: 4.0.2
+version: 4.0.3
 description: |
-  Agent Handoff: Claude Code plans, splits and reviews project work while a worker CLI (Codex, a second Claude Code, GitHub Copilot, Cursor or Antigravity) executes it as background jobs, and every run ends with a receipt. Use on "agent handoff" or "/agent-handoff" with any sub-command: resume, config (also setup, init), tryout, transcript, cost-receipt, visualise (visualize), migrate. Also use on "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split work between Claude Code and a worker CLI to save quota; on "resume", "config", "setup" or "tryout agent handoff"; on a request that names a Handoff identity (deep_reasoner, fast_worker, arbiter); and on requests to show a delegated job's transcript or conversation history, a run's cost receipt, the session timeline, or to migrate handoff evidence. Not for ordinary code review. Do not trigger on the bare English word "handoff" in unrelated contexts.
+  Agent Handoff: Claude Code plans, splits and reviews project work while a worker CLI (Codex, a second Claude Code, GitHub Copilot, Cursor or Antigravity) executes it as background jobs, and runs with delegated jobs get a receipt. Use on "agent handoff" or "/agent-handoff" with any sub-command: resume, config (also setup, init), tryout, transcript, cost-receipt, visualise (visualize), migrate. Also use on "hand this off to codex", "delegate this to codex", "let codex do it", "run codex in the background", "Claude plans, Codex implements", or any request to split work between Claude Code and a worker CLI to save quota; on "resume", "config", "setup" or "tryout agent handoff"; on a request that names a Handoff identity (deep_reasoner, fast_worker, arbiter); and on requests to show a delegated job's transcript or conversation history, a run's cost receipt, the session timeline, or to migrate handoff evidence. Not for ordinary code review. Do not trigger on the bare English word "handoff" in unrelated contexts.
 ---
 
 # Agent Handoff
@@ -70,6 +70,6 @@ The files above name these at the step that needs them. Do not read one ahead of
 | `references/arbitration.md` | a review gate runs out of rounds, the user says "arbitrate" or asks for a second opinion, you judge a call disputable, or the goal file has a row in `arbitration` or `rejected` |
 | `references/e2e-acceptance.md` | the change alters user-observable behaviour, or the run has e2e rows |
 | `references/artefact-rows.md` | a row's result is not a text diff, one of its commands outlasts a monitor tick, or it calls a paid service |
-| `references/session-receipt.md` | closing a run, a setup or a tryout, or answering what the receipt holds |
+| `references/session-receipt.md` | closing a run or a tryout that submitted a job, or answering what the receipt holds |
 | `references/wrap-up-memory.md` | wrapping up a run |
 | `references/skill-change-gate.md` | improving this workflow, or applying it to a substantial task |

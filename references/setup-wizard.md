@@ -16,7 +16,7 @@ Model and effort rules differ per backend and live in `references/backends/<back
 
 ## Run it
 
-Stamp the run first, so the closing receipt has a start to measure from: `python3 "$HANDOFF_DIR/scripts/make-receipt.py" --start --repo "$REPO"`. Then pick one path:
+Pick one path:
 
 - **With a browser:** `python3 "$HANDOFF_DIR/scripts/handoff-setup-ui.py" --repo "$REPO"`, and report the localhost URL it prints. The page binds to `127.0.0.1` behind a per-run token. It shows every identity's backend, model, effort and permission on one page, with the choices read from the installed CLIs and, for Copilot, from the account. The user previews the exact file paths and diffs, then confirms and applies. A smoke test follows by itself.
 - **No browser:** `python3 "$HANDOFF_DIR/scripts/handoff-setup.py" --interactive --repo "$REPO"` in the terminal, then step back. A preset uses `default` permissions. Its custom mode asks a permission question per identity, and an empty answer means `default`. A Cursor or Antigravity model is typed on this path, so only the smoke test checks that id against the catalogue. Chat questions are the last resort. Use this path too for a schema v1 config: the page cannot open on one, and the terminal path replaces the file and keeps a backup.
@@ -29,7 +29,7 @@ The page fixes the beginner choices itself: project scope, a `.git/info/exclude`
 - **Smoke** runs after apply and can spend: each Claude identity starts one fresh tool-free session, a usable Copilot pair costs one premium request, and Cursor and Antigravity each make one real run. It checks model and effort, not the permission posture. Only a passing check writes `verified = true`. If it fails, the apply stays in place: say `Installed, but the automatic check did not pass`, and that identity keeps `verified = false`.
 - **No silent fallback.** A value the engine detected is shown with its source and not asked again. An effort may be adjusted to one the backend advertises only while the user is changing the backend or model in the page. Apply and smoke surface an unsupported combination, and a model is never swapped quietly.
 - **Rollback.** `handoff-setup.py --rollback --repo "$REPO"` restores the backup of the last apply. Offer it when the user is unhappy right after an apply.
-- Then point the user at `/agent-handoff tryout`, and close with a Handoff Session Receipt (`references/session-receipt.md`).
+- Then point the user at `/agent-handoff tryout`. Setup writes no receipt: smoke runs outside the job runner, so a setup submits no job for a receipt to index. The tryout closes with one.
 
 ## Existing user agents
 

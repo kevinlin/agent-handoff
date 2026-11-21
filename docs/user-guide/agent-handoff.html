@@ -193,7 +193,7 @@
 <header>
   <h1>Agent Handoff — user guide</h1>
   <p class="lede">Agent Handoff (Handoff) is a Claude Code skill that divides coding work between a driver and worker agents. Claude Code is the driver: it plans the work, divides it into tasks, and accepts or rejects the result. Each delegated task runs as a background job on one of five worker CLIs: Codex, Claude Code, GitHub Copilot, Cursor, or Antigravity. The config of each identity selects its worker, and each worker pays from its own account. The driver uses less of its quota and its context window. It still reads the full diff against acceptance criteria that it wrote before the work started. For a row that has no diff, such as a render, it reads the evidence of the row instead.</p>
-  <p class="meta">user guide · kevinlin/agent-handoff @ v4.0.2 · updated 2026-11-20</p>
+  <p class="meta">user guide · kevinlin/agent-handoff @ v4.0.3 · updated 2026-11-20</p>
 </header>
 
 <h2 id="overview">How a run works</h2>
@@ -636,7 +636,7 @@ implementation_max_rounds = 3</code></pre>
 
 <h3 id="receipt">5.2 The receipt</h3>
 
-<p>Each run that is not trivial ends with a receipt that has a fixed schema. The receipt lists the run’s jobs, the backend and duration of each job, the checks, and the problems.</p>
+<p>Each run that delegated at least one job ends with a receipt that has a fixed schema. The receipt lists the run’s jobs, the backend and duration of each job, the checks, and the problems.</p>
 
 <pre><code>[Handoff session receipt]
 phase: final fix

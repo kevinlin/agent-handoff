@@ -5,7 +5,7 @@
 > Claude Code decides, a worker CLI executes — every handoff leaves a receipt.
 
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-agent--handoff-blueviolet)](SKILL.md)
-[![Version: 4.0.2](https://img.shields.io/badge/version-4.0.2-ef6f4f)](CHANGELOG.md)
+[![Version: 4.0.3](https://img.shields.io/badge/version-4.0.3-ef6f4f)](CHANGELOG.md)
 [![GitHub stars](https://img.shields.io/github/stars/kevinlin/agent-handoff?style=flat-square&color=f5c542)](https://github.com/kevinlin/agent-handoff/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -244,7 +244,7 @@ This conclusion is contested — have the arbiter blind-solve it before we decid
 
 | Output | How to get it | What it shows |
 |---|---|---|
-| Session Receipt (schema v8) | Written at wrap-up; `scripts/validate-receipt.py` checks it | Wall-clock `duration`; `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs`, `antigravity_jobs` with per-job durations; checks; anomalies; `roles_used` with the backend, model, and effort that actually ran |
+| Session Receipt (schema v8) | Written at wrap-up of a run that delegated at least one job; `scripts/validate-receipt.py` checks it | Wall-clock `duration`; `codex_jobs`, `cc_jobs`, `copilot_jobs`, `cursor_jobs`, `antigravity_jobs` with per-job durations; checks; anomalies; `roles_used` with the backend, model, and effort that actually ran |
 | Session page | `/agent-handoff visualise [<receipt-file>]` | The whole run on one loopback page: a clickable timeline, each job's transcript, the cost receipt, session facts, denials and anomalies. The timeline's prose is hand-written and unchecked; every other tab is read from disk. [Release notes](docs/releases/v3.7.2.md) |
 | Job transcript | `/agent-handoff transcript` | One job's `log.jsonl` as a readable HTML page, in any of the five backends' event formats. Drop a `log.jsonl` on the page to render a job from another repo |
 | Cost receipt | `/agent-handoff cost-receipt` | Measured numbers only. Codex jobs: token counters (the CLI emits no cost). Claude jobs: the CLI's own `total_cost_usd`. Copilot jobs: token counters, premium requests, and nano-AIU, which are AI credits, not money. Cursor jobs: token counters, with no cost figure. Antigravity jobs: token counters, with no cost figure. No saving is computed. [Example](assets/v3.6.1-conversation-cost-receipt.png) |

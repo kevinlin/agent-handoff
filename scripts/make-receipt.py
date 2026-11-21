@@ -44,6 +44,12 @@ mismatch refuses to emit. A count that disagrees with the job directories means
 the window is wrong -- most often a session-start marker stamped after the run's
 first job -- and a receipt that indexes fewer jobs than it counts is the one
 failure the downstream cost renderer cannot work around.
+
+A receipt indexes a run's delegated jobs, so a run that delegated none gets no
+receipt: when every backend's measured durations come back `none`, generation
+refuses rather than emit a receipt that carries only a wall-clock duration and
+fields the driver typed by hand -- the hand-written summary this tool exists to
+replace.
 """
 
 from __future__ import annotations
@@ -160,6 +166,25 @@ def count_mismatches(fields: dict[str, str]) -> list[str]:
                 "directories, or pass --started-at/--ended-at"
             )
     return failures
+
+
+def no_job_in_window(durations: dict[str, str], started: datetime, ended: datetime) -> list[str]:
+    """One failure when every backend's measured durations are `none`.
+
+    Measured from `durations`, never from the declared --*-jobs values: a run
+    that delegated nothing gets no receipt, whatever count the driver typed.
+    """
+
+    if any(value != "none" for value in durations.values()):
+        return []
+    start_stamp = started.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_stamp = ended.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return [
+        f"no delegated job was submitted between {start_stamp} and {end_stamp}, and a "
+        "run that delegated nothing gets no receipt. If this run did submit a job, the "
+        "session window is wrong: check .handoff/session-start against the job "
+        "directories, or pass --started-at/--ended-at"
+    ]
 
 
 def resolve_session(flag: str | None, inside: str) -> tuple[str | None, str | None]:
@@ -282,7 +307,10 @@ def main() -> int:
     }
 
     validator = load_validator()
-    failures = validator.validate(dict(fields)) + count_mismatches(fields) + multiline_fields(fields)
+    failures = (
+        validator.validate(dict(fields)) + count_mismatches(fields) + multiline_fields(fields)
+        + no_job_in_window(durations, started, ended)
+    )
     if failures:
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

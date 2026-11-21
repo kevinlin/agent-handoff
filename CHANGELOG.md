@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.0.3 (2026-11-20)
+
+### A run that delegated nothing gets no receipt
+
+- fix: `make-receipt.py` refuses a receipt when no job under `.handoff/jobs/` was submitted inside the session window. It used to write one with five counts of `0` and five lists of `none`. That left a duration and the fields the driver typed, under a receipt header. The refusal prints nothing, writes nothing and exits 1, with or without `--no-save`. It is measured from the job directories, never from the declared counts, and no flag skips it.
+- fix: setup no longer stamps `.handoff/session-start` or closes with a receipt. Its smoke check runs outside the job runner, so a setup submits no job for a receipt to index. The stamp existed only for that receipt, and running setup in the middle of a run reset that run's start.
+- docs: a tryout closes with a receipt when at least one `submit` created a job, and otherwise says it has none. Phase 5 separates a run that submitted nothing from one whose jobs fall outside its window or have no `meta`. `references/session-receipt.md`, `SKILL.md` (the description and the reference map), `CLAUDE.md`, `docs/skill-structure.md` and its SVG, `references/session-evidence.md`, README, the user guide and two test prompts state the condition. `docs/specs/design_agent-handoff-evidence.md` gains *A run that delegated nothing gets no receipt* and a guard row.
+- ci: the "Receipt contract" step and the roundtrip in `CLAUDE.md` run in a scratch repo holding one fixture job. Run locally, the roundtrip no longer resets this repo's own run start.
+- `validate-receipt.py` and the schema do not change. A stored zero-job receipt still validates, and the cost receipt and the session page still read it.
+- Config schema stays `2`. Receipt schema stays `8`.
+
+### What was run
+
+- Unit suite: 1257 tests pass. Six are new: the refusal with and without `--no-save`, a job only before the start, one job alone for each of the five backends, and an all-zero block that still validates. With the guard removed, three of them fail. About 20 existing tests now hold one job in their window, so the guard cannot decide their outcome. Every refusal assertion the change touched names its own message where it used to accept any `FAIL`.
+- `check-skill-repo.sh` reports fail=0 (description at 1,021 of 1,024 characters, router at 898 of 900 words). The viewer tests pass 56 of 56, and the 64 test prompts pass. The "Receipt contract" step, run locally under `bash -eo pipefail`, exits 0 and leaves this repo's `.handoff/session-start` alone.
+- Live, through the installed skill: a scratch repo with a stamped start and no job exits 1, prints nothing on stdout, prints the new reason on stderr, and creates no `sessions/` folder. This run's own receipt indexes its two spec-review rounds and its one implementation job, and it validates.
+- A `deep_reasoner` spec review ran two rounds. Round one raised four blocking and three advisory findings. The plan accepted all of them except a live agent run of a setup close and two edits to historical text. Round two withdrew those, kept one advisory, and raised one new blocking finding: the first fixture rule would have removed the bad inputs that the refusal tests need. That finding was accepted.
+
+### Found and left alone
+
+- With no receipt named, the cost receipt and the session page open the newest saved one. After a run with no job, that is an earlier run's. `references/session-evidence.md` tells the driver to say so; the scripts are unchanged.
+- `render-cost-receipt.py`'s "no saved receipt found" message says to wrap up a run or generate a receipt with `make-receipt.py`. Both need a run that delegated a job. Two tests assert the text, so it stays.
+
 ## v4.0.2 (2026-11-20)
 
 ### Cursor jobs stay out of the 1M context

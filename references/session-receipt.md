@@ -1,6 +1,6 @@
 # Handoff Session Receipt
 
-Every non-trivial run ends with this block. It indexes the run: which jobs belong to it and which CLI executed each. It carries no token or cost figure. Generate it with `make-receipt.py`, never by hand. The generator validates every field, prints nothing when one is invalid, and saves what it validated.
+Every run that delegated at least one job ends with this block. It indexes the run: which jobs belong to it and which CLI executed each. A run that delegated nothing gets no receipt: the generator refuses one, and the report says no job ran. It carries no token or cost figure. Generate it with `make-receipt.py`, never by hand. The generator validates every field, prints nothing when one is invalid, and saves what it validated.
 
 ```text
 [Handoff session receipt]
@@ -49,14 +49,14 @@ What the generator measures itself:
 
 - `claude_session`, from `CLAUDE_CODE_SESSION_ID`, which Claude Code sets in every Bash subprocess. Omit `--claude-session`. Pass an id only to regenerate a past run's receipt.
 - `duration`, wall clock from `.handoff/session-start` to now, so a run that sat on a permission prompt carries that wait. Phase 0 stamps the marker with `make-receipt.py --start`; without it the generator refuses.
-- The five `*_job_durations`, from each job's `submitted_at` and `exit_code`, split by backend. Jobs left from an earlier run are excluded, and one still running reads `running`.
+- The five `*_job_durations`, from each job's `submitted_at` and `exit_code`, split by backend. Jobs left from an earlier run are excluded, and one still running reads `running`. When no job falls inside the window, the generator refuses the receipt.
 - `receipt_schema_version`, which is always `8`.
 
 The receipt is saved to `.handoff/sessions/<date>_<claude_session>/receipt-<stamp>.md`. `/agent-handoff cost-receipt` and `/agent-handoff visualise` read that file, so a run that only printed the block leaves both with nothing. `--no-save` is for one case: a past run's receipt regenerated with `--ended-at` that should not leave a second file. `validate-receipt.py <file>` re-checks a saved receipt. Regenerate one that fails with the current generator. Never patch it by hand.
 
 ## Reporting back
 
-When a run, a setup or a tryout ends, tell the user:
+When a run or a tryout ends, tell the user:
 
 - the phase it ended in, and the Claude Code session id;
 - the files changed and the checks run;
@@ -64,7 +64,7 @@ When a run, a setup or a tryout ends, tell the user:
 - whether the work is ready to commit. Do not commit by default;
 - each paid call made, against its row's allocation, and any user sign-off still open;
 - every monitoring anomaly: an idle job, a permission wait, an empty review output, no diff, a failed check;
-- the receipt block.
+- the receipt block, or, for a run that submitted no job, that it has none.
 
 ## What the run may claim
 
