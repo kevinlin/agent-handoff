@@ -371,7 +371,7 @@
     "should_trigger": true,
     "expected_behavior": [
       "Write the plan and attack the split first, then send the Spec Review Packet to deep_reasoner before the plan reaches the user, whatever the config says; there is no toggle.",
-      "Submit it with delegate-job.sh submit --role deep_reasoner --read-only --label spec-review, with the plan verbatim in the packet.",
+      "Submit it with delegate-job.sh submit --role deep_reasoner --read-only --label spec-review, with the plan verbatim under ## Specification between <!-- Start of specification --> and <!-- End of specification -->, inside a tilde fence longer than the longest run of tildes anywhere in the plan.",
       "Expect each finding tagged blocking or advisory; accept or decline each one and write down why.",
       "Record the status and the round in the goal file's ## Spec Review block, then hand the adjusted plan to the user."
     ],
@@ -379,7 +379,8 @@
       "Skip the review because deep_reasoner has no auto_review_spec setting.",
       "Let deep_reasoner rewrite the plan, edit the goal file, or touch product code.",
       "Apply the findings unread as if they were a verdict rather than input to the driver's judgment.",
-      "Withhold the plan from the reviewer as though this were blind arbitration."
+      "Withhold the plan from the reviewer as though this were blind arbitration.",
+      "Put the driver's settled decisions, repository facts or check results between the specification markers, as though they were part of the plan."
     ]
   },
   {

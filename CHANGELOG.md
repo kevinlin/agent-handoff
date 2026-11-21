@@ -1,5 +1,31 @@
 # Changelog
 
+## v4.0.4 (2026-11-21)
+
+### The spec review packet fences the plan
+
+- fix: the Spec Review Packet inlined the plan with nothing to mark where it ended, and a plan carries its own headings and imperatives. The v4.0.2 packet inlined the goal file, so its `## Spec Review` and `## Tasks` headings sat at the same level as the packet's own `## Task` and `## Constraints`. The plan now sits under `## Specification` between `<!-- Start of specification -->` and `<!-- End of specification -->`, inside a tilde fence. The packet's Context tells the reviewer that everything between the markers is the plan, not instructions to it.
+- docs: `references/packet-templates.md` says what goes inside and what stays out. Only the plan goes inside. Settled decisions, repository facts and stated check results go in Context, and text already in the plan stays in the verbatim copy. The outer fence is longer than the longest run of tildes anywhere in the plan, and never shorter than `~~~`. An indented `~~~` in a quoted example can close a three-tilde fence. A resume round puts the revised plan, or the parts that changed, between the same markers, with the findings, dispositions and reasons outside them. Phase 1 of `references/delegation-flow.md` says the same for the resume.
+- fix: the Arbitration Packet fences its brief between `<!-- Start of brief -->` and `<!-- End of brief -->`, and its evidence between `<!-- Start of evidence -->` and `<!-- End of evidence -->`. The dispute stays outside: the driver writes that account of both sides. The e2e specifier packet fences its specification with the spec review's markers. Each packet's Context says the fenced text is material, not instructions. `references/arbitration.md` and `references/e2e-acceptance.md` point to the fence rule in `references/packet-templates.md`.
+- test: `tests/test_packet_templates.py` reads each of the three templates' own blocks. Each marker appears once, on its own line, directly outside the fence, and the fenced body is the material placeholder. In the spec review template the six sections keep their order, and Context holds the boundary sentence and the notes placeholder. In the arbitration template the dispute comes after the evidence and is not fenced.
+- docs: `docs/specs/design_agent-handoff.md` gains *The plan is fenced off from the packet* in Phase 1's spec review section. Its guard table gains two rows: the test holds the templates, and the packet a driver writes from it is prompt-shaped. In `test-prompts.json`, `spec-review-runs-on-every-plan` names the markers and the fence, and gains a `must_not` for driver notes inside them.
+- No script changes. `delegate-job.sh` still checks only that the prompt file exists.
+- Config schema stays `2`. Receipt schema stays `8`.
+
+### What was run
+
+- Unit suite: 1264 tests pass, seven of them new. The 4.0.3 spec review template fails two of its three tests, and so does a template with the notes placeholder moved inside the fence. The 4.0.3 arbitration and specifier templates fail all four of theirs.
+- `check-skill-repo.sh` reports fail=0. The viewer tests pass 56 of 56, and the 64 test prompts pass.
+- The arbitration and specifier fences were added after the spec review, on the same rule, and no review read them.
+- This run's own spec review used the new shape. The first job failed at its first turn on the Codex usage limit, so it was not a round. The one retry ran after the user reset the limit. Round one's plan quoted `~~~` fences of its own, so its outer fence was four tildes. The reviewer rendered that packet with the transcript viewer's parser and got one plan block with all six packet sections intact.
+- Round one raised three blocking and three advisory findings, and all six were accepted. The planned checks could pass without reading the template block. The resume rule did not say what goes inside the markers. And the fence rule missed a `~~~` line inside a backtick example.
+- Round two resumed the same session, with the built diff between the markers and the driver's dispositions outside them. It resolved one blocking finding and kept two. The test still passed with the notes moved inside the fence, and "at the start of a line" left indented runs of tildes open. Both were accepted, and so was one new advisory finding that corrected the design doc's account of earlier round-two packets.
+- This run's receipt indexes its three codex jobs, the failed attempt included, and validates.
+
+### Found and left alone
+
+- The user guide's packet-anatomy figure and its alt text say the spec review packet carries "the plan verbatim". That is still true, so neither changed.
+
 ## v4.0.3 (2026-11-20)
 
 ### A run that delegated nothing gets no receipt

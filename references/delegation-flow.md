@@ -48,7 +48,7 @@ A fresh run:
 
   - The reviewer tags each finding `blocking` or `advisory`. Accept or decline each one and write down why. The findings are input to your judgment, never a verdict you apply unread.
   - Consensus means no blocking finding was declined. A declined advisory finding is recorded and goes no further.
-  - Under the cap (`[review] spec_max_rounds`), `resume` the same job with the revised plan, the declined blocking findings and your reasons. The reviewer withdraws or keeps each one.
+  - Under the cap (`[review] spec_max_rounds`), `resume` the same job with the revised plan between the specification markers, and the declined blocking findings and your reasons outside them (`references/packet-templates.md`). The reviewer withdraws or keeps each one.
   - At the cap with a blocking finding still declined, escalate (`references/arbitration.md`).
   - A review job that fails, stalls, or returns neither findings nor a one-line "sound" verdict is not a round and is never consensus. Retry it once as a fresh job with the same packet. A second failure sets the status to `failed`, and Phase 2 waits for the user.
   - Track it in the goal file's `## Spec Review` block: the `status:` line, and one line per round with its jobId and your disposition of each blocking finding. Any status other than `not run` means the automatic review is spent for this run. An adjusted plan, a thin review and a resumed session never start a new one. Only an explicit user request does.
